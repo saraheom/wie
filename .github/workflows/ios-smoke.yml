@@ -71,8 +71,20 @@ jobs:
 
       - name: Install Apple project tools
         run: |
-          arch -arm64 brew install xcodegen
-          arch -arm64 pod --version
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+      
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            arch -arm64 brew install xcodegen
+          fi
+      
+          if ! command -v idevice_id >/dev/null 2>&1; then
+            arch -arm64 brew install libimobiledevice
+          fi
+      
+          command -v xcodegen
+          command -v idevice_id
+          xcodegen --version
+          pod --version
 
       - name: Generate the Tauri Apple project
         working-directory: wie_app
