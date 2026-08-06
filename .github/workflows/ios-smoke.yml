@@ -69,6 +69,11 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
+      - name: Install Apple project tools
+        run: |
+          arch -arm64 brew install xcodegen
+          arch -arm64 pod --version
+
       - name: Generate the Tauri Apple project
         working-directory: wie_app
         run: cargo tauri ios init --ci
