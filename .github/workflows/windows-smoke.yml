@@ -1,0 +1,154 @@
+name: Windows Desktop Smoke Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - ios-port
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/windows-smoke.yml"
+  pull_request:
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/windows-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build Windows x64 application
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,x86_64-pc-windows-msvc
+
+      - name: Install Rust build tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,tauri-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build WIE WebAssembly frontend
+        run: npm run build:prod
+
+      - name: Build unsigned Windows application
+        working-directory: wie_app
+        shell: pwsh
+        run: |
+          cargo tauri build `
+            --target x86_64-pc-windows-msvc `
+            --ci `
+            --bundles msi,nsis `
+            --no-sign `
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Package portable executable and installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $targetRoot = "target/x86_64-pc-windows-msvc/release"
+          $exe = Get-ChildItem -Path $targetRoot -Filter "*.exe" -File |
+            Where-Object { $_.DirectoryName -eq (Resolve-Path $targetRoot).Path } |
+            Select-Object -First 1
+
+          if (-not $exe) {
+            Write-Host "No portable executable found in $targetRoot"
+            Get-ChildItem -Path $targetRoot -Recurse -File | Select-Object FullName
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force "dist/portable" | Out-Null
+          Copy-Item $exe.FullName "dist/portable/WIPI Player.exe"
+
+          @'
+          WIPI Player — Windows test build
+
+          1. Extract this ZIP to a normal folder.
+          2. Double-click WIPI Player.exe.
+          3. Import the original WIPI ZIP file from the application.
+          4. Windows SmartScreen may warn because this test build is unsigned.
+
+          This portable build requires Microsoft Edge WebView2, which is included
+          with current Windows 10 and Windows 11 installations.
+          '@ | Set-Content -Encoding UTF8 "dist/portable/README.txt"
+
+          Compress-Archive `
+            -Path "dist/portable/*" `
+            -DestinationPath "dist/WIPI-Player-Windows-Portable.zip" `
+            -Force
+
+          $msi = Get-ChildItem -Path "$targetRoot/bundle/msi" -Filter "*.msi" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($msi) {
+            Copy-Item $msi.FullName "dist/WIPI-Player-Windows-x64.msi"
+          }
+
+          $nsis = Get-ChildItem -Path "$targetRoot/bundle/nsis" -Filter "*-setup.exe" -File -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if ($nsis) {
+            Copy-Item $nsis.FullName "dist/WIPI-Player-Windows-x64-Setup.exe"
+          }
+
+          Write-Host "Packaged files:"
+          Get-ChildItem -Path dist -File | Select-Object Name, Length
+
+      - name: Upload Windows test build
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-Windows
+          path: |
+            dist/WIPI-Player-Windows-Portable.zip
+            dist/WIPI-Player-Windows-x64.msi
+            dist/WIPI-Player-Windows-x64-Setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-Windows-Diagnostics
+          path: |
+            target/x86_64-pc-windows-msvc/release
+            wie_web/dist
+          if-no-files-found: ignore
+          retention-days: 7
