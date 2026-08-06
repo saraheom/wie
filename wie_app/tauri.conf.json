@@ -1,18 +1,18 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "wie",
+  "productName": "WIPI Player",
   "version": "0.1.0",
-  "identifier": "net.dlunch.wie",
+  "identifier": "com.saraheom.wieplayer",
   "build": {
     "frontendDist": "../wie_web/dist",
     "devUrl": "http://localhost:8080",
-    "beforeDevCommand": "npm start",
-    "beforeBuildCommand": "npm run build:prod"
+    "beforeDevCommand": "cd .. && npm start",
+    "beforeBuildCommand": "cd .. && npm run build:prod"
   },
   "app": {
     "windows": [
       {
-        "title": "wie",
+        "title": "WIPI Player",
         "width": 800,
         "height": 600,
         "resizable": true,
@@ -24,8 +24,12 @@
         {
           "identifier": "default",
           "description": "enables the default permissions",
-          "windows": ["main"],
-          "permissions": ["core:default"]
+          "windows": [
+            "main"
+          ],
+          "permissions": [
+            "core:default"
+          ]
         }
       ],
       "csp": null
@@ -34,6 +38,13 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "icon": ["icons/icon.png", "icons/Square310x310Logo.png", "icons/icon.ico"]
+    "icon": [
+      "icons/icon.png",
+      "icons/Square310x310Logo.png",
+      "icons/icon.ico"
+    ],
+    "iOS": {
+      "minimumSystemVersion": "15.0"
+    }
   }
 }

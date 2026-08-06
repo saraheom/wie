@@ -1,0 +1,113 @@
+name: iOS Simulator Smoke Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - ios-port
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios-smoke.yml"
+  pull_request:
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Build unsigned iOS Simulator app
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios-sim
+
+      - name: Install Rust build tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,tauri-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build WIE WebAssembly frontend
+        run: npm run build:prod
+
+      - name: Generate the Tauri Apple project
+        working-directory: wie_app
+        run: cargo tauri ios init --ci
+
+      - name: Build for Apple-silicon iPhone Simulator
+        working-directory: wie_app
+        run: >-
+          cargo tauri ios build
+          --target aarch64-sim
+          --ci
+          --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Package simulator application
+        shell: bash
+        run: |
+          set -euo pipefail
+          app_path="$(find wie_app/gen/apple/build -type d -name '*.app' -print -quit)"
+          if [[ -z "$app_path" ]]; then
+            echo "No simulator .app bundle was produced."
+            find wie_app/gen/apple -maxdepth 6 -type d -print || true
+            exit 1
+          fi
+          mkdir -p dist
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" dist/WIPI-Player-iOS-Simulator.zip
+          echo "Packaged $app_path"
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-Simulator
+          path: dist/WIPI-Player-iOS-Simulator.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload generated Apple project on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-Apple-Project-Diagnostics
+          path: wie_app/gen/apple
+          if-no-files-found: ignore
+          retention-days: 7

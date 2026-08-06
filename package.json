@@ -6,7 +6,10 @@
   "scripts": {
     "build:dev": "webpack --config wie_web/webpack.config.dev.ts",
     "build:prod": "webpack --config wie_web/webpack.config.prod.ts",
-    "start": "webpack serve --config wie_web/webpack.config.dev.ts"
+    "start": "webpack serve --config wie_web/webpack.config.dev.ts",
+    "tauri": "cargo tauri",
+    "ios:init": "cd wie_app && cargo tauri ios init --ci",
+    "ios:build:sim": "cd wie_app && cargo tauri ios build --target aarch64-sim --ci"
   },
   "author": "",
   "dependencies": {
