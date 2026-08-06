@@ -90,27 +90,46 @@ jobs:
         working-directory: wie_app
         run: cargo tauri ios init --ci
 
-      - name: Build for Apple-silicon iPhone Simulator
-        working-directory: wie_app
-        run: >-
-          cargo tauri ios build
-          --target aarch64-sim
-          --ci
-          --config '{"build":{"beforeBuildCommand":""}}'
+      - name: Build unsigned iPhone Simulator app
+        working-directory: wie_app/gen/apple
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          xcodebuild \
+            -project wie_app.xcodeproj \
+            -scheme wie_app_iOS \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            build
 
       - name: Package simulator application
         shell: bash
         run: |
-          set -euo pipefail
-          app_path="$(find wie_app/gen/apple/build -type d -name '*.app' -print -quit)"
-          if [[ -z "$app_path" ]]; then
-            echo "No simulator .app bundle was produced."
-            find wie_app/gen/apple -maxdepth 6 -type d -print || true
+          set -euxo pipefail
+
+          APP_PATH="wie_app/gen/apple/build/Build/Products/Debug-iphonesimulator/wie_app_iOS.app"
+
+          if [ ! -d "$APP_PATH" ]; then
+            echo "Simulator app not found."
+            find wie_app/gen/apple/build -name "*.app" || true
             exit 1
           fi
+
           mkdir -p dist
-          ditto -c -k --sequesterRsrc --keepParent "$app_path" dist/WIPI-Player-iOS-Simulator.zip
-          echo "Packaged $app_path"
+
+          ditto -c -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$APP_PATH" \
+            dist/WIPI-Player-iOS-Simulator.zip
 
       - name: Upload simulator build
         uses: actions/upload-artifact@v7
