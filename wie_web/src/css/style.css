@@ -293,3 +293,133 @@ body, p {
 .tutorial-footer button:hover {
   background: #555;
 }
+
+/* Mobile / iOS application layout */
+html,
+body {
+  min-height: 100%;
+  background: #111;
+}
+
+body {
+  min-height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+@media (pointer: coarse), (max-width: 600px) {
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    background: #111;
+  }
+
+  .canvas-wrapper {
+    flex: 0 1 auto;
+    width: min(
+      100vw,
+      calc((100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 210px) * 0.75)
+    );
+    max-width: 480px;
+    min-width: 240px;
+    margin: 0 auto;
+  }
+
+  #canvas {
+    background: #000;
+  }
+
+  .button-container {
+    flex: 0 0 auto;
+    width: min(100%, 520px);
+    box-sizing: border-box;
+    padding: 8px 10px max(8px, env(safe-area-inset-bottom, 0px));
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: repeat(4, 44px);
+    column-gap: 12px;
+    row-gap: 4px;
+    background: #181818;
+  }
+
+  .button-container > p {
+    margin: 0;
+    min-width: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .button-container > p:nth-child(1) { grid-column: 1; grid-row: 1; }
+  .button-container > p:nth-child(2) { grid-column: 1; grid-row: 2; }
+  .button-container > p:nth-child(3) { grid-column: 1; grid-row: 3; }
+  .button-container > p:nth-child(4) { grid-column: 1; grid-row: 4; }
+  .button-container > p:nth-child(5) { grid-column: 2; grid-row: 1; }
+  .button-container > p:nth-child(6) { grid-column: 2; grid-row: 2; }
+  .button-container > p:nth-child(7) { grid-column: 2; grid-row: 3; }
+  .button-container > p:nth-child(8) { grid-column: 2; grid-row: 4; }
+
+  .button-container > p > button {
+    width: clamp(42px, 13vw, 62px);
+    height: 42px;
+    min-width: 42px;
+    min-height: 42px;
+    padding: 0;
+    border: 1px solid #666;
+    border-radius: 8px;
+    background: #2b2b2b;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1;
+    touch-action: none;
+  }
+
+  .button-container > p > button:active {
+    background: #555;
+    transform: scale(0.97);
+  }
+
+  .button-container > .settings-toggle {
+    top: 4px;
+    right: max(8px, env(safe-area-inset-right, 0px));
+    color: #fff;
+  }
+
+  .settings-panel {
+    position: fixed;
+    top: max(48px, calc(env(safe-area-inset-top, 0px) + 42px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+
+  .corner-actions {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    right: max(8px, env(safe-area-inset-right, 0px));
+  }
+
+  .prestart {
+    padding-top: max(60px, calc(env(safe-area-inset-top, 0px) + 48px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .tutorial-overlay {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-right: env(safe-area-inset-right, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: env(safe-area-inset-left, 0px);
+  }
+
+  .tutorial-modal {
+    width: calc(100% - 24px);
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px);
+    box-sizing: border-box;
+  }
+}

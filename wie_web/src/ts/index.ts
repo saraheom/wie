@@ -123,10 +123,10 @@ const main = () => {
               if (key) wie_web.key_up(key);
             };
 
-            button.addEventListener("mousedown", handleKeyDown);
-            button.addEventListener("mouseup", handleKeyUp);
-            button.addEventListener("touchstart", handleKeyDown);
-            button.addEventListener("touchend", handleKeyUp);
+            button.addEventListener("pointerdown", handleKeyDown);
+            button.addEventListener("pointerup", handleKeyUp);
+            button.addEventListener("pointercancel", handleKeyUp);
+            button.addEventListener("contextmenu", (e) => e.preventDefault());
           }
           document.addEventListener("keydown", (e) => {
             if (key_map[e.code]) {
