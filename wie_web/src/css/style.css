@@ -1361,3 +1361,45 @@ button.ui-action-flash {
   font-weight: 750;
 }
 
+
+
+/* Phase 4.2: iOS confirmation hit testing + landscape editor auto-docking */
+.confirm-overlay {
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+.confirm-modal {
+  position: relative;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.confirm-actions button {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto !important;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@media (orientation: landscape), (min-aspect-ratio: 4/3) {
+  .control-editor {
+    width: min(330px, 38vw);
+    top: calc(var(--safe-top) + 64px);
+    bottom: auto;
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 78px);
+  }
+
+  /* Keep the pad currently being edited visible. */
+  .control-editor.editing-direction {
+    left: auto;
+    right: max(8px, var(--safe-right));
+  }
+
+  .control-editor.editing-number {
+    left: max(8px, var(--safe-left));
+    right: auto;
+  }
+}

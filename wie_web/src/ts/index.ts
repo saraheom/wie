@@ -242,6 +242,9 @@ const setSelectedControlPad = (pad: ControlPadName) => {
   element("control-pad-number").classList.toggle("active", pad === "number");
   document.querySelector(".direction-pad")?.classList.toggle("control-selected", pad === "direction");
   document.querySelector(".number-pad")?.classList.toggle("control-selected", pad === "number");
+  const editor = document.getElementById("control-editor");
+  editor?.classList.toggle("editing-direction", pad === "direction");
+  editor?.classList.toggle("editing-number", pad === "number");
   updateControlEditorUi();
 };
 

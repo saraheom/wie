@@ -50,6 +50,7 @@ export const requestConfirmation = (options: ConfirmOptions): Promise<boolean> =
   confirm.textContent = options.confirmLabel ?? "Confirm";
   cancel.textContent = options.cancelLabel ?? "Cancel";
   confirm.classList.toggle("danger-action", Boolean(options.destructive));
+  overlay.style.pointerEvents = "auto";
   overlay.hidden = false;
 
   debugLog("UI", `confirmation opened: ${options.title}`);
@@ -60,12 +61,18 @@ export const requestConfirmation = (options: ConfirmOptions): Promise<boolean> =
 };
 
 const settleConfirmation = (value: boolean) => {
+  if (!pendingResolve) return;
+  debugLog("UI", `confirmation settled: ${value ? "confirm" : "cancel"}`);
+
   const overlay = document.getElementById("confirm-overlay");
-  if (overlay) overlay.hidden = true;
+  if (overlay) {
+    overlay.hidden = true;
+    overlay.style.pointerEvents = "none";
+  }
 
   const resolve = pendingResolve;
   pendingResolve = undefined;
-  resolve?.(value);
+  resolve(value);
 };
 
 const bestEffortHaptic = (strength: "tap" | "success" | "warning" = "tap") => {
@@ -80,10 +87,34 @@ const bestEffortHaptic = (strength: "tap" | "success" | "warning" = "tap") => {
 };
 
 export const initUiFeedback = () => {
-  byId("confirm-cancel").addEventListener("click", () => settleConfirmation(false));
-  byId("confirm-accept").addEventListener("click", () => settleConfirmation(true));
-  byId("confirm-overlay").addEventListener("click", (event) => {
-    if (event.target === event.currentTarget) settleConfirmation(false);
+  const cancel = byId<HTMLButtonElement>("confirm-cancel");
+  const accept = byId<HTMLButtonElement>("confirm-accept");
+  const overlay = byId("confirm-overlay");
+
+  // iOS WKWebView can suppress the synthetic click after a touch/pointer sequence,
+  // especially when the emulator canvas has active gesture handlers. Resolve the
+  // dialog directly on pointerup and keep click as keyboard/accessibility fallback.
+  const bindConfirmButton = (button: HTMLButtonElement, value: boolean) => {
+    button.addEventListener("pointerup", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      settleConfirmation(value);
+    });
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      settleConfirmation(value);
+    });
+  };
+
+  bindConfirmButton(cancel, false);
+  bindConfirmButton(accept, true);
+  overlay.addEventListener("pointerup", (event) => {
+    if (event.target === event.currentTarget) {
+      event.preventDefault();
+      event.stopPropagation();
+      settleConfirmation(false);
+    }
   });
 
   document.addEventListener(
