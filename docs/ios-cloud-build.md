@@ -23,7 +23,7 @@ The simulator artifact cannot be installed on a physical iPhone. Its purpose is 
 After the simulator build passes, add Apple signing to a separate device workflow. That workflow will require:
 
 - an Apple Developer Program membership;
-- a registered App ID matching `com.saraheom.wieplayer`;
+- a registered App ID matching `com.jjunnyy.wieplayer`;
 - an Apple Distribution or Apple Development certificate exported as `.p12`;
 - a matching provisioning profile;
 - GitHub Actions secrets containing the certificate, profile, and passwords.

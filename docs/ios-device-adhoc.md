@@ -4,18 +4,18 @@ This repository includes `.github/workflows/ios-device-adhoc.yml`, a manual GitH
 
 The app bundle identifier is:
 
-`com.saraheom.wieplayer`
+`com.jjunnyy.wieplayer`
 
 ## Apple Developer prerequisites
 
 Before the workflow can build an installable IPA:
 
 1. Enroll in the Apple Developer Program.
-2. Register `com.saraheom.wieplayer` as an App ID / Identifier.
+2. Register `com.jjunnyy.wieplayer` as an App ID / Identifier.
 3. Register every iPhone that should be able to install the Ad Hoc build by UDID.
 4. Create an **Apple Distribution** signing certificate and retain its private key.
 5. Export the certificate + private key as a password-protected `.p12` file.
-6. Create an **Ad Hoc** provisioning profile for `com.saraheom.wieplayer` using the distribution certificate and the registered test iPhone(s).
+6. Create an **Ad Hoc** provisioning profile for `com.jjunnyy.wieplayer` using the distribution certificate and the registered test iPhone(s).
 7. Download the `.mobileprovision` profile.
 
 ## GitHub repository secrets

@@ -6,6 +6,8 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     if: ${{ github.actor != 'dependabot[bot]' }}
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -35,11 +37,16 @@ jobs:
           cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
 
       - name: Upload to codecov.io
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v7
         with:
           files: lcov.info
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
+
+      - name: Skip Codecov upload when token is unavailable
+        if: ${{ env.CODECOV_TOKEN == '' }}
+        run: echo "CODECOV_TOKEN is not configured; skipping coverage upload for this fork."
 
       - name: Save cache cargo
         uses: actions/cache/save@v6

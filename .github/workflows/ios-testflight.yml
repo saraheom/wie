@@ -1,0 +1,331 @@
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Optional iOS build number (leave blank to use GitHub run number)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-upload:
+    name: Build and upload to TestFlight
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Select latest Xcode
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios
+
+      - name: Install Rust build tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,tauri-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build WIE WebAssembly frontend
+        run: npm run build:prod
+
+      - name: Install Apple project tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            arch -arm64 brew install xcodegen
+          fi
+
+          if ! command -v idevice_id >/dev/null 2>&1; then
+            arch -arm64 brew install libimobiledevice
+          fi
+
+          xcodegen --version
+          pod --version
+          idevice_id --version || true
+
+      - name: Validate TestFlight secrets
+        shell: bash
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in \
+            IOS_CERTIFICATE \
+            IOS_CERTIFICATE_PASSWORD \
+            IOS_MOBILE_PROVISION \
+            APPLE_DEVELOPMENT_TEAM \
+            APPLE_API_KEY_ID \
+            APPLE_API_ISSUER \
+            APPLE_API_PRIVATE_KEY_BASE64
+          do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+      - name: Inspect App Store provisioning profile
+        shell: bash
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+
+          profile="$RUNNER_TEMP/WIPIPlayer-AppStore.mobileprovision"
+          plist="$RUNNER_TEMP/WIPIPlayer-AppStore-profile.plist"
+
+          printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$plist"
+
+          profile_name="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$plist")"
+          profile_team="$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$plist")"
+          app_identifier="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist")"
+          get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$plist" 2>/dev/null || true)"
+          devices="$(/usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$plist" 2>/dev/null || true)"
+
+          echo "Provisioning profile: $profile_name"
+          echo "Team ID: $profile_team"
+          echo "App identifier: $app_identifier"
+          echo "get-task-allow: ${get_task_allow:-<not present>}"
+
+          if [[ "$profile_team" != "$APPLE_DEVELOPMENT_TEAM" ]]; then
+            echo "::error::Provisioning profile Team ID does not match APPLE_DEVELOPMENT_TEAM."
+            exit 1
+          fi
+
+          if [[ "$app_identifier" != "$APPLE_DEVELOPMENT_TEAM.com.jjunnyy.wieplayer" ]]; then
+            echo "::error::Provisioning profile is not for com.jjunnyy.wieplayer."
+            exit 1
+          fi
+
+          if [[ -n "$devices" ]]; then
+            echo "::warning::This profile contains ProvisionedDevices. For TestFlight, use an App Store Connect distribution provisioning profile, not Ad Hoc."
+          fi
+
+      - name: Install App Store Connect API key
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_API_PRIVATE_KEY_BASE64 }}
+        run: |
+          set -euo pipefail
+
+          key_dir="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$key_dir"
+
+          key_path="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_PRIVATE_KEY_BASE64" | base64 --decode > "$key_path"
+          chmod 600 "$key_path"
+
+          echo "Installed App Store Connect API key at expected altool location."
+
+      - name: Generate the Tauri Apple project
+        working-directory: wie_app
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: cargo tauri ios init --ci
+
+      - name: Install provisioning profile
+        shell: bash
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          set -euo pipefail
+
+          PROFILE_PATH="$RUNNER_TEMP/WIPIPlayer-AppStore.mobileprovision"
+          PROFILE_PLIST="$RUNNER_TEMP/WIPIPlayer-AppStore-profile.plist"
+
+          printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$PROFILE_PATH"
+          security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+
+          PROFILE_UUID="$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$PROFILE_PLIST")"
+          PROFILE_NAME="$(/usr/libexec/PlistBuddy -c 'Print :Name' "$PROFILE_PLIST")"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+
+          echo "Installed provisioning profile: $PROFILE_NAME ($PROFILE_UUID)"
+
+      - name: Configure Xcode signing
+        working-directory: wie_app/gen/apple
+        shell: bash
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import os
+
+          project = Path("wie_app.xcodeproj/project.pbxproj")
+          text = project.read_text()
+
+          team = os.environ["APPLE_DEVELOPMENT_TEAM"]
+          profile = os.environ["PROFILE_NAME"]
+
+          text = text.replace(
+              "CODE_SIGN_STYLE = Automatic;",
+              f"CODE_SIGN_STYLE = Manual;\n"
+              f"\t\t\t\tDEVELOPMENT_TEAM = {team};\n"
+              f'\t\t\t\tPROVISIONING_PROFILE_SPECIFIER = "{profile}";'
+          )
+
+          project.write_text(text)
+
+          print("Patched signing settings:")
+          for line in text.splitlines():
+              if (
+                  "CODE_SIGN_STYLE" in line
+                  or "DEVELOPMENT_TEAM" in line
+                  or "PROVISIONING_PROFILE_SPECIFIER" in line
+              ):
+                  print(line)
+          PY
+
+      - name: Resolve build number
+        id: build_number
+        shell: bash
+        env:
+          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${REQUESTED_BUILD_NUMBER:-}" ]]; then
+            number="$REQUESTED_BUILD_NUMBER"
+          else
+            number="${GITHUB_RUN_NUMBER}"
+          fi
+
+          if [[ ! "$number" =~ ^[0-9]+$ ]]; then
+            echo "::error::Build number must contain digits only."
+            exit 1
+          fi
+
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "Using iOS build number: $number"
+
+      - name: Build App Store Connect IPA
+        working-directory: wie_app
+        shell: bash
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          RUST_BACKTRACE: "1"
+        run: |
+          set -euo pipefail
+
+          cargo tauri ios build \
+            --target aarch64 \
+            --ci \
+            --export-method app-store-connect \
+            --build-number "${{ steps.build_number.outputs.number }}" \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Locate IPA
+        id: ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Searching for generated IPA..."
+          find wie_app/gen/apple/build -type f -name '*.ipa' -print || true
+
+          ipa_path="$(find wie_app/gen/apple/build -type f -name '*.ipa' -print -quit)"
+
+          if [[ -z "$ipa_path" ]]; then
+            echo "::error::No IPA was produced."
+            find wie_app/gen/apple/build -maxdepth 8 -type f -print || true
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$ipa_path" "dist/WIPI-Player-iOS-TestFlight.ipa"
+
+          echo "path=dist/WIPI-Player-iOS-TestFlight.ipa" >> "$GITHUB_OUTPUT"
+          echo "IPA: $ipa_path"
+          shasum -a 256 "dist/WIPI-Player-iOS-TestFlight.ipa"
+
+      - name: Upload IPA as GitHub artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-TestFlight
+          path: dist/WIPI-Player-iOS-TestFlight.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload to App Store Connect
+        shell: bash
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+
+          xcrun altool \
+            --upload-app \
+            --type ios \
+            --file "dist/WIPI-Player-iOS-TestFlight.ipa" \
+            --apiKey "$APPLE_API_KEY_ID" \
+            --apiIssuer "$APPLE_API_ISSUER"
+
+      - name: Upload diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-TestFlight-Diagnostics
+          path: |
+            wie_app/gen/apple
+            ${{ runner.temp }}/WIPIPlayer-AppStore-profile.plist
+          if-no-files-found: ignore
+          retention-days: 7
