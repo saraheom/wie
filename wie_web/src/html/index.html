@@ -8,180 +8,130 @@
     />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>wie - 피처폰 게임 에뮬레이터 (WIPI/J2ME)</title>
-    <meta name="description" content="옛 한국 피처폰의 WIPI/J2ME 게임을 웹 브라우저에서 바로 실행하는 에뮬레이터. ZIP 파일을 업로드하면 자동으로 게임이 시작됩니다. 설치 없이 모바일/PC에서 사용 가능." />
-    <meta name="keywords" content="wie, WIPI, J2ME, 피처폰, 피처폰 게임, 폰게임, 에뮬레이터, 모바일 게임, 추억의 게임, 휴대폰 에뮬레이터" />
-    <meta property="og:type" content="website" />
-    <meta property="og:title" content="wie - 피처폰 게임 에뮬레이터" />
-    <meta property="og:description" content="옛 한국 피처폰의 WIPI/J2ME 게임을 웹 브라우저에서 바로 실행하는 에뮬레이터." />
-    <meta property="og:url" content="https://wie.dlunch.net/" />
-    <meta property="og:locale" content="ko_KR" />
-    <meta name="twitter:card" content="summary" />
+    <title>WIPI Player</title>
     <link rel="stylesheet" href="@css/style.css" />
     <script src="@ts/index.ts" defer="defer"></script>
-    <script
-      async
-      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7838202724819744"
-      crossorigin="anonymous"
-    ></script>
-    <!-- Google tag (gtag.js) -->
-    <script
-      async
-      src="https://www.googletagmanager.com/gtag/js?id=G-G6TBDLLPWK"
-    ></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag() {
-        dataLayer.push(arguments);
-      }
-      gtag("js", new Date());
-
-      gtag("config", "G-G6TBDLLPWK");
-    </script>
   </head>
   <body>
-    <div id="tutorial-overlay" class="tutorial-overlay">
-      <div class="tutorial-modal">
-        <h2>wie</h2>
+    <input id="game-import-input" type="file" accept=".zip,.jar,application/zip,application/java-archive" hidden />
+    <input id="cover-import-input" type="file" accept="image/*" hidden />
 
+    <div id="app-shell">
+      <section id="library-view" class="view library-view">
+        <header class="app-header">
+          <div>
+            <h1>WIPI Player</h1>
+            <p>My Games</p>
+          </div>
+          <div class="header-actions">
+            <button id="show-tutorial" class="icon-button" type="button" aria-label="Help">?</button>
+            <button id="import-game" class="primary-button" type="button">＋ Import</button>
+          </div>
+        </header>
+
+        <main class="library-content">
+          <div id="library-empty" class="library-empty" hidden>
+            <div class="empty-icon">▣</div>
+            <h2>No games yet</h2>
+            <p>Import a WIPI or J2ME ZIP/JAR once. It will stay in your library for future launches.</p>
+            <button id="empty-import-game" class="primary-button" type="button">Import Game</button>
+          </div>
+          <div id="game-grid" class="game-grid" aria-live="polite"></div>
+        </main>
+      </section>
+
+      <section id="player-view" class="view player-view" hidden>
+        <header class="player-toolbar">
+          <button id="back-to-library" class="icon-button" type="button" aria-label="Back to library">‹</button>
+          <div class="player-title-wrap">
+            <strong id="player-title">Game</strong>
+            <span id="player-file-name"></span>
+          </div>
+          <button id="settings-toggle" class="icon-button" type="button" aria-label="Settings">⚙</button>
+        </header>
+
+        <div id="settings-panel" class="settings-panel" aria-hidden="true">
+          <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
+          <label>🔊 Effects <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
+          <p class="settings-note">Display and control layout options are added in the next UI phase.</p>
+        </div>
+
+        <main class="player-content">
+          <div class="canvas-wrapper">
+            <canvas id="canvas" width="240" height="320"></canvas>
+            <div id="loading-game" class="loading-game" hidden>Loading…</div>
+          </div>
+
+          <div class="button-container" aria-label="Virtual keypad">
+            <div class="direction-pad">
+              <button data-key="UP" class="key key-up" type="button">↑</button>
+              <button data-key="LEFT" class="key key-left" type="button">←</button>
+              <button data-key="OK" class="key key-ok" type="button">OK</button>
+              <button data-key="RIGHT" class="key key-right" type="button">→</button>
+              <button data-key="DOWN" class="key key-down" type="button">↓</button>
+              <button data-key="CLR" class="key key-clear" type="button">CLR</button>
+            </div>
+
+            <div class="number-pad">
+              <button data-key="1" class="key" type="button">1</button>
+              <button data-key="2" class="key" type="button">2</button>
+              <button data-key="3" class="key" type="button">3</button>
+              <button data-key="4" class="key" type="button">4</button>
+              <button data-key="5" class="key" type="button">5</button>
+              <button data-key="6" class="key" type="button">6</button>
+              <button data-key="7" class="key" type="button">7</button>
+              <button data-key="8" class="key" type="button">8</button>
+              <button data-key="9" class="key" type="button">9</button>
+              <button data-key="*" class="key" type="button">*</button>
+              <button data-key="0" class="key" type="button">0</button>
+              <button data-key="#" class="key" type="button">#</button>
+            </div>
+          </div>
+        </main>
+      </section>
+    </div>
+
+    <div id="game-actions-overlay" class="modal-overlay" hidden>
+      <div class="action-sheet" role="dialog" aria-modal="true" aria-labelledby="game-actions-title">
+        <div class="action-sheet-header">
+          <div>
+            <strong id="game-actions-title">Game</strong>
+            <span id="game-actions-subtitle"></span>
+          </div>
+          <button id="close-game-actions" class="icon-button" type="button" aria-label="Close">×</button>
+        </div>
+        <button id="action-play" type="button">▶ Play</button>
+        <button id="action-cover" type="button">🖼 Change Cover</button>
+        <button id="action-rename" type="button">✎ Rename</button>
+        <button id="action-delete" class="danger-action" type="button">Delete from Library</button>
+        <p class="action-note">Deleting a library entry removes the imported game package and cover only. WIE in-game save data is kept for now.</p>
+      </div>
+    </div>
+
+    <div id="tutorial-overlay" class="modal-overlay tutorial-overlay" hidden>
+      <div class="tutorial-modal" role="dialog" aria-modal="true">
+        <h2>WIPI Player</h2>
         <section>
-          <h3>이게 뭐예요?</h3>
-          <p>
-            <strong>wie</strong>는 옛 한국 피처폰에서 돌아가던
-            <strong>WIPI / J2ME</strong> 게임을 웹 브라우저에서 그대로
-            실행해 주는 에뮬레이터입니다.
-          </p>
-          <p>
-            설치 없이 모바일과 PC 어디서나 사용할 수 있고, 모든 처리는
-            브라우저 안에서 이루어집니다. 업로드한 파일은 외부로 전송되지
-            않습니다.
-          </p>
+          <h3>Game Library</h3>
+          <p>Use <strong>Import</strong> once to add a WIPI/J2ME ZIP or JAR. The game package is stored locally on this device.</p>
         </section>
-
         <section>
-          <h3>파일 업로드</h3>
-          <p>
-            휴대폰에서 추출한 파일을 <strong>ZIP 파일</strong>로 압축해서 그대로
-            업로드하세요.
-          </p>
-          <p class="note">
-            ※ ZIP 파일 안에 <strong>JAR 파일</strong>이 포함되어 있어야 합니다.
-          </p>
+          <h3>Playing again</h3>
+          <p>After closing and reopening WIPI Player, tap the game cover in <strong>My Games</strong>. You do not need to import the ZIP again.</p>
         </section>
-
         <section>
-          <h3>키 바인딩</h3>
-          <table>
-            <tr>
-              <td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td>
-              <td>숫자 1, 2, 3</td>
-            </tr>
-            <tr>
-              <td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd></td>
-              <td>숫자 4, 5, 6</td>
-            </tr>
-            <tr>
-              <td><kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd></td>
-              <td>숫자 7, 8, 9</td>
-            </tr>
-            <tr>
-              <td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd></td>
-              <td>*, 0, #</td>
-            </tr>
-            <tr>
-              <td><kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd></td>
-              <td>방향키</td>
-            </tr>
-            <tr>
-              <td><kbd>Space</kbd></td>
-              <td>OK</td>
-            </tr>
-            <tr>
-              <td><kbd>Backspace</kbd></td>
-              <td>CLR</td>
-            </tr>
-          </table>
+          <h3>Game saves</h3>
+          <p>Games continue using WIE's existing persistent save storage, just as before this library UI was added.</p>
         </section>
-
+        <section>
+          <h3>Keyboard</h3>
+          <p>Desktop keyboard: arrows = directions, Space = OK, Backspace = CLR, 1/2/3, Q/W/E, A/S/D, Z/X/C = phone keypad.</p>
+        </section>
         <div class="tutorial-footer">
-          <label>
-            <input type="checkbox" id="dont-show-again" />
-            다시 보지 않기
-          </label>
-          <button id="close-tutorial">닫기</button>
+          <label><input type="checkbox" id="dont-show-again" /> Don't show again</label>
+          <button id="close-tutorial" class="primary-button" type="button">Done</button>
         </div>
       </div>
-    </div>
-
-    <div class="canvas-wrapper">
-      <canvas id="canvas" width="240" height="320"></canvas>
-      <div class="corner-actions">
-        <button id="show-tutorial" title="사용법">❓</button>
-        <a href="https://github.com/dlunch/wie" target="_blank" rel="noopener noreferrer"><img src="https://cdn.simpleicons.org/github/white" alt="GitHub" width="20" height="20" /></a>
-        <a href="https://wie-site.dlunch.net/" target="_blank" rel="noopener noreferrer">🌐</a>
-        <button id="settings-toggle" class="settings-toggle">⚙️</button>
-      </div>
-      <div id="settings-panel" class="settings-panel">
-        <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
-        <label>🔊 효과음 <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
-      </div>
-      <div class="prestart" id="prestart">
-        <div class="prestart-row">
-          <input type="file" id="file" hidden />
-          <label for="file" class="file-picker"><span id="file-name">파일 선택</span></label>
-        </div>
-        <div class="ad-banner" id="ad-banner">
-          <ins
-            class="adsbygoogle"
-            style="display:block;width:100%;height:100%"
-            data-ad-client="ca-pub-7838202724819744"
-            data-ad-slot="8335895407"
-            data-ad-format="auto"
-            data-full-width-responsive="true"
-            <% if (adtest) { %>data-adtest="on"<% } %>
-          ></ins>
-          <script>
-            (adsbygoogle = window.adsbygoogle || []).push({});
-          </script>
-        </div>
-      </div>
-    </div>
-
-    <div class="button-container">
-      <p>
-        <button data-key="UP">↑</button>
-      </p>
-      <p>
-        <button data-key="LEFT">←</button>
-        <button data-key="OK">OK</button>
-        <button data-key="RIGHT">→</button>
-      </p>
-      <p>
-        <button data-key="DOWN">↓</button>
-      </p>
-      <p>
-        <button data-key="CLR">CLR</button>
-      </p>
-      <p>
-        <button data-key="1">1</button>
-        <button data-key="2">2</button>
-        <button data-key="3">3</button>
-      </p>
-      <p>
-        <button data-key="4">4</button>
-        <button data-key="5">5</button>
-        <button data-key="6">6</button>
-      </p>
-      <p>
-        <button data-key="7">7</button>
-        <button data-key="8">8</button>
-        <button data-key="9">9</button>
-      </p>
-      <p>
-        <button data-key="*">*</button>
-        <button data-key="0">0</button>
-        <button data-key="#">#</button>
-      </p>
     </div>
   </body>
 </html>
