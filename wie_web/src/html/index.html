@@ -24,6 +24,7 @@
             <p>My Games</p>
           </div>
           <div class="header-actions">
+            <button id="library-diagnostics" class="secondary-button compact-button" type="button" aria-label="Diagnostics">🐞 Logs</button>
             <button id="show-tutorial" class="icon-button" type="button" aria-label="Help">?</button>
             <button id="import-game" class="primary-button" type="button">＋ Import</button>
           </div>
@@ -191,8 +192,14 @@
           </div>
           <button id="debug-close-log" class="icon-button" type="button" aria-label="Close diagnostic log">×</button>
         </div>
+        <div class="debug-log-toolbar">
+          <button id="debug-refresh-log" class="secondary-button compact-button" type="button">Refresh</button>
+          <button id="debug-export-log-global" class="primary-button compact-button" type="button">Export Log</button>
+          <button id="debug-clear-log-global" class="secondary-button compact-button danger-button" type="button">Clear</button>
+        </div>
+        <p id="debug-session-status" class="settings-note"></p>
         <textarea id="debug-log-text" class="debug-log-text" readonly spellcheck="false"></textarea>
-        <p class="settings-note">Use Export Log from the game settings to save/share this log.</p>
+        <p class="settings-note">The log starts when WIPI Player launches and persists across app restarts until you clear it. Export after reproducing a problem.</p>
       </div>
     </div>
 

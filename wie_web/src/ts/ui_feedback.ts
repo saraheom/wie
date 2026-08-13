@@ -10,6 +10,35 @@ export interface ConfirmOptions {
 }
 
 let pendingResolve: ((value: boolean) => void) | undefined;
+const describeTarget = (target: EventTarget | null) => {
+  const el = target instanceof Element ? target : null;
+  if (!el) return "<none>";
+  const id = el.id ? `#${el.id}` : "";
+  const cls = el.className && typeof el.className === "string" ? `.${el.className.trim().replace(/\s+/g, ".")}` : "";
+  return `${el.tagName.toLowerCase()}${id}${cls}`;
+};
+
+const logConfirmationInput = (event: Event) => {
+  const overlay = document.getElementById("confirm-overlay");
+  if (!overlay || overlay.hidden) return;
+  const pointer = event as PointerEvent;
+  const x = Number.isFinite(pointer.clientX) ? pointer.clientX : -1;
+  const y = Number.isFinite(pointer.clientY) ? pointer.clientY : -1;
+  const hit = x >= 0 && y >= 0 ? document.elementFromPoint(x, y) : null;
+  const accept = document.getElementById("confirm-accept")?.getBoundingClientRect();
+  const cancel = document.getElementById("confirm-cancel")?.getBoundingClientRect();
+  debugLog(
+    "UI:CONFIRM_INPUT",
+    `type=${event.type}`,
+    `target=${describeTarget(event.target)}`,
+    `xy=${x},${y}`,
+    `hit=${describeTarget(hit)}`,
+    `defaultPrevented=${event.defaultPrevented}`,
+    `accept=${accept ? `${accept.left.toFixed(0)},${accept.top.toFixed(0)},${accept.width.toFixed(0)}x${accept.height.toFixed(0)}` : "missing"}`,
+    `cancel=${cancel ? `${cancel.left.toFixed(0)},${cancel.top.toFixed(0)},${cancel.width.toFixed(0)}x${cancel.height.toFixed(0)}` : "missing"}`
+  );
+};
+
 
 const byId = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -87,6 +116,11 @@ const bestEffortHaptic = (strength: "tap" | "success" | "warning" = "tap") => {
 };
 
 export const initUiFeedback = () => {
+  debugLog("UI", "initUiFeedback installed");
+  for (const type of ["pointerdown", "pointerup", "touchstart", "touchend", "click"] as const) {
+    document.addEventListener(type, logConfirmationInput, { capture: true, passive: true });
+  }
+
   const cancel = byId<HTMLButtonElement>("confirm-cancel");
   const accept = byId<HTMLButtonElement>("confirm-accept");
   const overlay = byId("confirm-overlay");

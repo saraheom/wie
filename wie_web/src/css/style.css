@@ -1403,3 +1403,20 @@ button.ui-action-flash {
     right: auto;
   }
 }
+
+
+/* Phase 4.3 global diagnostics */
+.debug-log-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.debug-log-toolbar button {
+  min-height: 42px;
+}
+@media (max-width: 520px) {
+  #library-diagnostics {
+    padding-inline: 10px;
+    min-width: auto;
+  }
+}

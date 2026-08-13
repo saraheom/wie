@@ -1,6 +1,6 @@
 import { WieWeb } from "@pkg";
 import { setMasterVolume } from "./midi";
-import { clearDebugLog, debugLog, exportDebugLog, getDebugLogText, installDebugLogging } from "./debug_log";
+import { clearDebugLog, debugLog, exportDebugLog, getDebugLogText, getDebugSessionId, installDebugLogging } from "./debug_log";
 import {
   defaultGameSettings,
   displayNameForFile,
@@ -464,6 +464,7 @@ const importGame = async (file: File) => {
   await library.put(game);
   debugLog("LIBRARY", `import complete game=${game.name}`, `id=${game.id}`);
   await renderLibrary();
+  debugLog("BOOT", "WIPI Player ready on library view");
 };
 
 const stopCurrentGame = () => {
@@ -521,6 +522,7 @@ const launchGame = async (id: string) => {
 
   element("library-view").hidden = true;
   element("player-view").hidden = false;
+  debugLog("NAV", `view=player game=${game.name}`);
   element("player-title").textContent = game.name;
   element("player-file-name").textContent = game.fileName;
   element("loading-game").hidden = false;
@@ -557,6 +559,7 @@ const showLibrary = async () => {
   element("settings-panel").classList.remove("visible");
   element("player-view").hidden = true;
   element("library-view").hidden = false;
+  debugLog("NAV", "view=library");
   await renderLibrary();
 };
 
@@ -1116,6 +1119,39 @@ const initSaveManagement = () => {
   });
 };
 
+const openGlobalDiagnostics = () => {
+  element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
+  element("debug-session-status").textContent = `Current session: ${getDebugSessionId() || "starting"} · ${getDebugLogText().split("\n").filter(Boolean).length} log lines`;
+  element("debug-log-overlay").hidden = false;
+  debugLog("DIAGNOSTICS", "viewer opened");
+};
+
+const refreshGlobalDiagnostics = () => {
+  element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
+  element("debug-session-status").textContent = `Current session: ${getDebugSessionId() || "starting"} · ${getDebugLogText().split("\n").filter(Boolean).length} log lines`;
+};
+
+const initGlobalDiagnostics = () => {
+  element("library-diagnostics").addEventListener("click", openGlobalDiagnostics);
+  element("debug-refresh-log").addEventListener("click", refreshGlobalDiagnostics);
+  element("debug-export-log-global").addEventListener("click", () => {
+    debugLog("DIAGNOSTICS", "export requested from global viewer");
+    void exportDebugLog().catch((error) => console.error("Failed to export diagnostic log", error));
+  });
+  element("debug-clear-log-global").addEventListener("click", async () => {
+    const confirmed = await requestConfirmation({
+      title: "Clear Diagnostic Log?",
+      message: "Clear all persisted WIPI Player diagnostic sessions?",
+      confirmLabel: "Clear Log",
+      destructive: true,
+    });
+    if (!confirmed) return;
+    clearDebugLog();
+    refreshGlobalDiagnostics();
+    successFeedback("Diagnostic log cleared.");
+  });
+};
+
 const initPlayerChrome = () => {
   element("back-to-library").addEventListener("click", () => void showLibrary());
 
@@ -1172,10 +1208,7 @@ const initPlayerChrome = () => {
     }
   });
 
-  element("debug-view-log").addEventListener("click", () => {
-    element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
-    element("debug-log-overlay").hidden = false;
-  });
+  element("debug-view-log").addEventListener("click", openGlobalDiagnostics);
 
   element("debug-export-log").addEventListener("click", () => {
     void exportDebugLog().catch((error) => {
@@ -1219,7 +1252,11 @@ const initPlayerChrome = () => {
 };
 
 const main = async () => {
+  debugLog("BOOT", "main() starting");
+  initUiFeedback();
+  initGlobalDiagnostics();
   library = await GameLibrary.open();
+  debugLog("BOOT", "GameLibrary opened");
   initTutorial();
   restoreVolumeControls();
   initFileImport();

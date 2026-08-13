@@ -1,10 +1,11 @@
 const STORAGE_KEY = "wipi_player_debug_log_v1";
-const MAX_LINES = 2500;
-const MAX_CHARS = 700_000;
+const MAX_LINES = 6000;
+const MAX_CHARS = 1_800_000;
 
 let lines: string[] = [];
 let flushTimer: number | undefined;
 let installed = false;
+let sessionId = "";
 
 const formatValue = (value: unknown): string => {
   if (value instanceof Error) {
@@ -57,6 +58,8 @@ export const debugLog = (category: string, ...values: unknown[]) => {
 };
 
 export const getDebugLogText = () => lines.join("\n");
+
+export const getDebugSessionId = () => sessionId;
 
 export const clearDebugLog = () => {
   lines = [];
@@ -150,13 +153,28 @@ export const installDebugLogging = () => {
     if (document.visibilityState === "hidden") flush();
   });
 
-  window.addEventListener("pagehide", flush);
+  window.addEventListener("pagehide", () => {
+    debugLog("LIFECYCLE", "pagehide");
+    flush();
+  });
+  window.addEventListener("pageshow", (event) => {
+    debugLog("LIFECYCLE", `pageshow persisted=${event.persisted}`);
+  });
+  window.addEventListener("beforeunload", () => {
+    debugLog("LIFECYCLE", "beforeunload");
+    flush();
+  });
+  window.addEventListener("focus", () => debugLog("LIFECYCLE", "window focus"));
+  window.addEventListener("blur", () => debugLog("LIFECYCLE", "window blur"));
 
+  sessionId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
   debugLog(
     "SYSTEM",
     "=== New WIPI Player session ===",
+    `session=${sessionId}`,
     `userAgent=${navigator.userAgent}`,
     `viewport=${window.innerWidth}x${window.innerHeight}`,
-    `dpr=${window.devicePixelRatio}`
+    `dpr=${window.devicePixelRatio}`,
+    `visibility=${document.visibilityState}`
   );
 };
