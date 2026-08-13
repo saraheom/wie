@@ -78,6 +78,15 @@
             <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
             <label>🔊 Effects <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
           </div>
+          <div class="settings-section debug-settings">
+            <strong>Diagnostics (testing only)</strong>
+            <div class="debug-button-row">
+              <button id="debug-view-log" class="secondary-button compact-button" type="button">View Log</button>
+              <button id="debug-export-log" class="secondary-button compact-button" type="button">Export Log</button>
+              <button id="debug-clear-log" class="secondary-button compact-button danger-button" type="button">Clear</button>
+            </div>
+            <p class="settings-note">Temporary testing feature. Export creates a text log you can save/share and upload for debugging.</p>
+          </div>
           <p id="orientation-status" class="settings-note"></p>
         </div>
 
@@ -114,6 +123,20 @@
           </div>
         </main>
       </section>
+    </div>
+
+    <div id="debug-log-overlay" class="modal-overlay debug-log-overlay" hidden>
+      <div class="debug-log-modal" role="dialog" aria-modal="true" aria-labelledby="debug-log-title">
+        <div class="action-sheet-header">
+          <div>
+            <strong id="debug-log-title">Diagnostic Log</strong>
+            <span>Temporary test instrumentation</span>
+          </div>
+          <button id="debug-close-log" class="icon-button" type="button" aria-label="Close diagnostic log">×</button>
+        </div>
+        <textarea id="debug-log-text" class="debug-log-text" readonly spellcheck="false"></textarea>
+        <p class="settings-note">Use Export Log from the game settings to save/share this log.</p>
+      </div>
     </div>
 
     <div id="game-actions-overlay" class="modal-overlay" hidden>

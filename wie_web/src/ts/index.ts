@@ -1,5 +1,6 @@
 import { WieWeb } from "@pkg";
 import { setMasterVolume } from "./midi";
+import { clearDebugLog, debugLog, exportDebugLog, getDebugLogText, installDebugLogging } from "./debug_log";
 import {
   defaultGameSettings,
   displayNameForFile,
@@ -7,6 +8,8 @@ import {
   GameRecord,
   gameIdForArchive,
 } from "./game_library";
+
+installDebugLogging();
 
 const TUTORIAL_STORAGE_KEY = "wipi_player_tutorial_dismissed_v2";
 const MIDI_VOLUME_STORAGE_KEY = "wipi_player_midi_volume";
@@ -93,6 +96,41 @@ const unlockOrientation = () => {
   }
 };
 
+const forcePlayerLayoutRefresh = () => {
+  const player = document.getElementById("player-view");
+  const content = document.querySelector<HTMLElement>("#player-view .player-content");
+  if (!player || !content || player.hidden) return;
+
+  // WKWebView can delay recomputing a display:contents/grid transition while the
+  // device rotation animation is running. Rebuild this layout box synchronously.
+  const previousDisplay = content.style.display;
+  content.style.display = "none";
+  void content.offsetHeight;
+  content.style.display = previousDisplay;
+  void content.offsetHeight;
+
+  requestAnimationFrame(() => {
+    void content.offsetWidth;
+  });
+};
+
+let viewportRefreshFrame: number | undefined;
+const schedulePlayerLayoutRefresh = (source: string) => {
+  if (!currentGame) return;
+  if (viewportRefreshFrame !== undefined) cancelAnimationFrame(viewportRefreshFrame);
+  viewportRefreshFrame = requestAnimationFrame(() => {
+    viewportRefreshFrame = undefined;
+    forcePlayerLayoutRefresh();
+    debugLog(
+      "LAYOUT",
+      `refresh source=${source}`,
+      `orientation=${currentGame?.settings.orientation}`,
+      `display=${currentGame?.settings.displayMode}`,
+      `viewport=${window.innerWidth}x${window.innerHeight}`
+    );
+  });
+};
+
 const applyGameDisplaySettings = (game: GameRecord, requestDeviceRotation = false) => {
   const player = element("player-view");
   player.dataset.orientation = game.settings.orientation;
@@ -107,8 +145,18 @@ const applyGameDisplaySettings = (game: GameRecord, requestDeviceRotation = fals
     game.settings.orientation === "portrait" ? "Switch to landscape" : "Switch to portrait"
   );
 
+  forcePlayerLayoutRefresh();
+  debugLog(
+    "DISPLAY",
+    `apply orientation=${game.settings.orientation}`,
+    `mode=${game.settings.displayMode}`,
+    `requestDeviceRotation=${requestDeviceRotation}`
+  );
+
   if (requestDeviceRotation) {
-    void requestOrientation(game.settings.orientation);
+    void requestOrientation(game.settings.orientation).finally(() => {
+      schedulePlayerLayoutRefresh("orientation-request-complete");
+    });
   } else {
     setOrientationStatus(
       game.settings.orientation === "landscape" ? "Landscape layout" : "Portrait layout"
@@ -234,6 +282,7 @@ const renderLibrary = async () => {
 };
 
 const importGame = async (file: File) => {
+  debugLog("LIBRARY", `import start file=${file.name}`, `size=${file.size}`);
   const data = await file.arrayBuffer();
   const id = await gameIdForArchive(data);
   const existing = await library.get(id);
@@ -254,6 +303,7 @@ const importGame = async (file: File) => {
   };
 
   await library.put(game);
+  debugLog("LIBRARY", `import complete game=${game.name}`, `id=${game.id}`);
   await renderLibrary();
 };
 
@@ -295,6 +345,7 @@ const scheduleEmulatorFrame = () => {
 };
 
 const launchGame = async (id: string) => {
+  debugLog("GAME", `launch requested id=${id}`);
   const game = await library.get(id);
   if (!game) {
     window.alert("This game is no longer in the library.");
@@ -323,11 +374,13 @@ const launchGame = async (id: string) => {
 
     game.lastPlayedAt = Date.now();
     await library.put(game);
+    debugLog("GAME", `launch successful game=${game.name}`, `file=${game.fileName}`);
     scheduleEmulatorFrame();
   } catch (error) {
     currentEmulator = undefined;
     currentGame = undefined;
     const message = error instanceof Error ? error.message : String(error);
+    debugLog("GAME", `launch failed game=${game.name}`, error);
     window.alert(`Could not start ${game.name}: ${message}`);
     await showLibrary();
   } finally {
@@ -518,6 +571,7 @@ const initPlayerChrome = () => {
 
     currentGame.settings.orientation =
       currentGame.settings.orientation === "portrait" ? "landscape" : "portrait";
+    debugLog("DISPLAY", `rotate button -> ${currentGame.settings.orientation}`);
     applyGameDisplaySettings(currentGame, true);
     await saveCurrentGameSettings();
   });
@@ -527,6 +581,7 @@ const initPlayerChrome = () => {
 
     currentGame.settings.orientation =
       orientationSelect.value === "landscape" ? "landscape" : "portrait";
+    debugLog("DISPLAY", `orientation select -> ${currentGame.settings.orientation}`);
     applyGameDisplaySettings(currentGame, true);
     await saveCurrentGameSettings();
   });
@@ -537,10 +592,42 @@ const initPlayerChrome = () => {
     const mode = displayModeSelect.value;
     if (mode === "native" || mode === "compact" || mode === "fit" || mode === "large" || mode === "max") {
       currentGame.settings.displayMode = mode;
+      debugLog("DISPLAY", `display mode -> ${mode}`);
       applyGameDisplaySettings(currentGame);
       await saveCurrentGameSettings();
     }
   });
+
+  element("debug-view-log").addEventListener("click", () => {
+    element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
+    element("debug-log-overlay").hidden = false;
+  });
+
+  element("debug-export-log").addEventListener("click", () => {
+    void exportDebugLog().catch((error) => {
+      console.error("Failed to export diagnostic log", error);
+      window.alert(`Could not export the diagnostic log: ${String(error)}`);
+    });
+  });
+
+  element("debug-clear-log").addEventListener("click", () => {
+    if (!window.confirm("Clear the temporary WIPI Player diagnostic log?")) return;
+    clearDebugLog();
+    element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
+  });
+
+  element("debug-close-log").addEventListener("click", () => {
+    element("debug-log-overlay").hidden = true;
+  });
+  element("debug-log-overlay").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) element("debug-log-overlay").hidden = true;
+  });
+
+  const viewportChanged = () => schedulePlayerLayoutRefresh("viewport-change");
+  window.addEventListener("resize", viewportChanged);
+  window.addEventListener("orientationchange", viewportChanged);
+  screen.orientation?.addEventListener?.("change", viewportChanged);
+  window.visualViewport?.addEventListener("resize", viewportChanged);
 
   document.addEventListener("click", (event) => {
     if (!toggle.contains(event.target as Node) && !panel.contains(event.target as Node)) {

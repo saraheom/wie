@@ -752,7 +752,7 @@ select {
   gap: 10px;
 }
 
-@media (max-width: 720px) and (orientation: landscape) {
+@media (max-width: 720px) {
   .player-view[data-orientation="landscape"] .player-content {
     grid-template-columns: minmax(138px, 1fr) auto minmax(138px, 1fr);
     gap: 8px;
@@ -776,5 +776,67 @@ select {
   .player-view[data-orientation="landscape"] .direction-pad .key {
     min-width: 42px;
     min-height: 36px;
+  }
+}
+
+
+/* Phase 2.1: immediate orientation reflow + temporary diagnostics. */
+.debug-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.compact-button {
+  flex: 1 1 auto;
+  min-width: 76px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.danger-button {
+  border-color: rgba(255, 107, 107, 0.5);
+  color: #ffb1b1;
+}
+
+.debug-log-overlay {
+  align-items: center;
+}
+
+.debug-log-modal {
+  width: min(920px, 100%);
+  height: min(78dvh, 720px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #15181e;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+}
+
+.debug-log-text {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  resize: none;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #0b0d11;
+  color: #d9e0ea;
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: pre;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Keep the compact landscape keypad rules keyed to the app's selected
+   orientation, not the physical CSS media-query orientation. This makes the
+   pads move immediately while iOS is still animating device rotation. */
+@media (max-width: 720px) {
+  .player-view[data-orientation="landscape"] .player-content {
+    grid-template-columns: minmax(138px, 1fr) auto minmax(138px, 1fr);
   }
 }
