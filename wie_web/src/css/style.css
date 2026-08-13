@@ -1212,3 +1212,152 @@ select {
     flex: 1 1 auto;
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* Phase 4.1: reliable destructive actions + touch feedback                   */
+/* -------------------------------------------------------------------------- */
+
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  transform-origin: center;
+  transition:
+    transform 90ms ease,
+    filter 120ms ease,
+    box-shadow 120ms ease,
+    background-color 120ms ease;
+}
+
+button.ui-pressed,
+button:active {
+  transform: scale(0.94);
+  filter: brightness(1.22);
+}
+
+button.ui-action-flash {
+  animation: ui-button-flash 240ms ease-out;
+}
+
+@keyframes ui-button-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(130, 167, 255, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(130, 167, 255, 0);
+  }
+  100% {
+    box-shadow: none;
+  }
+}
+
+.confirm-overlay {
+  align-items: center;
+  z-index: 2200;
+}
+
+.confirm-modal {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 20px;
+  background: #191c22;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.65);
+}
+
+.confirm-icon {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 113, 113, 0.16);
+  color: #ff9b9b;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.confirm-modal > strong {
+  font-size: 18px;
+}
+
+.confirm-modal > p {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.confirm-actions button {
+  min-height: 48px;
+  border-radius: 13px;
+  font-weight: 750;
+}
+
+.confirm-actions .danger-action {
+  background: #7b292f;
+  border: 1px solid #b94a55;
+  color: #fff;
+}
+
+.ui-toast {
+  position: fixed;
+  z-index: 2600;
+  left: 50%;
+  bottom: calc(max(18px, var(--safe-bottom)) + 16px);
+  width: max-content;
+  max-width: min(88vw, 440px);
+  padding: 11px 15px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(27, 30, 37, 0.96);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 18px) scale(0.96);
+  transition:
+    opacity 180ms ease,
+    transform 200ms cubic-bezier(.2,.8,.2,1);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+}
+
+.ui-toast.visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.ui-toast[data-kind="success"] {
+  border-color: rgba(95, 214, 139, 0.5);
+}
+
+.ui-toast[data-kind="error"] {
+  border-color: rgba(255, 105, 105, 0.55);
+}
+
+.save-backup-actions button,
+.save-manager-toolbar button,
+.save-danger-zone button,
+.action-sheet > button {
+  min-height: 46px;
+}
+
+.save-backup-actions .danger-button,
+.save-danger-zone .danger-button,
+.action-sheet > .danger-action {
+  font-weight: 750;
+}
+

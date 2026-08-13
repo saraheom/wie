@@ -27,6 +27,7 @@ import {
   SaveBackup,
   storeImportedSaveBackup,
 } from "./save_manager";
+import { errorFeedback, initUiFeedback, requestConfirmation, successFeedback } from "./ui_feedback";
 
 installDebugLogging();
 
@@ -438,7 +439,11 @@ const importGame = async (file: File) => {
   const existing = await library.get(id);
 
   if (existing) {
-    const shouldOpen = window.confirm(`${existing.name} is already in your library. Open it now?`);
+    const shouldOpen = await requestConfirmation({
+      title: "Already Imported",
+      message: `“${existing.name}” is already in My Games. Open it now?`,
+      confirmLabel: "Open Game",
+    });
     if (shouldOpen) await launchGame(id);
     return;
   }
@@ -627,14 +632,27 @@ const initGameActions = () => {
     const game = await library.get(id);
     if (!game) return;
 
-    const confirmed = window.confirm(
-      `Delete ${game.name} from the WIPI Player library?\n\nThe imported package and cover will be removed. Existing in-game WIE save data will be kept.`
-    );
+    closeGameActions();
+    const confirmed = await requestConfirmation({
+      title: "Delete Game?",
+      message: `Remove “${game.name}” from My Games?\n\nThe imported game package and custom cover will be deleted from the library. Existing WIE in-game save data and WIPI Player backups are kept unless you erase them separately.`,
+      confirmLabel: "Delete Game",
+      destructive: true,
+    });
     if (!confirmed) return;
 
-    await library.delete(id);
-    closeGameActions();
-    await renderLibrary();
+    try {
+      debugLog("LIBRARY", `delete requested game=${game.name}`, `id=${id}`);
+      await library.delete(id);
+      const stillExists = await library.get(id);
+      if (stillExists) throw new Error("Library record still exists after delete transaction");
+      await renderLibrary();
+      successFeedback(`${game.name} was removed from My Games.`);
+      debugLog("LIBRARY", `delete verified game=${game.name}`, `id=${id}`);
+    } catch (error) {
+      console.error("Game library delete failed", error);
+      errorFeedback("Could not delete this game.");
+    }
   });
 };
 
@@ -912,10 +930,28 @@ const renderSaveBackups = async (game: GameRecord) => {
     remove.className = "danger-button";
     remove.textContent = "Delete";
     remove.addEventListener("click", async () => {
-      if (!window.confirm("Delete this backup from WIPI Player? This does not erase the game's current in-game save.")) return;
-      await deleteSaveBackup(backup.id);
-      debugLog("SAVE", `backup deleted game=${game.name}`, `backup=${backup.id}`);
-      await renderSaveBackups(game);
+      const confirmed = await requestConfirmation({
+        title: "Delete Backup?",
+        message: `Delete the backup from ${formatBackupDate(backup.createdAt)}?\n\nThis does not erase the game's current in-game save.`,
+        confirmLabel: "Delete Backup",
+        destructive: true,
+      });
+      if (!confirmed) return;
+
+      try {
+        debugLog("SAVE", `backup delete requested game=${game.name}`, `backup=${backup.id}`);
+        await deleteSaveBackup(backup.id);
+        const remaining = await listSaveBackups(game.id);
+        if (remaining.some((item) => item.id === backup.id)) {
+          throw new Error("Backup still exists after delete transaction");
+        }
+        debugLog("SAVE", `backup delete verified game=${game.name}`, `backup=${backup.id}`);
+        await renderSaveBackups(game);
+        successFeedback("Backup deleted.");
+      } catch (error) {
+        console.error("Save backup delete failed", error);
+        errorFeedback("Could not delete the backup.");
+      }
     });
 
     actions.append(restore, exportButton, remove);
@@ -947,15 +983,21 @@ const createBackupForGame = async (game: GameRecord) => {
   const backup = await createSaveBackup(game.id, game.name, game.saveSources);
   debugLog("SAVE", `backup created game=${game.name}`, `backup=${backup.id}`);
   await renderSaveBackups(game);
+  successFeedback("Backup created.");
 };
 
 const restoreBackupForGame = async (game: GameRecord, backup: SaveBackup) => {
-  if (!window.confirm(`Restore the backup from ${formatBackupDate(backup.createdAt)}?\n\nThis replaces the game's current in-game save data.`)) return;
+  const confirmed = await requestConfirmation({
+    title: "Restore Backup?",
+    message: `Restore the backup from ${formatBackupDate(backup.createdAt)}?\n\nThis replaces the game's current in-game save data.`,
+    confirmLabel: "Restore Backup",
+  });
+  if (!confirmed) return;
   const wasRunning = currentGame?.id === game.id;
   if (wasRunning) stopCurrentGame();
   await restoreSaveBackup(backup);
   debugLog("SAVE", `backup restored game=${game.name}`, `backup=${backup.id}`);
-  window.alert("Save backup restored. The game will use it the next time it starts.");
+  successFeedback("Save backup restored.");
   if (wasRunning) {
     closeSaveManager();
     await launchGame(game.id);
@@ -969,15 +1011,18 @@ const eraseSavesForGame = async (game: GameRecord) => {
     window.alert("No save storage has been detected for this game.");
     return;
   }
-  const confirmed = window.confirm(
-    `Erase ${game.name}'s current in-game save data?\n\nLibrary backups are kept, so you can restore one later. This cannot otherwise be undone.`
-  );
+  const confirmed = await requestConfirmation({
+    title: "Erase Current Save?",
+    message: `Erase ${game.name}'s current in-game save data?\n\nWIPI Player backups are kept, so you can restore one later. This action cannot otherwise be undone.`,
+    confirmLabel: "Erase Save",
+    destructive: true,
+  });
   if (!confirmed) return;
   const wasRunning = currentGame?.id === game.id;
   if (wasRunning) stopCurrentGame();
   await eraseGameSaveData(game.saveSources);
   debugLog("SAVE", `current save erased game=${game.name}`);
-  window.alert("Current in-game save data was erased. Existing WIPI Player backups were kept.");
+  successFeedback("Current in-game save was erased. Backups were kept.");
   if (wasRunning) {
     closeSaveManager();
     await launchGame(game.id);
@@ -1037,10 +1082,19 @@ const initSaveManagement = () => {
     if (!game) return;
     try {
       const parsed = await parseImportedSaveBackup(file);
-      if (parsed.gameId !== game.id && !window.confirm(`This backup was created for “${parsed.gameName}”, not “${game.name}”. Import it anyway?`)) return;
+      if (parsed.gameId !== game.id) {
+        const confirmed = await requestConfirmation({
+          title: "Backup Is for Another Game",
+          message: `This backup was created for “${parsed.gameName}”, not “${game.name}”. Import it anyway?`,
+          confirmLabel: "Import Anyway",
+          destructive: true,
+        });
+        if (!confirmed) return;
+      }
       const imported = await storeImportedSaveBackup(parsed, game.id, game.name);
       debugLog("SAVE", `backup imported game=${game.name}`, `backup=${imported.id}`);
       await renderSaveBackups(game);
+      successFeedback("Backup imported.");
     } catch (error) {
       console.error("Save import failed", error);
       window.alert(`Could not import this save backup: ${String(error)}`);
@@ -1127,10 +1181,17 @@ const initPlayerChrome = () => {
     });
   });
 
-  element("debug-clear-log").addEventListener("click", () => {
-    if (!window.confirm("Clear the temporary WIPI Player diagnostic log?")) return;
+  element("debug-clear-log").addEventListener("click", async () => {
+    const confirmed = await requestConfirmation({
+      title: "Clear Diagnostic Log?",
+      message: "Clear the temporary WIPI Player diagnostic log?",
+      confirmLabel: "Clear Log",
+      destructive: true,
+    });
+    if (!confirmed) return;
     clearDebugLog();
     element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
+    successFeedback("Diagnostic log cleared.");
   });
 
   element("debug-close-log").addEventListener("click", () => {
