@@ -1,11 +1,20 @@
+import { normalizeSaveSources, GameSaveSources } from "./save_manager";
+
+import {
+  defaultControlLayouts,
+  GameControlLayouts,
+  GameControlPreset,
+  normalizeControlLayouts,
+} from "./control_layout";
+
 export type GameOrientation = "portrait" | "landscape";
 export type GameDisplayMode = "native" | "compact" | "fit" | "large" | "max";
-export type GameControlPreset = "classic";
 
 export interface GameSettings {
   orientation: GameOrientation;
   displayMode: GameDisplayMode;
   controlPreset: GameControlPreset;
+  controlLayouts: GameControlLayouts;
 }
 
 export interface GameRecord {
@@ -17,6 +26,7 @@ export interface GameRecord {
   createdAt: number;
   lastPlayedAt?: number;
   settings: GameSettings;
+  saveSources: GameSaveSources;
 }
 
 const DB_NAME = "wipi_player_library";
@@ -49,6 +59,7 @@ export const defaultGameSettings = (): GameSettings => ({
   orientation: "portrait",
   displayMode: "fit",
   controlPreset: "classic",
+  controlLayouts: defaultControlLayouts(),
 });
 
 const normalizeSettings = (settings?: Partial<GameSettings>): GameSettings => {
@@ -66,13 +77,15 @@ const normalizeSettings = (settings?: Partial<GameSettings>): GameSettings => {
   return {
     orientation,
     displayMode,
-    controlPreset: "classic",
+    controlPreset: settings?.controlPreset === "custom" ? "custom" : "classic",
+    controlLayouts: normalizeControlLayouts(settings?.controlLayouts),
   };
 };
 
 const normalizeGame = (game: GameRecord): GameRecord => ({
   ...game,
   settings: normalizeSettings(game.settings),
+  saveSources: normalizeSaveSources(game.saveSources),
 });
 
 export class GameLibrary {

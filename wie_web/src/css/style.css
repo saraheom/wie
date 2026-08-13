@@ -840,3 +840,375 @@ select {
     grid-template-columns: minmax(138px, 1fr) auto minmax(138px, 1fr);
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Phase 3: per-game custom virtual controls                                   */
+/* -------------------------------------------------------------------------- */
+
+.secondary-button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #292d35;
+  color: var(--text);
+  font-weight: 650;
+}
+
+.player-content {
+  position: relative;
+}
+
+/* Custom control layouts use normalized positions over the whole player area. */
+.player-view[data-controls="custom"] .button-container {
+  position: absolute !important;
+  z-index: 25;
+  inset: 0 !important;
+  width: auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  display: block !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  pointer-events: none;
+}
+
+.player-view[data-controls="custom"] .direction-pad,
+.player-view[data-controls="custom"] .number-pad {
+  position: absolute !important;
+  left: var(--control-x) !important;
+  top: var(--control-y) !important;
+  grid-column: auto !important;
+  grid-row: auto !important;
+  margin: 0 !important;
+  gap: var(--control-gap, 8px) !important;
+  transform: translate(-50%, -50%) scale(var(--control-scale, 1));
+  transform-origin: center;
+  opacity: var(--control-opacity, 1);
+  pointer-events: auto;
+}
+
+.player-view[data-controls="custom"] .direction-pad {
+  grid-template-columns: repeat(3, minmax(48px, 62px));
+  grid-template-rows: repeat(3, 52px);
+}
+
+.player-view[data-controls="custom"] .number-pad {
+  grid-template-columns: repeat(3, minmax(48px, 62px));
+  grid-template-rows: repeat(4, 40px);
+}
+
+.player-view[data-controls="custom"] .key {
+  opacity: 1;
+}
+
+.player-view.control-editing .key {
+  cursor: grab;
+}
+
+.player-view.control-editing .direction-pad,
+.player-view.control-editing .number-pad {
+  outline: 2px dashed rgba(255, 255, 255, 0.34);
+  outline-offset: 7px;
+  border-radius: 12px;
+  touch-action: none;
+}
+
+.player-view.control-editing .direction-pad.control-selected,
+.player-view.control-editing .number-pad.control-selected {
+  outline: 3px solid var(--accent);
+  background: rgba(94, 140, 255, 0.08);
+}
+
+.player-view.control-editing .direction-pad::before,
+.player-view.control-editing .number-pad::before {
+  content: "Drag";
+  position: absolute;
+  left: 50%;
+  top: -24px;
+  transform: translateX(-50%);
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.76);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.control-editor {
+  position: fixed;
+  z-index: 180;
+  left: max(8px, var(--safe-left));
+  right: max(8px, var(--safe-right));
+  bottom: max(8px, var(--safe-bottom));
+  max-height: min(46dvh, 390px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 18px;
+  background: rgba(22, 24, 30, 0.97);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(16px);
+}
+
+.control-editor-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.control-editor-header > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.control-editor-header strong {
+  font-size: 15px;
+}
+
+.control-editor-header span {
+  margin-top: 2px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.control-editor-hint {
+  margin: 7px 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.control-segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 10px;
+  padding: 3px;
+  border-radius: 10px;
+  background: #0f1115;
+}
+
+.control-segmented button,
+.control-editor-presets button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 8px;
+  background: #292d35;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.control-segmented button.active {
+  background: var(--accent);
+  color: white;
+}
+
+.control-editor-sliders {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.control-editor-sliders label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.control-editor-sliders label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.control-editor-sliders output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.control-editor-sliders input[type="range"] {
+  width: 100%;
+}
+
+.control-editor-presets {
+  margin-top: 11px;
+}
+
+.control-editor-presets > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.control-editor-presets > div {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+
+.control-editor-presets .danger-button {
+  color: var(--danger);
+}
+
+.control-key-visibility-details {
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.control-key-visibility-details summary {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.control-key-visibility {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.control-key-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 30px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: #22262d;
+  font-size: 9px;
+}
+
+.control-key-toggle input {
+  width: 13px;
+  height: 13px;
+  margin: 0;
+}
+
+@media (orientation: landscape), (min-aspect-ratio: 4/3) {
+  .control-editor {
+    left: auto;
+    width: min(355px, 43vw);
+    max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 65px);
+  }
+
+  .control-editor-sliders {
+    grid-template-columns: 1fr;
+  }
+
+  .control-key-visibility {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Phase 4: per-game save management */
+.save-manager-modal {
+  width: min(92vw, 620px);
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  border-radius: 18px;
+  padding: 18px;
+  background: var(--panel-bg, #171717);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.save-manager-toolbar,
+.save-backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.save-backup-section {
+  margin-top: 18px;
+}
+
+.save-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.save-section-heading span,
+.save-backup-meta span {
+  font-size: 0.78rem;
+  opacity: 0.68;
+}
+
+.save-backup-empty {
+  opacity: 0.65;
+  padding: 16px 0;
+}
+
+.save-backup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.save-backup-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.save-backup-meta {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.save-backup-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.save-danger-zone {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.save-manager-note {
+  margin-top: 16px;
+}
+
+@media (max-width: 520px) {
+  .save-manager-modal {
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 32px);
+    padding: 14px;
+  }
+
+  .save-backup-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .save-backup-actions button {
+    flex: 1 1 auto;
+  }
+}

@@ -74,6 +74,16 @@
             <p class="settings-note">Screen size changes presentation only. The game's internal WIPI framebuffer remains unchanged.</p>
           </div>
           <div class="settings-section">
+            <strong>Controls</strong>
+            <button id="customize-controls" class="secondary-button" type="button">🎮 Customize Controls</button>
+            <p class="settings-note">Move and resize the D-pad and number pad. Portrait and landscape layouts are saved separately for this game.</p>
+          </div>
+          <div class="settings-section">
+            <strong>Save Management</strong>
+            <button id="manage-saves" class="secondary-button" type="button">💾 Manage Saves</button>
+            <p class="settings-note">Back up, restore, export, import, or erase this game's normal in-game save data.</p>
+          </div>
+          <div class="settings-section">
             <strong>Audio</strong>
             <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
             <label>🔊 Effects <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
@@ -122,6 +132,53 @@
             </div>
           </div>
         </main>
+
+        <aside id="control-editor" class="control-editor" hidden aria-label="Control layout editor">
+          <div class="control-editor-header">
+            <div>
+              <strong>Edit Controls</strong>
+              <span id="control-editor-orientation">Portrait layout</span>
+            </div>
+            <button id="control-editor-done" class="primary-button compact-button" type="button">Done</button>
+          </div>
+
+          <p class="control-editor-hint">Drag the D-pad or number pad directly on the game screen.</p>
+
+          <div class="control-segmented" role="group" aria-label="Selected keypad">
+            <button id="control-pad-direction" class="active" type="button">D-pad</button>
+            <button id="control-pad-number" type="button">Number pad</button>
+          </div>
+
+          <div class="control-editor-sliders">
+            <label>
+              <span>Size <output id="control-size-value">100%</output></span>
+              <input id="control-size" type="range" min="60" max="150" step="1" value="100" />
+            </label>
+            <label>
+              <span>Spacing <output id="control-gap-value">8 px</output></span>
+              <input id="control-gap" type="range" min="2" max="24" step="1" value="8" />
+            </label>
+            <label>
+              <span>Opacity <output id="control-opacity-value">100%</output></span>
+              <input id="control-opacity" type="range" min="25" max="100" step="1" value="100" />
+            </label>
+          </div>
+
+          <div class="control-editor-presets">
+            <span>Starting layouts</span>
+            <div>
+              <button id="control-preset-classic" type="button">Classic</button>
+              <button id="control-preset-spacious" type="button">Spacious</button>
+              <button id="control-preset-compact" type="button">Compact</button>
+              <button id="control-reset" class="danger-button" type="button">Reset</button>
+            </div>
+          </div>
+
+          <details class="control-key-visibility-details">
+            <summary>Visible keys</summary>
+            <div id="control-key-visibility" class="control-key-visibility"></div>
+          </details>
+        </aside>
       </section>
     </div>
 
@@ -150,10 +207,50 @@
         </div>
         <button id="action-play" type="button">▶ Play</button>
         <button id="action-display" type="button">▣ Display Settings</button>
+        <button id="action-controls" type="button">🎮 Customize Controls</button>
+        <button id="action-saves" type="button">💾 Manage Saves</button>
         <button id="action-cover" type="button">🖼 Change Cover</button>
         <button id="action-rename" type="button">✎ Rename</button>
         <button id="action-delete" class="danger-action" type="button">Delete from Library</button>
-        <p class="action-note">Deleting a library entry removes the imported game package and cover only. WIE in-game save data is kept for now.</p>
+        <p class="action-note">Deleting a library entry removes the imported package and cover. Use Manage Saves separately to back up or erase in-game save data.</p>
+      </div>
+    </div>
+
+    <div id="save-manager-overlay" class="modal-overlay save-manager-overlay" hidden>
+      <div class="save-manager-modal" role="dialog" aria-modal="true" aria-labelledby="save-manager-title">
+        <div class="action-sheet-header">
+          <div>
+            <strong id="save-manager-title">Game — Saves</strong>
+            <span>Normal in-game save data</span>
+          </div>
+          <button id="save-manager-close" class="icon-button" type="button" aria-label="Close save manager">×</button>
+        </div>
+
+        <p id="save-source-status" class="settings-note"></p>
+
+        <div class="save-manager-toolbar">
+          <button id="save-create-backup" class="primary-button compact-button" type="button">＋ Create Backup</button>
+          <button id="save-import-backup" class="secondary-button compact-button" type="button">Import Backup</button>
+        </div>
+
+        <input id="save-import-input" type="file" accept=".json,.wipisave.json,application/json" hidden />
+
+        <div class="save-backup-section">
+          <div class="save-section-heading">
+            <strong>Local Backups</strong>
+            <span>Stored inside WIPI Player</span>
+          </div>
+          <p id="save-backup-empty" class="save-backup-empty">No backups yet.</p>
+          <div id="save-backup-list" class="save-backup-list"></div>
+        </div>
+
+        <div class="save-danger-zone">
+          <strong>Current Save Data</strong>
+          <p class="settings-note">Erase only the game's current save. Backups listed above are kept.</p>
+          <button id="save-erase-current" class="secondary-button danger-button" type="button">Erase Current In-Game Save</button>
+        </div>
+
+        <p class="settings-note save-manager-note">This manages the game's native WIE/J2ME save storage. Full emulator freeze-state snapshots are a separate future feature.</p>
       </div>
     </div>
 

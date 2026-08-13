@@ -8,6 +8,25 @@ import {
   GameRecord,
   gameIdForArchive,
 } from "./game_library";
+import {
+  CONTROL_KEYS,
+  ControlKey,
+  ControlPadName,
+  controlPresetLayout,
+  defaultControlLayout,
+} from "./control_layout";
+import {
+  createSaveBackup,
+  deleteSaveBackup,
+  eraseGameSaveData,
+  exportSaveBackup,
+  hasSaveSources,
+  listSaveBackups,
+  parseImportedSaveBackup,
+  restoreSaveBackup,
+  SaveBackup,
+  storeImportedSaveBackup,
+} from "./save_manager";
 
 installDebugLogging();
 
@@ -43,6 +62,9 @@ let animationFrame: number | undefined;
 let activeActionGameId: string | undefined;
 let pendingCoverGameId: string | undefined;
 let renderedCoverUrls: string[] = [];
+let controlEditing = false;
+let selectedControlPad: ControlPadName = "direction";
+let saveManagerGameId: string | undefined;
 
 const element = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -145,6 +167,7 @@ const applyGameDisplaySettings = (game: GameRecord, requestDeviceRotation = fals
     game.settings.orientation === "portrait" ? "Switch to landscape" : "Switch to portrait"
   );
 
+  applyControlSettings(game);
   forcePlayerLayoutRefresh();
   debugLog(
     "DISPLAY",
@@ -167,6 +190,133 @@ const applyGameDisplaySettings = (game: GameRecord, requestDeviceRotation = fals
 const saveCurrentGameSettings = async () => {
   if (!currentGame) return;
   await library.put(currentGame);
+};
+
+const currentControlLayout = () => {
+  if (!currentGame) return undefined;
+  return currentGame.settings.controlLayouts[currentGame.settings.orientation];
+};
+
+const applyControlSettings = (game: GameRecord) => {
+  const player = element("player-view");
+  const layout = game.settings.controlLayouts[game.settings.orientation];
+  player.dataset.controls = game.settings.controlPreset;
+
+  const direction = document.querySelector<HTMLElement>(".direction-pad");
+  const number = document.querySelector<HTMLElement>(".number-pad");
+  if (!direction || !number) return;
+
+  const applyPad = (pad: HTMLElement, name: ControlPadName) => {
+    const setting = layout[name];
+    pad.style.setProperty("--control-x", `${setting.x}%`);
+    pad.style.setProperty("--control-y", `${setting.y}%`);
+    pad.style.setProperty("--control-scale", String(setting.scale));
+    pad.style.setProperty("--control-gap", `${setting.gap}px`);
+  };
+
+  applyPad(direction, "direction");
+  applyPad(number, "number");
+  player.style.setProperty("--control-opacity", String(layout.opacity));
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-key]")) {
+    const key = button.dataset.key as ControlKey | undefined;
+    button.hidden = !!key && layout.hiddenKeys.includes(key);
+  }
+
+  updateControlEditorUi();
+  schedulePlayerLayoutRefresh("controls-apply");
+};
+
+const ensureCustomControls = () => {
+  if (!currentGame) return;
+  if (currentGame.settings.controlPreset === "custom") return;
+  currentGame.settings.controlPreset = "custom";
+  currentGame.settings.controlLayouts.portrait = defaultControlLayout("portrait");
+  currentGame.settings.controlLayouts.landscape = defaultControlLayout("landscape");
+};
+
+const setSelectedControlPad = (pad: ControlPadName) => {
+  selectedControlPad = pad;
+  element("control-pad-direction").classList.toggle("active", pad === "direction");
+  element("control-pad-number").classList.toggle("active", pad === "number");
+  document.querySelector(".direction-pad")?.classList.toggle("control-selected", pad === "direction");
+  document.querySelector(".number-pad")?.classList.toggle("control-selected", pad === "number");
+  updateControlEditorUi();
+};
+
+const updateControlEditorUi = () => {
+  if (!currentGame) return;
+  const layout = currentControlLayout();
+  if (!layout) return;
+
+  const pad = layout[selectedControlPad];
+  const size = document.getElementById("control-size") as HTMLInputElement | null;
+  const gap = document.getElementById("control-gap") as HTMLInputElement | null;
+  const opacity = document.getElementById("control-opacity") as HTMLInputElement | null;
+  const orientation = document.getElementById("control-editor-orientation");
+  const sizeValue = document.getElementById("control-size-value");
+  const gapValue = document.getElementById("control-gap-value");
+  const opacityValue = document.getElementById("control-opacity-value");
+
+  if (size) size.value = String(Math.round(pad.scale * 100));
+  if (gap) gap.value = String(Math.round(pad.gap));
+  if (opacity) opacity.value = String(Math.round(layout.opacity * 100));
+  if (orientation) orientation.textContent = currentGame.settings.orientation === "portrait" ? "Portrait layout" : "Landscape layout";
+  if (sizeValue) sizeValue.textContent = `${Math.round(pad.scale * 100)}%`;
+  if (gapValue) gapValue.textContent = `${Math.round(pad.gap)} px`;
+  if (opacityValue) opacityValue.textContent = `${Math.round(layout.opacity * 100)}%`;
+
+  for (const input of document.querySelectorAll<HTMLInputElement>("input[data-control-key]")) {
+    const key = input.dataset.controlKey as ControlKey;
+    input.checked = !layout.hiddenKeys.includes(key);
+  }
+};
+
+const openControlEditor = async () => {
+  if (!currentGame) return;
+  ensureCustomControls();
+  controlEditing = true;
+  element("player-view").classList.add("control-editing");
+  element("control-editor").hidden = false;
+  element("settings-panel").classList.remove("visible");
+  element("settings-panel").setAttribute("aria-hidden", "true");
+  setSelectedControlPad("direction");
+  applyControlSettings(currentGame);
+  debugLog("CONTROLS", `editor opened orientation=${currentGame.settings.orientation}`);
+  await saveCurrentGameSettings();
+};
+
+const closeControlEditor = async () => {
+  controlEditing = false;
+  element("player-view").classList.remove("control-editing");
+  element("control-editor").hidden = true;
+  document.querySelector(".direction-pad")?.classList.remove("control-selected");
+  document.querySelector(".number-pad")?.classList.remove("control-selected");
+  debugLog("CONTROLS", "editor closed");
+  await saveCurrentGameSettings();
+};
+
+const applyControlStarter = async (preset: "classic" | "spacious" | "compact") => {
+  if (!currentGame) return;
+  currentGame.settings.controlPreset = "custom";
+  currentGame.settings.controlLayouts[currentGame.settings.orientation] = controlPresetLayout(
+    currentGame.settings.orientation,
+    preset
+  );
+  applyControlSettings(currentGame);
+  debugLog("CONTROLS", `starter=${preset} orientation=${currentGame.settings.orientation}`);
+  await saveCurrentGameSettings();
+};
+
+const resetControlsForOrientation = async () => {
+  if (!currentGame) return;
+  currentGame.settings.controlPreset = "custom";
+  currentGame.settings.controlLayouts[currentGame.settings.orientation] = defaultControlLayout(
+    currentGame.settings.orientation
+  );
+  applyControlSettings(currentGame);
+  debugLog("CONTROLS", `reset orientation=${currentGame.settings.orientation}`);
+  await saveCurrentGameSettings();
 };
 
 const showTutorial = () => {
@@ -300,6 +450,7 @@ const importGame = async (file: File) => {
     archive: data,
     createdAt: Date.now(),
     settings: defaultGameSettings(),
+    saveSources: { databases: [], filesystemAids: [] },
   };
 
   await library.put(game);
@@ -308,6 +459,10 @@ const importGame = async (file: File) => {
 };
 
 const stopCurrentGame = () => {
+  controlEditing = false;
+  document.getElementById("player-view")?.classList.remove("control-editing");
+  const controlEditor = document.getElementById("control-editor");
+  if (controlEditor) controlEditor.hidden = true;
   if (animationFrame !== undefined) {
     cancelAnimationFrame(animationFrame);
     animationFrame = undefined;
@@ -430,6 +585,21 @@ const initGameActions = () => {
     element("settings-panel").setAttribute("aria-hidden", "false");
   });
 
+  element("action-controls").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    closeGameActions();
+    await launchGame(id);
+    await openControlEditor();
+  });
+
+  element("action-saves").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    closeGameActions();
+    await openSaveManager(id);
+  });
+
   element("action-rename").addEventListener("click", async () => {
     const id = activeActionGameId;
     if (!id) return;
@@ -511,6 +681,7 @@ const initInput = () => {
   for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-key]")) {
     const release = (event: Event) => {
       event.preventDefault();
+      if (controlEditing) return;
       const key = button.dataset.key;
       button.classList.remove("is-pressed");
       if (key && currentEmulator) currentEmulator.key_up(key);
@@ -518,6 +689,7 @@ const initInput = () => {
 
     button.addEventListener("pointerdown", (event) => {
       event.preventDefault();
+      if (controlEditing) return;
       const key = button.dataset.key;
       button.classList.add("is-pressed");
       try {
@@ -534,16 +706,356 @@ const initInput = () => {
 
   document.addEventListener("keydown", (event) => {
     const key = keyMap[event.code];
-    if (!key || !currentEmulator) return;
+    if (controlEditing || !key || !currentEmulator) return;
     event.preventDefault();
     currentEmulator.key_down(key);
   });
 
   document.addEventListener("keyup", (event) => {
     const key = keyMap[event.code];
-    if (!key || !currentEmulator) return;
+    if (controlEditing || !key || !currentEmulator) return;
     event.preventDefault();
     currentEmulator.key_up(key);
+  });
+};
+
+
+const initControlEditor = () => {
+  const direction = document.querySelector<HTMLElement>(".direction-pad");
+  const number = document.querySelector<HTMLElement>(".number-pad");
+  if (!direction || !number) return;
+
+  const beginDrag = (padName: ControlPadName, padElement: HTMLElement, event: PointerEvent) => {
+    if (!controlEditing || !currentGame) return;
+    event.preventDefault();
+    setSelectedControlPad(padName);
+
+    try {
+      padElement.setPointerCapture(event.pointerId);
+    } catch {
+      // Optional in embedded WebKit.
+    }
+
+    const move = (moveEvent: PointerEvent) => {
+      if (!controlEditing || !currentGame) return;
+      const content = document.querySelector<HTMLElement>("#player-view .player-content");
+      if (!content) return;
+      const rect = content.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+
+      const x = Math.min(96, Math.max(4, ((moveEvent.clientX - rect.left) / rect.width) * 100));
+      const y = Math.min(94, Math.max(6, ((moveEvent.clientY - rect.top) / rect.height) * 100));
+      const layout = currentControlLayout();
+      if (!layout) return;
+      layout[padName].x = x;
+      layout[padName].y = y;
+      applyControlSettings(currentGame);
+    };
+
+    const finish = () => {
+      padElement.removeEventListener("pointermove", move);
+      padElement.removeEventListener("pointerup", finish);
+      padElement.removeEventListener("pointercancel", finish);
+      if (currentGame) {
+        debugLog("CONTROLS", `drag ${padName}`, currentGame.settings.orientation, currentControlLayout()?.[padName]);
+        void saveCurrentGameSettings();
+      }
+    };
+
+    padElement.addEventListener("pointermove", move);
+    padElement.addEventListener("pointerup", finish, { once: true });
+    padElement.addEventListener("pointercancel", finish, { once: true });
+  };
+
+  direction.addEventListener("pointerdown", (event) => beginDrag("direction", direction, event));
+  number.addEventListener("pointerdown", (event) => beginDrag("number", number, event));
+
+  element("control-pad-direction").addEventListener("click", () => setSelectedControlPad("direction"));
+  element("control-pad-number").addEventListener("click", () => setSelectedControlPad("number"));
+  element("control-editor-done").addEventListener("click", () => void closeControlEditor());
+
+  element("control-preset-classic").addEventListener("click", () => void applyControlStarter("classic"));
+  element("control-preset-spacious").addEventListener("click", () => void applyControlStarter("spacious"));
+  element("control-preset-compact").addEventListener("click", () => void applyControlStarter("compact"));
+  element("control-reset").addEventListener("click", () => void resetControlsForOrientation());
+
+  const size = element<HTMLInputElement>("control-size");
+  const gap = element<HTMLInputElement>("control-gap");
+  const opacity = element<HTMLInputElement>("control-opacity");
+
+  size.addEventListener("input", () => {
+    if (!currentGame) return;
+    ensureCustomControls();
+    const layout = currentControlLayout();
+    if (!layout) return;
+    layout[selectedControlPad].scale = Number(size.value) / 100;
+    applyControlSettings(currentGame);
+  });
+  size.addEventListener("change", () => void saveCurrentGameSettings());
+
+  gap.addEventListener("input", () => {
+    if (!currentGame) return;
+    ensureCustomControls();
+    const layout = currentControlLayout();
+    if (!layout) return;
+    layout[selectedControlPad].gap = Number(gap.value);
+    applyControlSettings(currentGame);
+  });
+  gap.addEventListener("change", () => void saveCurrentGameSettings());
+
+  opacity.addEventListener("input", () => {
+    if (!currentGame) return;
+    ensureCustomControls();
+    const layout = currentControlLayout();
+    if (!layout) return;
+    layout.opacity = Number(opacity.value) / 100;
+    applyControlSettings(currentGame);
+  });
+  opacity.addEventListener("change", () => void saveCurrentGameSettings());
+
+  const visibility = element("control-key-visibility");
+  for (const key of CONTROL_KEYS) {
+    const label = document.createElement("label");
+    label.className = "control-key-toggle";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.dataset.controlKey = key;
+    input.checked = true;
+    input.addEventListener("change", () => {
+      if (!currentGame) return;
+      ensureCustomControls();
+      const layout = currentControlLayout();
+      if (!layout) return;
+      const hidden = new Set(layout.hiddenKeys);
+      if (input.checked) hidden.delete(key);
+      else hidden.add(key);
+      layout.hiddenKeys = Array.from(hidden);
+      applyControlSettings(currentGame);
+      debugLog("CONTROLS", `key ${key} visible=${input.checked}`, currentGame.settings.orientation);
+      void saveCurrentGameSettings();
+    });
+    const text = document.createElement("span");
+    text.textContent = key;
+    label.append(input, text);
+    visibility.append(label);
+  }
+};
+
+
+const formatBackupDate = (timestamp: number): string =>
+  new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+
+const updateSaveSourceStatus = (game: GameRecord) => {
+  const databases = game.saveSources.databases.length;
+  const filesystem = game.saveSources.filesystemAids.length;
+  const status = element("save-source-status");
+  if (!hasSaveSources(game.saveSources)) {
+    status.textContent = "No WIE save storage has been detected yet. Launch the game and reach/use its normal in-game save feature first.";
+  } else {
+    const parts = [];
+    if (databases) parts.push(`${databases} record database${databases === 1 ? "" : "s"}`);
+    if (filesystem) parts.push(`${filesystem} filesystem namespace${filesystem === 1 ? "" : "s"}`);
+    status.textContent = `Detected: ${parts.join(" + ")}.`;
+  }
+};
+
+const renderSaveBackups = async (game: GameRecord) => {
+  updateSaveSourceStatus(game);
+  const list = element("save-backup-list");
+  const empty = element("save-backup-empty");
+  const backups = await listSaveBackups(game.id);
+  list.replaceChildren();
+  empty.hidden = backups.length !== 0;
+
+  for (const backup of backups) {
+    const row = document.createElement("article");
+    row.className = "save-backup-row";
+
+    const meta = document.createElement("div");
+    meta.className = "save-backup-meta";
+    const title = document.createElement("strong");
+    title.textContent = formatBackupDate(backup.createdAt);
+    const detail = document.createElement("span");
+    const entryCount = backup.databases.reduce(
+      (count, db) => count + db.stores.reduce((subtotal, store) => subtotal + store.entries.length, 0),
+      0
+    );
+    detail.textContent = `${entryCount} saved record${entryCount === 1 ? "" : "s"}`;
+    meta.append(title, detail);
+
+    const actions = document.createElement("div");
+    actions.className = "save-backup-actions";
+
+    const restore = document.createElement("button");
+    restore.type = "button";
+    restore.textContent = "Restore";
+    restore.addEventListener("click", () => void restoreBackupForGame(game, backup));
+
+    const exportButton = document.createElement("button");
+    exportButton.type = "button";
+    exportButton.textContent = "Export";
+    exportButton.addEventListener("click", () => {
+      void exportSaveBackup(backup).catch((error) => {
+        console.error("Save export failed", error);
+        window.alert(`Could not export this save backup: ${String(error)}`);
+      });
+    });
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "danger-button";
+    remove.textContent = "Delete";
+    remove.addEventListener("click", async () => {
+      if (!window.confirm("Delete this backup from WIPI Player? This does not erase the game's current in-game save.")) return;
+      await deleteSaveBackup(backup.id);
+      debugLog("SAVE", `backup deleted game=${game.name}`, `backup=${backup.id}`);
+      await renderSaveBackups(game);
+    });
+
+    actions.append(restore, exportButton, remove);
+    row.append(meta, actions);
+    list.append(row);
+  }
+};
+
+const openSaveManager = async (gameId: string) => {
+  const game = await library.get(gameId);
+  if (!game) return;
+  saveManagerGameId = gameId;
+  element("save-manager-title").textContent = `${game.name} — Saves`;
+  element("save-manager-overlay").hidden = false;
+  await renderSaveBackups(game);
+  debugLog("SAVE", `manager opened game=${game.name}`, game.saveSources);
+};
+
+const closeSaveManager = () => {
+  saveManagerGameId = undefined;
+  element("save-manager-overlay").hidden = true;
+};
+
+const createBackupForGame = async (game: GameRecord) => {
+  if (!hasSaveSources(game.saveSources)) {
+    window.alert("No save storage has been detected for this game yet. Launch it and use its normal in-game save function first, then try again.");
+    return;
+  }
+  const backup = await createSaveBackup(game.id, game.name, game.saveSources);
+  debugLog("SAVE", `backup created game=${game.name}`, `backup=${backup.id}`);
+  await renderSaveBackups(game);
+};
+
+const restoreBackupForGame = async (game: GameRecord, backup: SaveBackup) => {
+  if (!window.confirm(`Restore the backup from ${formatBackupDate(backup.createdAt)}?\n\nThis replaces the game's current in-game save data.`)) return;
+  const wasRunning = currentGame?.id === game.id;
+  if (wasRunning) stopCurrentGame();
+  await restoreSaveBackup(backup);
+  debugLog("SAVE", `backup restored game=${game.name}`, `backup=${backup.id}`);
+  window.alert("Save backup restored. The game will use it the next time it starts.");
+  if (wasRunning) {
+    closeSaveManager();
+    await launchGame(game.id);
+  } else {
+    await renderSaveBackups(game);
+  }
+};
+
+const eraseSavesForGame = async (game: GameRecord) => {
+  if (!hasSaveSources(game.saveSources)) {
+    window.alert("No save storage has been detected for this game.");
+    return;
+  }
+  const confirmed = window.confirm(
+    `Erase ${game.name}'s current in-game save data?\n\nLibrary backups are kept, so you can restore one later. This cannot otherwise be undone.`
+  );
+  if (!confirmed) return;
+  const wasRunning = currentGame?.id === game.id;
+  if (wasRunning) stopCurrentGame();
+  await eraseGameSaveData(game.saveSources);
+  debugLog("SAVE", `current save erased game=${game.name}`);
+  window.alert("Current in-game save data was erased. Existing WIPI Player backups were kept.");
+  if (wasRunning) {
+    closeSaveManager();
+    await launchGame(game.id);
+  } else {
+    await renderSaveBackups(game);
+  }
+};
+
+const initSaveManagement = () => {
+  window.addEventListener("wie-save-storage-access", (rawEvent) => {
+    if (!currentGame) return;
+    const event = rawEvent as CustomEvent<{ dbName?: string; key?: IDBValidKey }>;
+    const dbName = event.detail?.dbName;
+    if (!dbName) return;
+
+    let changed = false;
+    if (dbName === "wie_filesystem") {
+      const key = event.detail.key;
+      if (Array.isArray(key) && typeof key[0] === "string" && !currentGame.saveSources.filesystemAids.includes(key[0])) {
+        currentGame.saveSources.filesystemAids.push(key[0]);
+        changed = true;
+      }
+    } else if (dbName.startsWith("wie_") && !currentGame.saveSources.databases.includes(dbName)) {
+      currentGame.saveSources.databases.push(dbName);
+      changed = true;
+    }
+
+    if (changed) {
+      debugLog("SAVE", `storage associated game=${currentGame.name}`, currentGame.saveSources);
+      void library.put(currentGame);
+    }
+  });
+
+  element("save-manager-close").addEventListener("click", closeSaveManager);
+  element("save-manager-overlay").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeSaveManager();
+  });
+
+  element("save-create-backup").addEventListener("click", async () => {
+    const game = saveManagerGameId ? await library.get(saveManagerGameId) : undefined;
+    if (!game) return;
+    try {
+      await createBackupForGame(game);
+    } catch (error) {
+      console.error("Save backup failed", error);
+      window.alert(`Could not create a save backup: ${String(error)}`);
+    }
+  });
+
+  element("save-import-backup").addEventListener("click", () => element<HTMLInputElement>("save-import-input").click());
+  element<HTMLInputElement>("save-import-input").addEventListener("change", async (event) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = "";
+    if (!file || !saveManagerGameId) return;
+    const game = await library.get(saveManagerGameId);
+    if (!game) return;
+    try {
+      const parsed = await parseImportedSaveBackup(file);
+      if (parsed.gameId !== game.id && !window.confirm(`This backup was created for “${parsed.gameName}”, not “${game.name}”. Import it anyway?`)) return;
+      const imported = await storeImportedSaveBackup(parsed, game.id, game.name);
+      debugLog("SAVE", `backup imported game=${game.name}`, `backup=${imported.id}`);
+      await renderSaveBackups(game);
+    } catch (error) {
+      console.error("Save import failed", error);
+      window.alert(`Could not import this save backup: ${String(error)}`);
+    }
+  });
+
+  element("save-erase-current").addEventListener("click", async () => {
+    const game = saveManagerGameId ? await library.get(saveManagerGameId) : undefined;
+    if (!game) return;
+    try {
+      await eraseSavesForGame(game);
+    } catch (error) {
+      console.error("Save erase failed", error);
+      window.alert(`Could not erase this game's save data: ${String(error)}`);
+    }
   });
 };
 
@@ -563,6 +1075,11 @@ const initPlayerChrome = () => {
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
     togglePanel();
+  });
+
+  element("customize-controls").addEventListener("click", () => void openControlEditor());
+  element("manage-saves").addEventListener("click", () => {
+    if (currentGame) void openSaveManager(currentGame.id);
   });
 
   element("rotate-screen").addEventListener("click", async (event) => {
@@ -644,6 +1161,8 @@ const main = async () => {
   initFileImport();
   initGameActions();
   initInput();
+  initControlEditor();
+  initSaveManagement();
   initPlayerChrome();
   await renderLibrary();
 };

@@ -7,6 +7,15 @@ export class IndexedDBStore {
     this.store_name = store_name;
   }
 
+  private notifyStorageAccess(key?: IDBValidKey): void {
+    if (!this.db.name.startsWith("wie_")) return;
+    window.dispatchEvent(
+      new CustomEvent("wie-save-storage-access", {
+        detail: { dbName: this.db.name, storeName: this.store_name, key },
+      })
+    );
+  }
+
   public static open(db_name: string, store_name: string): Promise<IndexedDBStore> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(db_name);
@@ -19,7 +28,12 @@ export class IndexedDBStore {
       };
 
       request.onsuccess = (event) => {
-        resolve(new IndexedDBStore((event.target as IDBOpenDBRequest).result, store_name));
+        const db = (event.target as IDBOpenDBRequest).result;
+        const store = new IndexedDBStore(db, store_name);
+        if (db_name.startsWith("wie_") && db_name !== "wie_filesystem") {
+          store.notifyStorageAccess();
+        }
+        resolve(store);
       };
 
       request.onerror = (event) => {
@@ -45,6 +59,7 @@ export class IndexedDBStore {
   }
 
   public get(key: IDBValidKey): Promise<Uint8Array | undefined> {
+    this.notifyStorageAccess(key);
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(this.store_name, "readonly");
       const store = transaction.objectStore(this.store_name);
@@ -61,6 +76,7 @@ export class IndexedDBStore {
   }
 
   public set(key: IDBValidKey, data: Uint8Array): Promise<void> {
+    this.notifyStorageAccess(key);
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(this.store_name, "readwrite");
       const store = transaction.objectStore(this.store_name);
@@ -77,6 +93,7 @@ export class IndexedDBStore {
   }
 
   public delete(key: IDBValidKey): Promise<void> {
+    this.notifyStorageAccess(key);
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(this.store_name, "readwrite");
       const store = transaction.objectStore(this.store_name);
