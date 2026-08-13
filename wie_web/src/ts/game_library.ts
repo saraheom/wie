@@ -1,5 +1,5 @@
 export type GameOrientation = "portrait" | "landscape";
-export type GameDisplayMode = "fit" | "native" | "large";
+export type GameDisplayMode = "native" | "compact" | "fit" | "large" | "max";
 export type GameControlPreset = "classic";
 
 export interface GameSettings {
@@ -45,6 +45,36 @@ const transactionDone = (transaction: IDBTransaction): Promise<void> =>
     transaction.onabort = () => reject(transaction.error);
   });
 
+export const defaultGameSettings = (): GameSettings => ({
+  orientation: "portrait",
+  displayMode: "fit",
+  controlPreset: "classic",
+});
+
+const normalizeSettings = (settings?: Partial<GameSettings>): GameSettings => {
+  const defaults = defaultGameSettings();
+  const orientation =
+    settings?.orientation === "landscape" || settings?.orientation === "portrait"
+      ? settings.orientation
+      : defaults.orientation;
+
+  const validDisplayModes: GameDisplayMode[] = ["native", "compact", "fit", "large", "max"];
+  const displayMode = validDisplayModes.includes(settings?.displayMode as GameDisplayMode)
+    ? (settings?.displayMode as GameDisplayMode)
+    : defaults.displayMode;
+
+  return {
+    orientation,
+    displayMode,
+    controlPreset: "classic",
+  };
+};
+
+const normalizeGame = (game: GameRecord): GameRecord => ({
+  ...game,
+  settings: normalizeSettings(game.settings),
+});
+
 export class GameLibrary {
   private constructor(private readonly db: IDBDatabase) {}
 
@@ -58,11 +88,13 @@ export class GameLibrary {
       const request = transaction.objectStore(STORE_NAME).getAll();
 
       request.onsuccess = () => {
-        const games = (request.result as GameRecord[]).sort((a, b) => {
-          const aTime = a.lastPlayedAt ?? a.createdAt;
-          const bTime = b.lastPlayedAt ?? b.createdAt;
-          return bTime - aTime;
-        });
+        const games = (request.result as GameRecord[])
+          .map(normalizeGame)
+          .sort((a, b) => {
+            const aTime = a.lastPlayedAt ?? a.createdAt;
+            const bTime = b.lastPlayedAt ?? b.createdAt;
+            return bTime - aTime;
+          });
         resolve(games);
       };
       request.onerror = () => reject(request.error);
@@ -73,14 +105,17 @@ export class GameLibrary {
     return new Promise((resolve, reject) => {
       const transaction = this.db.transaction(STORE_NAME, "readonly");
       const request = transaction.objectStore(STORE_NAME).get(id);
-      request.onsuccess = () => resolve(request.result as GameRecord | undefined);
+      request.onsuccess = () => {
+        const result = request.result as GameRecord | undefined;
+        resolve(result ? normalizeGame(result) : undefined);
+      };
       request.onerror = () => reject(request.error);
     });
   }
 
   public async put(game: GameRecord): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(game);
+    transaction.objectStore(STORE_NAME).put(normalizeGame(game));
     await transactionDone(transaction);
   }
 
@@ -91,19 +126,12 @@ export class GameLibrary {
   }
 }
 
-export const defaultGameSettings = (): GameSettings => ({
-  orientation: "portrait",
-  displayMode: "fit",
-  controlPreset: "classic",
-});
-
 export const gameIdForArchive = async (data: ArrayBuffer): Promise<string> => {
   if (crypto?.subtle) {
     const digest = await crypto.subtle.digest("SHA-256", data);
     return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
-  // Fallback for embedded WebViews where SubtleCrypto is unavailable.
   let hash = 2166136261;
   for (const byte of new Uint8Array(data)) {
     hash ^= byte;

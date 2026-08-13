@@ -47,13 +47,38 @@
             <strong id="player-title">Game</strong>
             <span id="player-file-name"></span>
           </div>
+          <button id="rotate-screen" class="icon-button" type="button" aria-label="Rotate game layout" title="Rotate">↻</button>
           <button id="settings-toggle" class="icon-button" type="button" aria-label="Settings">⚙</button>
         </header>
 
         <div id="settings-panel" class="settings-panel" aria-hidden="true">
-          <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
-          <label>🔊 Effects <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
-          <p class="settings-note">Display and control layout options are added in the next UI phase.</p>
+          <div class="settings-section">
+            <strong>Display</strong>
+            <label class="setting-row">
+              <span>Orientation</span>
+              <select id="game-orientation">
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+              </select>
+            </label>
+            <label class="setting-row">
+              <span>Screen size</span>
+              <select id="game-display-mode">
+                <option value="native">Original 240 × 320</option>
+                <option value="compact">Compact</option>
+                <option value="fit">Fit</option>
+                <option value="large">Large</option>
+                <option value="max">Maximum</option>
+              </select>
+            </label>
+            <p class="settings-note">Screen size changes presentation only. The game's internal WIPI framebuffer remains unchanged.</p>
+          </div>
+          <div class="settings-section">
+            <strong>Audio</strong>
+            <label>🎵 MIDI <input type="range" id="volume-midi" min="0" max="100" value="50" /></label>
+            <label>🔊 Effects <input type="range" id="volume-pcm" min="0" max="100" value="50" /></label>
+          </div>
+          <p id="orientation-status" class="settings-note"></p>
         </div>
 
         <main class="player-content">
@@ -101,6 +126,7 @@
           <button id="close-game-actions" class="icon-button" type="button" aria-label="Close">×</button>
         </div>
         <button id="action-play" type="button">▶ Play</button>
+        <button id="action-display" type="button">▣ Display Settings</button>
         <button id="action-cover" type="button">🖼 Change Cover</button>
         <button id="action-rename" type="button">✎ Rename</button>
         <button id="action-delete" class="danger-action" type="button">Delete from Library</button>

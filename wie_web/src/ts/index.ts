@@ -47,6 +47,80 @@ const element = <T extends HTMLElement>(id: string): T => {
   return found as T;
 };
 
+type OrientationLockType = "portrait-primary" | "landscape-primary";
+
+const setOrientationStatus = (message: string) => {
+  const status = document.getElementById("orientation-status");
+  if (status) status.textContent = message;
+};
+
+const requestOrientation = async (orientation: "portrait" | "landscape") => {
+  const screenOrientation = screen.orientation as ScreenOrientation & {
+    lock?: (orientation: OrientationLockType) => Promise<void>;
+    unlock?: () => void;
+  };
+
+  if (!screenOrientation?.lock) {
+    setOrientationStatus("The game layout changed. Physical orientation locking is not available on this platform.");
+    return;
+  }
+
+  try {
+    await screenOrientation.lock(
+      orientation === "landscape" ? "landscape-primary" : "portrait-primary"
+    );
+    setOrientationStatus(
+      orientation === "landscape"
+        ? "Landscape mode is active for this game."
+        : "Portrait mode is active for this game."
+    );
+  } catch (error) {
+    console.warn("Could not lock device orientation", error);
+    setOrientationStatus(
+      "The game layout changed, but iOS did not rotate automatically. Rotate the phone manually if needed."
+    );
+  }
+};
+
+const unlockOrientation = () => {
+  const screenOrientation = screen.orientation as ScreenOrientation & {
+    unlock?: () => void;
+  };
+  try {
+    screenOrientation?.unlock?.();
+  } catch (error) {
+    console.warn("Could not unlock orientation", error);
+  }
+};
+
+const applyGameDisplaySettings = (game: GameRecord, requestDeviceRotation = false) => {
+  const player = element("player-view");
+  player.dataset.orientation = game.settings.orientation;
+  player.dataset.displayMode = game.settings.displayMode;
+
+  element<HTMLSelectElement>("game-orientation").value = game.settings.orientation;
+  element<HTMLSelectElement>("game-display-mode").value = game.settings.displayMode;
+
+  element("rotate-screen").textContent = game.settings.orientation === "portrait" ? "↻" : "↺";
+  element("rotate-screen").setAttribute(
+    "aria-label",
+    game.settings.orientation === "portrait" ? "Switch to landscape" : "Switch to portrait"
+  );
+
+  if (requestDeviceRotation) {
+    void requestOrientation(game.settings.orientation);
+  } else {
+    setOrientationStatus(
+      game.settings.orientation === "landscape" ? "Landscape layout" : "Portrait layout"
+    );
+  }
+};
+
+const saveCurrentGameSettings = async () => {
+  if (!currentGame) return;
+  await library.put(currentGame);
+};
+
 const showTutorial = () => {
   element("tutorial-overlay").hidden = false;
 };
@@ -236,6 +310,7 @@ const launchGame = async (id: string) => {
   element("player-title").textContent = game.name;
   element("player-file-name").textContent = game.fileName;
   element("loading-game").hidden = false;
+  applyGameDisplaySettings(game, true);
 
   const canvas = element<HTMLCanvasElement>("canvas");
   const context = canvas.getContext("2d");
@@ -262,6 +337,7 @@ const launchGame = async (id: string) => {
 
 const showLibrary = async () => {
   stopCurrentGame();
+  unlockOrientation();
   element("settings-panel").classList.remove("visible");
   element("player-view").hidden = true;
   element("library-view").hidden = false;
@@ -290,6 +366,15 @@ const initGameActions = () => {
     const id = activeActionGameId;
     closeGameActions();
     if (id) void launchGame(id);
+  });
+
+  element("action-display").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    closeGameActions();
+    await launchGame(id);
+    element("settings-panel").classList.add("visible");
+    element("settings-panel").setAttribute("aria-hidden", "false");
   });
 
   element("action-rename").addEventListener("click", async () => {
@@ -414,11 +499,47 @@ const initPlayerChrome = () => {
 
   const toggle = element("settings-toggle");
   const panel = element("settings-panel");
+  const orientationSelect = element<HTMLSelectElement>("game-orientation");
+  const displayModeSelect = element<HTMLSelectElement>("game-display-mode");
+
+  const togglePanel = () => {
+    panel.classList.toggle("visible");
+    panel.setAttribute("aria-hidden", panel.classList.contains("visible") ? "false" : "true");
+  };
 
   toggle.addEventListener("click", (event) => {
     event.stopPropagation();
-    panel.classList.toggle("visible");
-    panel.setAttribute("aria-hidden", panel.classList.contains("visible") ? "false" : "true");
+    togglePanel();
+  });
+
+  element("rotate-screen").addEventListener("click", async (event) => {
+    event.stopPropagation();
+    if (!currentGame) return;
+
+    currentGame.settings.orientation =
+      currentGame.settings.orientation === "portrait" ? "landscape" : "portrait";
+    applyGameDisplaySettings(currentGame, true);
+    await saveCurrentGameSettings();
+  });
+
+  orientationSelect.addEventListener("change", async () => {
+    if (!currentGame) return;
+
+    currentGame.settings.orientation =
+      orientationSelect.value === "landscape" ? "landscape" : "portrait";
+    applyGameDisplaySettings(currentGame, true);
+    await saveCurrentGameSettings();
+  });
+
+  displayModeSelect.addEventListener("change", async () => {
+    if (!currentGame) return;
+
+    const mode = displayModeSelect.value;
+    if (mode === "native" || mode === "compact" || mode === "fit" || mode === "large" || mode === "max") {
+      currentGame.settings.displayMode = mode;
+      applyGameDisplaySettings(currentGame);
+      await saveCurrentGameSettings();
+    }
   });
 
   document.addEventListener("click", (event) => {

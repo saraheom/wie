@@ -587,3 +587,194 @@ button {
     grid-template-rows: repeat(4, 34px);
   }
 }
+
+
+/* -------------------------------------------------------------------------- */
+/* Phase 2: per-game orientation and display sizing                            */
+/* -------------------------------------------------------------------------- */
+
+select {
+  font: inherit;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-section:last-of-type {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settings-section > strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.setting-row {
+  justify-content: space-between;
+}
+
+.setting-row > span {
+  flex: 0 0 auto;
+}
+
+.setting-row select {
+  min-width: 150px;
+  max-width: 62%;
+  height: 36px;
+  padding: 0 30px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: #252932;
+  color: var(--text);
+}
+
+.player-view[data-display-mode="native"] .canvas-wrapper {
+  width: 240px;
+}
+
+.player-view[data-display-mode="compact"] .canvas-wrapper {
+  width: min(
+    72vw,
+    calc((100dvh - var(--safe-top) - var(--safe-bottom) - 285px) * 0.75),
+    300px
+  );
+}
+
+.player-view[data-display-mode="fit"] .canvas-wrapper {
+  width: min(
+    100vw,
+    calc((100dvh - var(--safe-top) - var(--safe-bottom) - 260px) * 0.75),
+    480px
+  );
+}
+
+.player-view[data-display-mode="large"] .canvas-wrapper {
+  width: min(
+    88vw,
+    calc((100dvh - var(--safe-top) - var(--safe-bottom) - 225px) * 0.75),
+    520px
+  );
+}
+
+.player-view[data-display-mode="max"] .player-content {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.player-view[data-display-mode="max"] .canvas-wrapper {
+  width: min(96vw, 560px);
+  flex-shrink: 0;
+}
+
+/* Landscape player layout: D-pad / game / number pad. */
+.player-view[data-orientation="landscape"] .player-toolbar {
+  min-height: 50px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.player-view[data-orientation="landscape"] .player-content {
+  display: grid;
+  grid-template-columns: minmax(168px, 1fr) auto minmax(168px, 1fr);
+  grid-template-rows: 1fr;
+  align-items: center;
+  justify-items: center;
+  gap: clamp(10px, 2vw, 28px);
+  padding: 8px 16px max(8px, var(--safe-bottom));
+  overflow: hidden;
+}
+
+.player-view[data-orientation="landscape"] .canvas-wrapper {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  min-width: 0;
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 70px);
+}
+
+.player-view[data-orientation="landscape"] .button-container {
+  display: contents;
+}
+
+.player-view[data-orientation="landscape"] .direction-pad {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.player-view[data-orientation="landscape"] .number-pad {
+  grid-column: 3;
+  grid-row: 1;
+}
+
+.player-view[data-orientation="landscape"][data-display-mode="native"] .canvas-wrapper {
+  width: min(240px, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 70px) * 0.75));
+}
+
+.player-view[data-orientation="landscape"][data-display-mode="compact"] .canvas-wrapper {
+  width: min(28vw, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 82px) * 0.75), 300px);
+}
+
+.player-view[data-orientation="landscape"][data-display-mode="fit"] .canvas-wrapper {
+  width: min(36vw, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 68px) * 0.75), 420px);
+}
+
+.player-view[data-orientation="landscape"][data-display-mode="large"] .canvas-wrapper {
+  width: min(42vw, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 56px) * 0.75), 500px);
+}
+
+.player-view[data-orientation="landscape"][data-display-mode="max"] .canvas-wrapper {
+  width: min(48vw, calc((100dvh - var(--safe-top) - var(--safe-bottom) - 50px) * 0.75), 560px);
+}
+
+.player-view[data-orientation="landscape"] .button-container,
+.player-view[data-orientation="landscape"] .direction-pad,
+.player-view[data-orientation="landscape"] .number-pad {
+  min-height: 0;
+}
+
+.player-view[data-orientation="landscape"] .direction-pad {
+  grid-template-columns: repeat(3, minmax(50px, 64px));
+  grid-template-rows: repeat(3, 54px);
+  gap: 10px;
+}
+
+.player-view[data-orientation="landscape"] .number-pad {
+  grid-template-columns: repeat(3, minmax(48px, 62px));
+  grid-template-rows: repeat(4, 42px);
+  gap: 10px;
+}
+
+@media (max-width: 720px) and (orientation: landscape) {
+  .player-view[data-orientation="landscape"] .player-content {
+    grid-template-columns: minmax(138px, 1fr) auto minmax(138px, 1fr);
+    gap: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .player-view[data-orientation="landscape"] .direction-pad {
+    grid-template-columns: repeat(3, minmax(42px, 52px));
+    grid-template-rows: repeat(3, 44px);
+    gap: 7px;
+  }
+
+  .player-view[data-orientation="landscape"] .number-pad {
+    grid-template-columns: repeat(3, minmax(42px, 52px));
+    grid-template-rows: repeat(4, 36px);
+    gap: 7px;
+  }
+
+  .player-view[data-orientation="landscape"] .key,
+  .player-view[data-orientation="landscape"] .direction-pad .key {
+    min-width: 42px;
+    min-height: 36px;
+  }
+}
