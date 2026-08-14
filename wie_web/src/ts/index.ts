@@ -28,6 +28,8 @@ import {
   storeImportedSaveBackup,
 } from "./save_manager";
 import { errorFeedback, initUiFeedback, requestConfirmation, successFeedback } from "./ui_feedback";
+import { AppSettings, loadAppSettings, saveAppSettings } from "./app_settings";
+import { exportGameEntry, parseGameEntry } from "./game_entry";
 
 installDebugLogging();
 
@@ -66,6 +68,8 @@ let renderedCoverUrls: string[] = [];
 let controlEditing = false;
 let selectedControlPad: ControlPadName = "direction";
 let saveManagerGameId: string | undefined;
+let appSettings: AppSettings = loadAppSettings();
+let pendingEditGameId: string | undefined;
 
 const element = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -391,9 +395,23 @@ const makeCoverElement = (game: GameRecord): HTMLElement => {
 };
 
 const renderLibrary = async () => {
-  const games = await library.list();
+  let games = await library.list();
   const grid = element("game-grid");
   const empty = element("library-empty");
+  const count = document.getElementById("library-count");
+
+  if (appSettings.librarySort === "name") {
+    games = games.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  } else if (appSettings.librarySort === "favorites") {
+    games = games.sort((a, b) => {
+      if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1;
+      const aTime = a.lastPlayedAt ?? a.createdAt;
+      const bTime = b.lastPlayedAt ?? b.createdAt;
+      return bTime - aTime;
+    });
+  }
+
+  if (count) count.textContent = `${games.length} ${games.length === 1 ? "game" : "games"}`;
 
   clearRenderedCoverUrls();
   grid.replaceChildren();
@@ -404,12 +422,32 @@ const renderLibrary = async () => {
     card.className = "game-card";
     card.dataset.gameId = game.id;
 
+    const coverWrap = document.createElement("div");
+    coverWrap.className = "game-cover-wrap";
+
     const coverButton = document.createElement("button");
     coverButton.type = "button";
     coverButton.className = "game-cover-button";
     coverButton.ariaLabel = `Play ${game.name}`;
     coverButton.appendChild(makeCoverElement(game));
     coverButton.addEventListener("click", () => void launchGame(game.id));
+
+    const favoriteButton = document.createElement("button");
+    favoriteButton.type = "button";
+    favoriteButton.className = `game-favorite-button${game.favorite ? " active" : ""}`;
+    favoriteButton.textContent = game.favorite ? "★" : "☆";
+    favoriteButton.ariaLabel = game.favorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
+    favoriteButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const fresh = await library.get(game.id);
+      if (!fresh) return;
+      fresh.favorite = !fresh.favorite;
+      await library.put(fresh);
+      debugLog("LIBRARY", `favorite game=${fresh.name} value=${fresh.favorite}`);
+      await renderLibrary();
+    });
+
+    coverWrap.append(coverButton, favoriteButton);
 
     const meta = document.createElement("div");
     meta.className = "game-meta";
@@ -422,6 +460,14 @@ const renderLibrary = async () => {
     fileName.className = "game-file";
     fileName.textContent = game.fileName;
 
+    const badges = document.createElement("div");
+    badges.className = "game-badges";
+    const orientation = document.createElement("span");
+    orientation.textContent = game.settings.orientation === "landscape" ? "Landscape" : "Portrait";
+    const display = document.createElement("span");
+    display.textContent = game.settings.displayMode === "native" ? "240×320" : game.settings.displayMode;
+    badges.append(orientation, display);
+
     const menuButton = document.createElement("button");
     menuButton.type = "button";
     menuButton.className = "game-menu-button";
@@ -429,8 +475,8 @@ const renderLibrary = async () => {
     menuButton.ariaLabel = `${game.name} options`;
     menuButton.addEventListener("click", () => openGameActions(game));
 
-    meta.append(name, fileName, menuButton);
-    card.append(coverButton, meta);
+    meta.append(name, fileName, badges, menuButton);
+    card.append(coverWrap, meta);
     grid.appendChild(card);
   }
 };
@@ -457,7 +503,7 @@ const importGame = async (file: File) => {
     fileName: file.name,
     archive: data,
     createdAt: Date.now(),
-    settings: defaultGameSettings(),
+    settings: { ...defaultGameSettings(), orientation: appSettings.defaultOrientation, displayMode: appSettings.defaultDisplayMode },
     saveSources: { databases: [], filesystemAids: [] },
   };
 
@@ -611,25 +657,48 @@ const initGameActions = () => {
     await openSaveManager(id);
   });
 
-  element("action-rename").addEventListener("click", async () => {
-    const id = activeActionGameId;
-    if (!id) return;
-    const game = await library.get(id);
-    if (!game) return;
 
-    const nextName = window.prompt("Game name", game.name)?.trim();
-    if (!nextName || nextName === game.name) return;
-
-    game.name = nextName;
-    await library.put(game);
-    closeGameActions();
-    await renderLibrary();
-  });
 
   element("action-cover").addEventListener("click", () => {
     if (!activeActionGameId) return;
     pendingCoverGameId = activeActionGameId;
     element<HTMLInputElement>("cover-import-input").click();
+  });
+
+
+  element("action-favorite").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    const game = await library.get(id);
+    if (!game) return;
+    game.favorite = !game.favorite;
+    await library.put(game);
+    closeGameActions();
+    successFeedback(game.favorite ? "Added to favorites." : "Removed from favorites.");
+    await renderLibrary();
+  });
+
+  element("action-edit").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    closeGameActions();
+    await openGameEditor(id);
+  });
+
+  element("action-export-game").addEventListener("click", async () => {
+    const id = activeActionGameId;
+    if (!id) return;
+    const game = await library.get(id);
+    if (!game) return;
+    closeGameActions();
+    try {
+      debugLog("LIBRARY", `export entry requested game=${game.name}`);
+      await exportGameEntry(game);
+      successFeedback("Game entry exported.");
+    } catch (error) {
+      console.error("Game entry export failed", error);
+      errorFeedback("Could not export this game entry.");
+    }
   });
 
   element("action-delete").addEventListener("click", async () => {
@@ -665,6 +734,7 @@ const initGameActions = () => {
 const initFileImport = () => {
   const importInput = element<HTMLInputElement>("game-import-input");
   const coverInput = element<HTMLInputElement>("cover-import-input");
+  const entryInput = element<HTMLInputElement>("game-entry-import-input");
 
   const requestGameImport = () => importInput.click();
   element("import-game").addEventListener("click", requestGameImport);
@@ -698,6 +768,34 @@ const initFileImport = () => {
     await library.put(game);
     closeGameActions();
     await renderLibrary();
+  });
+
+  element("import-game-entry").addEventListener("click", () => entryInput.click());
+  entryInput.addEventListener("change", async () => {
+    const file = entryInput.files?.[0];
+    entryInput.value = "";
+    if (!file) return;
+    try {
+      const game = await parseGameEntry(file);
+      const existing = await library.get(game.id);
+      if (existing) {
+        const confirmed = await requestConfirmation({
+          title: "Replace Existing Game Entry?",
+          message: `“${existing.name}” is already in My Games. Replace its package, cover, and WIPI Player settings with this imported entry?\n\nNormal in-game save data is not changed.`,
+          confirmLabel: "Replace Entry",
+          destructive: true,
+        });
+        if (!confirmed) return;
+      }
+      if (existing) game.saveSources = existing.saveSources;
+      await library.put(game);
+      debugLog("LIBRARY", `portable entry imported game=${game.name}`, `id=${game.id}`);
+      await renderLibrary();
+      successFeedback(existing ? "Game entry replaced." : "Game entry imported.");
+    } catch (error) {
+      console.error("Game entry import failed", error);
+      errorFeedback("Could not import this WIPI Player game entry.");
+    }
   });
 };
 
@@ -1119,6 +1217,88 @@ const initSaveManagement = () => {
   });
 };
 
+
+const openGameEditor = async (id: string) => {
+  const game = await library.get(id);
+  if (!game) return;
+  pendingEditGameId = id;
+  element<HTMLInputElement>("edit-game-name").value = game.name;
+  element("edit-game-file").textContent = game.fileName;
+  element("game-editor-overlay").hidden = false;
+  debugLog("LIBRARY", `editor opened game=${game.name}`);
+};
+
+const closeGameEditor = () => {
+  pendingEditGameId = undefined;
+  element("game-editor-overlay").hidden = true;
+};
+
+const initGameEditor = () => {
+  element("game-editor-close").addEventListener("click", closeGameEditor);
+  element("game-editor-cancel").addEventListener("click", closeGameEditor);
+  element("game-editor-overlay").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeGameEditor();
+  });
+  element("game-editor-save").addEventListener("click", async () => {
+    if (!pendingEditGameId) return;
+    const game = await library.get(pendingEditGameId);
+    if (!game) return;
+    const name = element<HTMLInputElement>("edit-game-name").value.trim();
+    if (!name) {
+      errorFeedback("Game name cannot be empty.");
+      return;
+    }
+    game.name = name;
+    await library.put(game);
+    closeGameEditor();
+    await renderLibrary();
+    successFeedback("Game details saved.");
+  });
+  element("game-editor-cover").addEventListener("click", () => {
+    if (!pendingEditGameId) return;
+    pendingCoverGameId = pendingEditGameId;
+    element<HTMLInputElement>("cover-import-input").click();
+  });
+};
+
+const openHomeSettings = () => {
+  element<HTMLSelectElement>("home-sort-mode").value = appSettings.librarySort;
+  element<HTMLSelectElement>("home-default-orientation").value = appSettings.defaultOrientation;
+  element<HTMLSelectElement>("home-default-display").value = appSettings.defaultDisplayMode;
+  element("home-settings-overlay").hidden = false;
+  debugLog("SETTINGS", "home settings opened");
+};
+
+const closeHomeSettings = () => {
+  element("home-settings-overlay").hidden = true;
+};
+
+const initHomeSettings = () => {
+  element("library-settings").addEventListener("click", openHomeSettings);
+  element("home-settings-close").addEventListener("click", closeHomeSettings);
+  element("home-settings-done").addEventListener("click", closeHomeSettings);
+  element("home-settings-overlay").addEventListener("click", (event) => {
+    if (event.target === event.currentTarget) closeHomeSettings();
+  });
+
+  element<HTMLSelectElement>("home-sort-mode").addEventListener("change", async (event) => {
+    appSettings.librarySort = (event.currentTarget as HTMLSelectElement).value as AppSettings["librarySort"];
+    saveAppSettings(appSettings);
+    debugLog("SETTINGS", `library sort=${appSettings.librarySort}`);
+    await renderLibrary();
+  });
+  element<HTMLSelectElement>("home-default-orientation").addEventListener("change", (event) => {
+    appSettings.defaultOrientation = (event.currentTarget as HTMLSelectElement).value === "landscape" ? "landscape" : "portrait";
+    saveAppSettings(appSettings);
+    debugLog("SETTINGS", `default orientation=${appSettings.defaultOrientation}`);
+  });
+  element<HTMLSelectElement>("home-default-display").addEventListener("change", (event) => {
+    appSettings.defaultDisplayMode = (event.currentTarget as HTMLSelectElement).value as AppSettings["defaultDisplayMode"];
+    saveAppSettings(appSettings);
+    debugLog("SETTINGS", `default display=${appSettings.defaultDisplayMode}`);
+  });
+};
+
 const openGlobalDiagnostics = () => {
   element<HTMLTextAreaElement>("debug-log-text").value = getDebugLogText();
   element("debug-session-status").textContent = `Current session: ${getDebugSessionId() || "starting"} · ${getDebugLogText().split("\n").filter(Boolean).length} log lines`;
@@ -1261,6 +1441,8 @@ const main = async () => {
   restoreVolumeControls();
   initFileImport();
   initGameActions();
+  initGameEditor();
+  initHomeSettings();
   initInput();
   initControlEditor();
   initSaveManagement();

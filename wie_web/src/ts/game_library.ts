@@ -25,6 +25,7 @@ export interface GameRecord {
   cover?: Blob;
   createdAt: number;
   lastPlayedAt?: number;
+  favorite?: boolean;
   settings: GameSettings;
   saveSources: GameSaveSources;
 }
@@ -82,9 +83,10 @@ const normalizeSettings = (settings?: Partial<GameSettings>): GameSettings => {
   };
 };
 
-const normalizeGame = (game: GameRecord): GameRecord => ({
+export const normalizeImportedGame = (game: GameRecord): GameRecord => ({
   ...game,
   settings: normalizeSettings(game.settings),
+  favorite: Boolean(game.favorite),
   saveSources: normalizeSaveSources(game.saveSources),
 });
 
@@ -102,7 +104,7 @@ export class GameLibrary {
 
       request.onsuccess = () => {
         const games = (request.result as GameRecord[])
-          .map(normalizeGame)
+          .map(normalizeImportedGame)
           .sort((a, b) => {
             const aTime = a.lastPlayedAt ?? a.createdAt;
             const bTime = b.lastPlayedAt ?? b.createdAt;
@@ -120,7 +122,7 @@ export class GameLibrary {
       const request = transaction.objectStore(STORE_NAME).get(id);
       request.onsuccess = () => {
         const result = request.result as GameRecord | undefined;
-        resolve(result ? normalizeGame(result) : undefined);
+        resolve(result ? normalizeImportedGame(result) : undefined);
       };
       request.onerror = () => reject(request.error);
     });
@@ -128,7 +130,7 @@ export class GameLibrary {
 
   public async put(game: GameRecord): Promise<void> {
     const transaction = this.db.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(normalizeGame(game));
+    transaction.objectStore(STORE_NAME).put(normalizeImportedGame(game));
     await transactionDone(transaction);
   }
 

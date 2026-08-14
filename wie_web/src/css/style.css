@@ -1420,3 +1420,125 @@ button.ui-action-flash {
     min-width: auto;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Phase 5A: polished library / home settings / portable game entries         */
+/* -------------------------------------------------------------------------- */
+
+.library-subbar {
+  max-width: 900px;
+  margin: 0 auto 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.game-cover-wrap {
+  position: relative;
+}
+
+.game-favorite-button {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: rgba(15, 17, 22, 0.78);
+  color: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 22px;
+  z-index: 2;
+}
+
+.game-favorite-button.active {
+  color: #ffd866;
+  background: rgba(52, 43, 13, 0.86);
+}
+
+.game-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.game-badges > span {
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 9px;
+  text-transform: capitalize;
+}
+
+.home-settings-modal,
+.game-editor-modal {
+  width: min(520px, 100%);
+  max-height: min(84vh, 720px);
+  overflow-y: auto;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
+  background: #181b21;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.62);
+}
+
+.home-settings-modal .settings-section {
+  margin-top: 16px;
+}
+
+.full-width-button {
+  width: 100%;
+  min-height: 48px;
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 18px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.editor-field input {
+  width: 100%;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+
+.editor-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.editor-actions button {
+  min-height: 48px;
+}
+
+@media (max-width: 620px) {
+  .library-subbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .library-subbar button {
+    align-self: flex-start;
+  }
+}
