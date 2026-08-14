@@ -33,6 +33,13 @@ const base64ToBytes = (value: string): Uint8Array => {
   return bytes;
 };
 
+const base64ToArrayBuffer = (value: string): ArrayBuffer => {
+  const bytes = base64ToBytes(value);
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+};
+
 const blobToBase64 = async (blob: Blob): Promise<string> => bytesToBase64(new Uint8Array(await blob.arrayBuffer()));
 
 export const exportGameEntry = async (game: GameRecord): Promise<void> => {
@@ -76,16 +83,16 @@ export const parseGameEntry = async (file: File): Promise<GameRecord> => {
     throw new Error("This is not a WIPI Player game-entry file.");
   }
 
-  const archiveBytes = base64ToBytes(parsed.game.archiveBase64);
+  const archiveBuffer = base64ToArrayBuffer(parsed.game.archiveBase64);
   const cover = parsed.game.coverBase64
-    ? new Blob([base64ToBytes(parsed.game.coverBase64)], { type: parsed.game.coverType || "image/jpeg" })
+    ? new Blob([base64ToArrayBuffer(parsed.game.coverBase64)], { type: parsed.game.coverType || "image/jpeg" })
     : undefined;
 
   return normalizeImportedGame({
     id: parsed.game.id,
     name: parsed.game.name,
     fileName: parsed.game.fileName,
-    archive: archiveBytes.slice().buffer as ArrayBuffer,
+    archive: archiveBuffer,
     cover,
     createdAt: parsed.game.createdAt || Date.now(),
     lastPlayedAt: parsed.game.lastPlayedAt,
