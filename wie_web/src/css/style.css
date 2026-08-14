@@ -1542,3 +1542,65 @@ button.ui-action-flash {
     align-self: flex-start;
   }
 }
+
+/* -------------------------------------------------------------------------- */
+/* Phase 5B: home sorting + stable cover rendering                            */
+/* -------------------------------------------------------------------------- */
+
+.library-sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 10px 0 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 13px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.library-sort-control > span {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+.library-sort-control select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 22px 8px 0;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 9px) 50%, calc(100% - 4px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+.state-lab-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 16px;
+}
+
+.state-lab-output {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 620px) {
+  .library-subbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .library-sort-control {
+    margin-left: auto;
+  }
+}

@@ -65,6 +65,7 @@ let animationFrame: number | undefined;
 let activeActionGameId: string | undefined;
 let pendingCoverGameId: string | undefined;
 let renderedCoverUrls: string[] = [];
+const coverUrlCache = new Map<string, string>();
 let controlEditing = false;
 let selectedControlPad: ControlPadName = "direction";
 let saveManagerGameId: string | undefined;
@@ -372,21 +373,37 @@ const restoreVolumeControls = () => {
 };
 
 const clearRenderedCoverUrls = () => {
-  for (const url of renderedCoverUrls) URL.revokeObjectURL(url);
-  renderedCoverUrls = [];
+  // Cover URLs are cached by game ID so lightweight library rerenders (favorite/sort)
+  // do not revoke the image that WebKit is still displaying. They are explicitly
+  // invalidated when a cover changes or a game is deleted.
+  renderedCoverUrls = Array.from(coverUrlCache.values());
+};
+
+const invalidateCoverUrl = (gameId: string) => {
+  const url = coverUrlCache.get(gameId);
+  if (url) URL.revokeObjectURL(url);
+  coverUrlCache.delete(gameId);
 };
 
 const makeCoverElement = (game: GameRecord): HTMLElement => {
   if (game.cover) {
     const image = document.createElement("img");
-    const url = URL.createObjectURL(game.cover);
-    renderedCoverUrls.push(url);
+    let url = coverUrlCache.get(game.id);
+    if (!url) {
+      url = URL.createObjectURL(game.cover);
+      coverUrlCache.set(game.id, url);
+    }
     image.src = url;
     image.alt = `${game.name} cover`;
     image.className = "game-cover";
+    image.addEventListener("error", () => {
+      debugLog("LIBRARY", `cover image load error game=${game.name}`);
+      invalidateCoverUrl(game.id);
+    }, { once: true });
     return image;
   }
 
+  invalidateCoverUrl(game.id);
   const placeholder = document.createElement("span");
   placeholder.className = "game-cover-placeholder";
   const normalized = game.name.trim();
@@ -413,6 +430,10 @@ const renderLibrary = async () => {
 
   if (count) count.textContent = `${games.length} ${games.length === 1 ? "game" : "games"}`;
 
+  const liveGameIds = new Set(games.map((game) => game.id));
+  for (const gameId of Array.from(coverUrlCache.keys())) {
+    if (!liveGameIds.has(gameId)) invalidateCoverUrl(gameId);
+  }
   clearRenderedCoverUrls();
   grid.replaceChildren();
   empty.hidden = games.length !== 0;
@@ -719,6 +740,7 @@ const initGameActions = () => {
     try {
       debugLog("LIBRARY", `delete requested game=${game.name}`, `id=${id}`);
       await library.delete(id);
+      invalidateCoverUrl(id);
       const stillExists = await library.get(id);
       if (stillExists) throw new Error("Library record still exists after delete transaction");
       await renderLibrary();
@@ -740,16 +762,41 @@ const initFileImport = () => {
   element("import-game").addEventListener("click", requestGameImport);
   element("empty-import-game").addEventListener("click", requestGameImport);
 
+  const importPortableEntry = async (file: File) => {
+    const game = await parseGameEntry(file);
+    const existing = await library.get(game.id);
+    if (existing) {
+      const confirmed = await requestConfirmation({
+        title: "Replace Existing Game Entry?",
+        message: `“${existing.name}” is already in My Games. Replace its package, cover, and WIPI Player settings with this imported entry?\n\nNormal in-game save data is not changed.`,
+        confirmLabel: "Replace Entry",
+        destructive: true,
+      });
+      if (!confirmed) return;
+    }
+    if (existing) game.saveSources = existing.saveSources;
+    invalidateCoverUrl(game.id);
+    await library.put(game);
+    debugLog("LIBRARY", `portable entry imported game=${game.name}`, `id=${game.id}`);
+    await renderLibrary();
+    successFeedback(existing ? "Game entry replaced." : "Game entry imported.");
+  };
+
   importInput.addEventListener("change", async () => {
     const file = importInput.files?.[0];
     importInput.value = "";
     if (!file) return;
 
     try {
-      await importGame(file);
+      const lower = file.name.toLowerCase();
+      if (lower.endsWith(".wipigame.json") || lower.endsWith(".json")) {
+        await importPortableEntry(file);
+      } else {
+        await importGame(file);
+      }
     } catch (error) {
       console.error(error);
-      window.alert(`Import failed: ${String(error)}`);
+      errorFeedback(`Import failed: ${String(error)}`);
     }
   });
 
@@ -764,38 +811,37 @@ const initFileImport = () => {
     const game = await library.get(gameId);
     if (!game) return;
 
+    invalidateCoverUrl(game.id);
     game.cover = file;
     await library.put(game);
     closeGameActions();
     await renderLibrary();
   });
 
-  element("import-game-entry").addEventListener("click", () => entryInput.click());
+  const legacyImportEntryButton = document.getElementById("import-game-entry");
+  legacyImportEntryButton?.addEventListener("click", () => entryInput.click());
   entryInput.addEventListener("change", async () => {
     const file = entryInput.files?.[0];
     entryInput.value = "";
     if (!file) return;
     try {
-      const game = await parseGameEntry(file);
-      const existing = await library.get(game.id);
-      if (existing) {
-        const confirmed = await requestConfirmation({
-          title: "Replace Existing Game Entry?",
-          message: `“${existing.name}” is already in My Games. Replace its package, cover, and WIPI Player settings with this imported entry?\n\nNormal in-game save data is not changed.`,
-          confirmLabel: "Replace Entry",
-          destructive: true,
-        });
-        if (!confirmed) return;
-      }
-      if (existing) game.saveSources = existing.saveSources;
-      await library.put(game);
-      debugLog("LIBRARY", `portable entry imported game=${game.name}`, `id=${game.id}`);
-      await renderLibrary();
-      successFeedback(existing ? "Game entry replaced." : "Game entry imported.");
+      await importPortableEntry(file);
     } catch (error) {
       console.error("Game entry import failed", error);
       errorFeedback("Could not import this WIPI Player game entry.");
     }
+  });
+};
+
+const initLibrarySortControl = () => {
+  const sort = document.getElementById("library-sort-home") as HTMLSelectElement | null;
+  if (!sort) return;
+  sort.value = appSettings.librarySort;
+  sort.addEventListener("change", async () => {
+    appSettings.librarySort = sort.value as AppSettings["librarySort"];
+    saveAppSettings(appSettings);
+    debugLog("LIBRARY", `home sort=${appSettings.librarySort}`);
+    await renderLibrary();
   });
 };
 
@@ -1262,7 +1308,8 @@ const initGameEditor = () => {
 };
 
 const openHomeSettings = () => {
-  element<HTMLSelectElement>("home-sort-mode").value = appSettings.librarySort;
+  const homeSort = document.getElementById("home-sort-mode") as HTMLSelectElement | null;
+  if (homeSort) homeSort.value = appSettings.librarySort;
   element<HTMLSelectElement>("home-default-orientation").value = appSettings.defaultOrientation;
   element<HTMLSelectElement>("home-default-display").value = appSettings.defaultDisplayMode;
   element("home-settings-overlay").hidden = false;
@@ -1281,9 +1328,12 @@ const initHomeSettings = () => {
     if (event.target === event.currentTarget) closeHomeSettings();
   });
 
-  element<HTMLSelectElement>("home-sort-mode").addEventListener("change", async (event) => {
+  const settingsSort = document.getElementById("home-sort-mode") as HTMLSelectElement | null;
+  settingsSort?.addEventListener("change", async (event) => {
     appSettings.librarySort = (event.currentTarget as HTMLSelectElement).value as AppSettings["librarySort"];
     saveAppSettings(appSettings);
+    const homeSort = document.getElementById("library-sort-home") as HTMLSelectElement | null;
+    if (homeSort) homeSort.value = appSettings.librarySort;
     debugLog("SETTINGS", `library sort=${appSettings.librarySort}`);
     await renderLibrary();
   });
@@ -1431,6 +1481,25 @@ const initPlayerChrome = () => {
   });
 };
 
+const inspectSaveStateCapability = () => {
+  const emulator = currentEmulator as unknown as Record<string, unknown> | undefined;
+  const methods = emulator ? Object.getOwnPropertyNames(Object.getPrototypeOf(emulator)).sort() : [];
+  const hasSerializer = Boolean(emulator && (typeof emulator["save_state"] === "function" || typeof emulator["serialize"] === "function"));
+  const report = {
+    game: currentGame?.name ?? null,
+    emulatorLoaded: Boolean(emulator),
+    exportedMethods: methods,
+    fullRuntimeSerializerAvailable: hasSerializer,
+    conclusion: hasSerializer
+      ? "A runtime serializer export exists and can be investigated further."
+      : "Current WIE WebAssembly API exposes no full-runtime save-state serializer. Native persistent saves remain supported through Save Manager.",
+  };
+  debugLog("STATE_LAB", "runtime capability inspected", report);
+  const output = document.getElementById("state-lab-output");
+  if (output) output.textContent = report.conclusion + ` Exported methods: ${methods.join(", ") || "none"}.`;
+  return report;
+};
+
 const main = async () => {
   debugLog("BOOT", "main() starting");
   initUiFeedback();
@@ -1438,6 +1507,10 @@ const main = async () => {
   library = await GameLibrary.open();
   debugLog("BOOT", "GameLibrary opened");
   initTutorial();
+  document.getElementById("state-lab-inspect")?.addEventListener("click", () => {
+    inspectSaveStateCapability();
+    successFeedback("State capability report added to Logs.");
+  });
   restoreVolumeControls();
   initFileImport();
   initGameActions();

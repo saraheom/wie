@@ -13,7 +13,7 @@
     <script src="@ts/index.ts" defer="defer"></script>
   </head>
   <body>
-    <input id="game-import-input" type="file" accept=".zip,.jar,application/zip,application/java-archive" hidden />
+    <input id="game-import-input" type="file" accept=".zip,.jar,.json,.wipigame.json,application/zip,application/java-archive,application/json" hidden />
     <input id="cover-import-input" type="file" accept="image/*" hidden />
     <input id="game-entry-import-input" type="file" accept=".json,.wipigame.json,application/json" hidden />
 
@@ -35,7 +35,14 @@
         <main class="library-content">
           <div class="library-subbar">
             <span id="library-count">0 games</span>
-            <button id="import-game-entry" class="secondary-button compact-button" type="button">⇩ Import WIPI Entry</button>
+            <label class="library-sort-control" aria-label="Sort games">
+              <span>⇅</span>
+              <select id="library-sort-home">
+                <option value="recent">Recently Played</option>
+                <option value="name">Name</option>
+                <option value="favorites">Favorites First</option>
+              </select>
+            </label>
           </div>
           <div id="library-empty" class="library-empty" hidden>
             <div class="empty-icon">▣</div>
@@ -199,10 +206,6 @@
           <button id="home-settings-close" class="icon-button" type="button" aria-label="Close settings">×</button>
         </div>
         <div class="settings-section">
-          <strong>Library</strong>
-          <label class="setting-row"><span>Sort games</span><select id="home-sort-mode"><option value="recent">Recently Played</option><option value="name">Name</option><option value="favorites">Favorites First</option></select></label>
-        </div>
-        <div class="settings-section">
           <strong>New Game Defaults</strong>
           <label class="setting-row"><span>Orientation</span><select id="home-default-orientation"><option value="portrait">Portrait</option><option value="landscape">Landscape</option></select></label>
           <label class="setting-row"><span>Screen size</span><select id="home-default-display"><option value="native">Original 240 × 320</option><option value="compact">Compact</option><option value="fit">Fit</option><option value="large">Large</option><option value="max">Maximum</option></select></label>
@@ -351,4 +354,11 @@
       </div>
     </div>
   </body>
-</html>
+</html>          <div class="settings-section state-lab-section">
+            <strong>Experimental State Lab</strong>
+            <p class="settings-note">Phase 5B feasibility tool. It inspects whether the current WIE WebAssembly runtime exposes a true full-runtime serializer. It does not pretend native save backups are freeze states.</p>
+            <button id="state-lab-inspect" class="secondary-button full-width-button" type="button">Inspect Save-State Capability</button>
+            <p id="state-lab-output" class="settings-note state-lab-output">Not inspected yet.</p>
+          </div>
+
+
