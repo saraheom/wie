@@ -1604,4 +1604,52 @@ button.ui-action-flash {
     margin-left: auto;
   }
 }
-\n\n/* Phase 5B.1: immediate favorite tap + explicit sort direction */\n.game-favorite-button {\n  touch-action: manipulation;\n  -webkit-user-select: none;\n  user-select: none;\n}\n\n.library-sort-control {\n  padding-left: 4px;\n  gap: 2px;\n}\n\n.library-sort-direction {\n  width: 38px;\n  height: 38px;\n  min-width: 38px;\n  min-height: 38px;\n  padding: 0;\n  border: 0;\n  border-radius: 10px;\n  background: transparent;\n  color: var(--text);\n  font-size: 22px;\n  font-weight: 800;\n  touch-action: manipulation;\n}\n\n.library-sort-direction:active {\n  background: rgba(255, 255, 255, 0.10);\n}\n\n.library-sort-mode {\n  display: inline-flex;\n  align-items: center;\n}\n\n.sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n
+
+
+/* Phase 5B.1: immediate favorite tap + explicit sort direction */
+.game-favorite-button {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.library-sort-control {
+  padding-left: 4px;
+  gap: 2px;
+}
+
+.library-sort-direction {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: 22px;
+  font-weight: 800;
+  touch-action: manipulation;
+}
+
+.library-sort-direction:active {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.library-sort-mode {
+  display: inline-flex;
+  align-items: center;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
