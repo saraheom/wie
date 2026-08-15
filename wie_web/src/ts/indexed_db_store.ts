@@ -1,6 +1,28 @@
 export class IndexedDBStore {
   private db: IDBDatabase;
   private store_name: string;
+  private static pendingWrites = new Set<Promise<void>>();
+
+  private static trackWrite(promise: Promise<void>): Promise<void> {
+    IndexedDBStore.pendingWrites.add(promise);
+    void promise.then(
+      () => IndexedDBStore.pendingWrites.delete(promise),
+      () => IndexedDBStore.pendingWrites.delete(promise)
+    );
+    return promise;
+  }
+
+  public static getPendingWriteCount(): number {
+    return IndexedDBStore.pendingWrites.size;
+  }
+
+  public static async flushPendingWrites(): Promise<void> {
+    while (IndexedDBStore.pendingWrites.size > 0) {
+      const writes = Array.from(IndexedDBStore.pendingWrites);
+      await Promise.allSettled(writes);
+      if (writes.length === 0) break;
+    }
+  }
 
   private constructor(db: IDBDatabase, store_name: string) {
     this.db = db;
@@ -77,35 +99,37 @@ export class IndexedDBStore {
 
   public set(key: IDBValidKey, data: Uint8Array): Promise<void> {
     this.notifyStorageAccess(key);
-    return new Promise((resolve, reject) => {
+    const startedAt = performance.now();
+    const write = new Promise<void>((resolve, reject) => {
       const transaction = this.db.transaction(this.store_name, "readwrite");
       const store = transaction.objectStore(this.store_name);
       const request = store.put(data, key);
 
-      request.onsuccess = () => {
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB put failed"));
+      transaction.oncomplete = () => {
+        window.dispatchEvent(new CustomEvent("wie-save-write-committed", {
+          detail: { dbName: this.db.name, storeName: this.store_name, key, bytes: data.byteLength, ms: Math.round(performance.now() - startedAt) },
+        }));
         resolve();
       };
-
-      request.onerror = () => {
-        reject(request.error);
-      };
+      transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB write transaction failed"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB write transaction aborted"));
     });
+    return IndexedDBStore.trackWrite(write);
   }
 
   public delete(key: IDBValidKey): Promise<void> {
     this.notifyStorageAccess(key);
-    return new Promise((resolve, reject) => {
+    const write = new Promise<void>((resolve, reject) => {
       const transaction = this.db.transaction(this.store_name, "readwrite");
       const store = transaction.objectStore(this.store_name);
       const request = store.delete(key);
 
-      request.onsuccess = () => {
-        resolve();
-      };
-
-      request.onerror = () => {
-        reject(request.error);
-      };
+      request.onerror = () => reject(request.error ?? new Error("IndexedDB delete failed"));
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error ?? new Error("IndexedDB delete transaction failed"));
+      transaction.onabort = () => reject(transaction.error ?? new Error("IndexedDB delete transaction aborted"));
     });
+    return IndexedDBStore.trackWrite(write);
   }
 }

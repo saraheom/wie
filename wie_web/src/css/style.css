@@ -1604,3 +1604,4 @@ button.ui-action-flash {
     margin-left: auto;
   }
 }
+\n\n/* Phase 5B.1: immediate favorite tap + explicit sort direction */\n.game-favorite-button {\n  touch-action: manipulation;\n  -webkit-user-select: none;\n  user-select: none;\n}\n\n.library-sort-control {\n  padding-left: 4px;\n  gap: 2px;\n}\n\n.library-sort-direction {\n  width: 38px;\n  height: 38px;\n  min-width: 38px;\n  min-height: 38px;\n  padding: 0;\n  border: 0;\n  border-radius: 10px;\n  background: transparent;\n  color: var(--text);\n  font-size: 22px;\n  font-weight: 800;\n  touch-action: manipulation;\n}\n\n.library-sort-direction:active {\n  background: rgba(255, 255, 255, 0.10);\n}\n\n.library-sort-mode {\n  display: inline-flex;\n  align-items: center;\n}\n\n.sr-only {\n  position: absolute;\n  width: 1px;\n  height: 1px;\n  padding: 0;\n  margin: -1px;\n  overflow: hidden;\n  clip: rect(0, 0, 0, 0);\n  white-space: nowrap;\n  border: 0;\n}\n

@@ -30,6 +30,7 @@ import {
 import { errorFeedback, initUiFeedback, requestConfirmation, successFeedback } from "./ui_feedback";
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app_settings";
 import { exportGameEntry, parseGameEntry } from "./game_entry";
+import { IndexedDBStore } from "./indexed_db_store";
 
 installDebugLogging();
 
@@ -417,14 +418,24 @@ const renderLibrary = async () => {
   const empty = element("library-empty");
   const count = document.getElementById("library-count");
 
+  const direction = appSettings.librarySortDirection === "asc" ? 1 : -1;
   if (appSettings.librarySort === "name") {
-    games = games.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+    games = games.sort((a, b) => direction * a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   } else if (appSettings.librarySort === "favorites") {
     games = games.sort((a, b) => {
-      if (Boolean(a.favorite) !== Boolean(b.favorite)) return a.favorite ? -1 : 1;
+      if (Boolean(a.favorite) !== Boolean(b.favorite)) {
+        const favoriteOrder = a.favorite ? -1 : 1;
+        return appSettings.librarySortDirection === "desc" ? favoriteOrder : -favoriteOrder;
+      }
       const aTime = a.lastPlayedAt ?? a.createdAt;
       const bTime = b.lastPlayedAt ?? b.createdAt;
-      return bTime - aTime;
+      return direction * (aTime - bTime);
+    });
+  } else {
+    games = games.sort((a, b) => {
+      const aTime = a.lastPlayedAt ?? a.createdAt;
+      const bTime = b.lastPlayedAt ?? b.createdAt;
+      return direction * (aTime - bTime);
     });
   }
 
@@ -458,15 +469,37 @@ const renderLibrary = async () => {
     favoriteButton.className = `game-favorite-button${game.favorite ? " active" : ""}`;
     favoriteButton.textContent = game.favorite ? "★" : "☆";
     favoriteButton.ariaLabel = game.favorite ? `Remove ${game.name} from favorites` : `Add ${game.name} to favorites`;
-    favoriteButton.addEventListener("click", async (event) => {
-      event.stopPropagation();
+    let favoritePointerHandled = false;
+    const toggleFavorite = async () => {
       const fresh = await library.get(game.id);
       if (!fresh) return;
       fresh.favorite = !fresh.favorite;
       await library.put(fresh);
+      favoriteButton.textContent = fresh.favorite ? "★" : "☆";
+      favoriteButton.classList.toggle("active", fresh.favorite);
+      favoriteButton.ariaLabel = fresh.favorite ? `Remove ${fresh.name} from favorites` : `Add ${fresh.name} to favorites`;
       debugLog("LIBRARY", `favorite game=${fresh.name} value=${fresh.favorite}`);
-      await renderLibrary();
+      // Only reorder the whole grid when the active sort actually depends on favorites.
+      if (appSettings.librarySort === "favorites") await renderLibrary();
+    };
+    favoriteButton.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      favoritePointerHandled = true;
+      try { favoriteButton.setPointerCapture(event.pointerId); } catch { /* optional on WebKit */ }
     });
+    favoriteButton.addEventListener("pointerup", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void toggleFavorite();
+      window.setTimeout(() => { favoritePointerHandled = false; }, 350);
+    });
+    favoriteButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!favoritePointerHandled) void toggleFavorite();
+    });
+    favoriteButton.addEventListener("contextmenu", (event) => event.preventDefault());
 
     coverWrap.append(coverButton, favoriteButton);
 
@@ -534,7 +567,7 @@ const importGame = async (file: File) => {
   debugLog("BOOT", "WIPI Player ready on library view");
 };
 
-const stopCurrentGame = () => {
+const stopCurrentGame = async () => {
   controlEditing = false;
   document.getElementById("player-view")?.classList.remove("control-editing");
   const controlEditor = document.getElementById("control-editor");
@@ -545,6 +578,15 @@ const stopCurrentGame = () => {
   }
 
   if (currentEmulator) {
+    const pending = IndexedDBStore.getPendingWriteCount();
+    if (pending > 0) debugLog("SAVE_IO", `waiting for ${pending} pending write(s) before emulator shutdown`);
+    try {
+      await IndexedDBStore.flushPendingWrites();
+      if (pending > 0) debugLog("SAVE_IO", "pending writes committed before emulator shutdown");
+    } catch (error) {
+      console.error("Failed while waiting for save writes", error);
+    }
+
     try {
       currentEmulator.free();
     } catch (error) {
@@ -567,7 +609,6 @@ const scheduleEmulatorFrame = () => {
       console.error(error);
       const message = error instanceof Error ? error.message : String(error);
       window.alert(`The game stopped: ${message}`);
-      stopCurrentGame();
       void showLibrary();
     }
   };
@@ -584,7 +625,7 @@ const launchGame = async (id: string) => {
     return;
   }
 
-  stopCurrentGame();
+  await stopCurrentGame();
   currentGame = game;
 
   element("library-view").hidden = true;
@@ -621,7 +662,7 @@ const launchGame = async (id: string) => {
 };
 
 const showLibrary = async () => {
-  stopCurrentGame();
+  await stopCurrentGame();
   unlockOrientation();
   element("settings-panel").classList.remove("visible");
   element("player-view").hidden = true;
@@ -833,14 +874,46 @@ const initFileImport = () => {
   });
 };
 
+const updateLibrarySortUi = () => {
+  const sort = document.getElementById("library-sort-home") as HTMLSelectElement | null;
+  const directionButton = document.getElementById("library-sort-direction") as HTMLButtonElement | null;
+  if (sort) sort.value = appSettings.librarySort;
+  if (directionButton) {
+    const asc = appSettings.librarySortDirection === "asc";
+    directionButton.textContent = asc ? "↑" : "↓";
+    const meaning = appSettings.librarySort === "name"
+      ? (asc ? "A to Z" : "Z to A")
+      : appSettings.librarySort === "recent"
+        ? (asc ? "Oldest first" : "Newest first")
+        : (asc ? "Non-favorites first" : "Favorites first");
+    directionButton.ariaLabel = `Reverse sort order. Current: ${meaning}`;
+    directionButton.title = meaning;
+  }
+};
+
 const initLibrarySortControl = () => {
   const sort = document.getElementById("library-sort-home") as HTMLSelectElement | null;
-  if (!sort) return;
-  sort.value = appSettings.librarySort;
+  const directionButton = document.getElementById("library-sort-direction") as HTMLButtonElement | null;
+  if (!sort || !directionButton) return;
+  updateLibrarySortUi();
+
   sort.addEventListener("change", async () => {
     appSettings.librarySort = sort.value as AppSettings["librarySort"];
+    // Use the conventional default direction when changing sort modes.
+    appSettings.librarySortDirection = appSettings.librarySort === "name" ? "asc" : "desc";
     saveAppSettings(appSettings);
-    debugLog("LIBRARY", `home sort=${appSettings.librarySort}`);
+    updateLibrarySortUi();
+    debugLog("LIBRARY", `home sort=${appSettings.librarySort} direction=${appSettings.librarySortDirection}`);
+    await renderLibrary();
+  });
+
+  directionButton.addEventListener("pointerup", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    appSettings.librarySortDirection = appSettings.librarySortDirection === "asc" ? "desc" : "asc";
+    saveAppSettings(appSettings);
+    updateLibrarySortUi();
+    debugLog("LIBRARY", `sort direction=${appSettings.librarySortDirection}`);
     await renderLibrary();
   });
 };
@@ -1334,7 +1407,10 @@ const initHomeSettings = () => {
     saveAppSettings(appSettings);
     const homeSort = document.getElementById("library-sort-home") as HTMLSelectElement | null;
     if (homeSort) homeSort.value = appSettings.librarySort;
-    debugLog("SETTINGS", `library sort=${appSettings.librarySort}`);
+    appSettings.librarySortDirection = appSettings.librarySort === "name" ? "asc" : "desc";
+    saveAppSettings(appSettings);
+    updateLibrarySortUi();
+    debugLog("SETTINGS", `library sort=${appSettings.librarySort} direction=${appSettings.librarySortDirection}`);
     await renderLibrary();
   });
   element<HTMLSelectElement>("home-default-orientation").addEventListener("change", (event) => {
@@ -1500,10 +1576,24 @@ const inspectSaveStateCapability = () => {
   return report;
 };
 
+const initSaveIoDiagnostics = () => {
+  window.addEventListener("wie-save-write-committed", (event) => {
+    const detail = (event as CustomEvent).detail as { dbName?: string; storeName?: string; key?: IDBValidKey; bytes?: number; ms?: number };
+    debugLog("SAVE_IO", `write committed db=${detail.dbName ?? "?"} store=${detail.storeName ?? "?"} bytes=${detail.bytes ?? 0} ms=${detail.ms ?? 0}`, detail.key);
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "hidden") return;
+    const pending = IndexedDBStore.getPendingWriteCount();
+    debugLog("SAVE_IO", `app hiding pendingWrites=${pending}`);
+    void IndexedDBStore.flushPendingWrites().then(() => debugLog("SAVE_IO", "background flush completed"));
+  });
+};
+
 const main = async () => {
   debugLog("BOOT", "main() starting");
   initUiFeedback();
   initGlobalDiagnostics();
+  initSaveIoDiagnostics();
   library = await GameLibrary.open();
   debugLog("BOOT", "GameLibrary opened");
   initTutorial();

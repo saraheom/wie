@@ -35,14 +35,17 @@
         <main class="library-content">
           <div class="library-subbar">
             <span id="library-count">0 games</span>
-            <label class="library-sort-control" aria-label="Sort games">
-              <span>⇅</span>
-              <select id="library-sort-home">
-                <option value="recent">Recently Played</option>
-                <option value="name">Name</option>
-                <option value="favorites">Favorites First</option>
-              </select>
-            </label>
+            <div class="library-sort-control" aria-label="Sort games">
+              <button id="library-sort-direction" class="library-sort-direction" type="button" aria-label="Reverse sort order">↓</button>
+              <label class="library-sort-mode">
+                <span class="sr-only">Sort games by</span>
+                <select id="library-sort-home">
+                  <option value="recent">Recently Played</option>
+                  <option value="name">Name</option>
+                  <option value="favorites">Favorites</option>
+                </select>
+              </label>
+            </div>
           </div>
           <div id="library-empty" class="library-empty" hidden>
             <div class="empty-icon">▣</div>
