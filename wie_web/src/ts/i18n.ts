@@ -32,7 +32,7 @@ const en: Dict = {
 };
 
 const ko: Dict = {
-  'brand.games': '내 게임', 'header.logs': '🐞 로그', 'header.import': '＋ 가져오기',
+  'brand.games': '내 게임', 'header.logs': '🐞 로그', 'header.import': '＋ 불러오기',
   'sort.recent': '최근 실행', 'sort.name': '이름', 'sort.favorites': '즐겨찾기',
   'library.empty.title': '게임이 없습니다', 'library.empty.body': 'WIPI 또는 J2ME ZIP/JAR 파일을 한 번 가져오면 이후에도 라이브러리에 보관됩니다.', 'library.empty.import': '게임 가져오기',
   'settings.title': 'WIPI Player 설정', 'settings.subtitle': '라이브러리 및 가져오기 기본 설정',
