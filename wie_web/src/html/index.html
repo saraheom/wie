@@ -20,7 +20,7 @@
     <div id="app-shell">
       <section id="library-view" class="view library-view">
         <header class="app-header">
-          <div>
+          <div class="app-brand">
             <h1>WIPI Player</h1>
             <p>My Games</p>
           </div>
@@ -215,6 +215,10 @@
           <p class="settings-note">These defaults apply only to games imported after you change them. Existing games keep their own settings.</p>
         </div>
         <div class="settings-section">
+          <strong>iPhone &amp; Mobile</strong>
+          <label class="setting-row toggle-setting-row"><span><strong>Keep screen awake while playing</strong><small>Prevents the display from sleeping during a game when the platform allows it.</small></span><input id="home-keep-awake" type="checkbox" checked /></label>
+        </div>
+        <div class="settings-section">
           <strong>Language</strong>
           <label class="setting-row"><span>App language</span><select disabled><option>English</option></select></label>
           <p class="settings-note">한국어 will be added in Phase 7. The language setting is already located here so localization will not require another UI redesign.</p>
@@ -288,9 +292,10 @@
           <button id="save-manager-close" class="icon-button" type="button" aria-label="Close save manager">×</button>
         </div>
 
-        <p id="save-source-status" class="settings-note"></p>
+        <div class="save-manager-scroll">
+          <p id="save-source-status" class="settings-note"></p>
 
-        <div class="save-manager-toolbar">
+          <div class="save-manager-toolbar">
           <button id="save-create-backup" class="primary-button compact-button" type="button">＋ Create Backup</button>
           <button id="save-import-backup" class="secondary-button compact-button" type="button">Import Backup</button>
         </div>
@@ -312,7 +317,8 @@
           <button id="save-erase-current" class="secondary-button danger-button" type="button">Erase Current In-Game Save</button>
         </div>
 
-        <p class="settings-note save-manager-note">This manages the game's native WIE/J2ME save storage. Full emulator freeze-state snapshots are a separate future feature.</p>
+          <p class="settings-note save-manager-note">This manages the game's native WIE/J2ME save storage. Full emulator freeze-state snapshots are a separate future feature.</p>
+        </div>
       </div>
     </div>
 

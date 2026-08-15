@@ -62,6 +62,7 @@ const keyMap: Record<string, string> = {
 let library: GameLibrary;
 let currentEmulator: WieWeb | undefined;
 let currentGame: GameRecord | undefined;
+let wakeLockSentinel: any | undefined;
 let animationFrame: number | undefined;
 let activeActionGameId: string | undefined;
 let pendingCoverGameId: string | undefined;
@@ -567,6 +568,37 @@ const importGame = async (file: File) => {
   debugLog("BOOT", "WIPI Player ready on library view");
 };
 
+const releaseWakeLock = async () => {
+  if (!wakeLockSentinel) return;
+  const sentinel = wakeLockSentinel;
+  wakeLockSentinel = undefined;
+  try {
+    await sentinel.release?.();
+    debugLog("MOBILE", "screen wake lock released");
+  } catch (error) {
+    debugLog("MOBILE", "screen wake lock release failed", error);
+  }
+};
+
+const requestWakeLockForPlayer = async () => {
+  if (!appSettings.keepScreenAwake || document.visibilityState !== "visible" || !currentGame) return;
+  const wakeLock = (navigator as any).wakeLock;
+  if (!wakeLock?.request) {
+    debugLog("MOBILE", "Screen Wake Lock API unavailable");
+    return;
+  }
+  if (wakeLockSentinel) return;
+  try {
+    wakeLockSentinel = await wakeLock.request("screen");
+    wakeLockSentinel?.addEventListener?.("release", () => {
+      wakeLockSentinel = undefined;
+    }, { once: true });
+    debugLog("MOBILE", "screen wake lock acquired");
+  } catch (error) {
+    debugLog("MOBILE", "screen wake lock request failed", error);
+  }
+};
+
 const stopCurrentGame = async () => {
   controlEditing = false;
   document.getElementById("player-view")?.classList.remove("control-editing");
@@ -595,6 +627,7 @@ const stopCurrentGame = async () => {
   }
 
   currentEmulator = undefined;
+  await releaseWakeLock();
   currentGame = undefined;
 };
 
@@ -649,6 +682,7 @@ const launchGame = async (id: string) => {
     await library.put(game);
     debugLog("GAME", `launch successful game=${game.name}`, `file=${game.fileName}`);
     scheduleEmulatorFrame();
+    void requestWakeLockForPlayer();
   } catch (error) {
     currentEmulator = undefined;
     currentGame = undefined;
@@ -907,15 +941,24 @@ const initLibrarySortControl = () => {
     await renderLibrary();
   });
 
-  directionButton.addEventListener("pointerup", async (event) => {
-    event.preventDefault();
-    event.stopPropagation();
+  let lastDirectionActivation = 0;
+  const reverseSortDirection = async (event?: Event) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+    const now = performance.now();
+    if (now - lastDirectionActivation < 300) return;
+    lastDirectionActivation = now;
     appSettings.librarySortDirection = appSettings.librarySortDirection === "asc" ? "desc" : "asc";
     saveAppSettings(appSettings);
+    // Update the arrow immediately before any IndexedDB/library work.
     updateLibrarySortUi();
     debugLog("LIBRARY", `sort direction=${appSettings.librarySortDirection}`);
     await renderLibrary();
-  });
+    updateLibrarySortUi();
+  };
+
+  directionButton.addEventListener("touchend", (event) => { void reverseSortDirection(event); }, { passive: false });
+  directionButton.addEventListener("click", (event) => { void reverseSortDirection(event); });
 };
 
 const initInput = () => {
@@ -1385,6 +1428,7 @@ const openHomeSettings = () => {
   if (homeSort) homeSort.value = appSettings.librarySort;
   element<HTMLSelectElement>("home-default-orientation").value = appSettings.defaultOrientation;
   element<HTMLSelectElement>("home-default-display").value = appSettings.defaultDisplayMode;
+  element<HTMLInputElement>("home-keep-awake").checked = appSettings.keepScreenAwake;
   element("home-settings-overlay").hidden = false;
   debugLog("SETTINGS", "home settings opened");
 };
@@ -1422,6 +1466,13 @@ const initHomeSettings = () => {
     appSettings.defaultDisplayMode = (event.currentTarget as HTMLSelectElement).value as AppSettings["defaultDisplayMode"];
     saveAppSettings(appSettings);
     debugLog("SETTINGS", `default display=${appSettings.defaultDisplayMode}`);
+  });
+  element<HTMLInputElement>("home-keep-awake").addEventListener("change", (event) => {
+    appSettings.keepScreenAwake = (event.currentTarget as HTMLInputElement).checked;
+    saveAppSettings(appSettings);
+    debugLog("SETTINGS", `keep screen awake=${appSettings.keepScreenAwake}`);
+    if (appSettings.keepScreenAwake) void requestWakeLockForPlayer();
+    else void releaseWakeLock();
   });
 };
 
@@ -1548,6 +1599,9 @@ const initPlayerChrome = () => {
   window.addEventListener("orientationchange", viewportChanged);
   screen.orientation?.addEventListener?.("change", viewportChanged);
   window.visualViewport?.addEventListener("resize", viewportChanged);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && currentGame) void requestWakeLockForPlayer();
+  });
 
   document.addEventListener("click", (event) => {
     if (!toggle.contains(event.target as Node) && !panel.contains(event.target as Node)) {

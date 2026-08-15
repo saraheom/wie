@@ -10,6 +10,7 @@ export interface AppSettings {
   defaultOrientation: GameOrientation;
   defaultDisplayMode: GameDisplayMode;
   language: AppLanguage;
+  keepScreenAwake: boolean;
 }
 
 const STORAGE_KEY = "wipi_player_app_settings_v1";
@@ -20,6 +21,7 @@ export const defaultAppSettings = (): AppSettings => ({
   defaultOrientation: "portrait",
   defaultDisplayMode: "fit",
   language: "en",
+  keepScreenAwake: true,
 });
 
 export const loadAppSettings = (): AppSettings => {
@@ -42,6 +44,7 @@ export const loadAppSettings = (): AppSettings => {
           ? parsed.defaultDisplayMode
           : defaults.defaultDisplayMode,
       language: "en",
+      keepScreenAwake: parsed.keepScreenAwake !== false,
     };
   } catch {
     return defaults;
