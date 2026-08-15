@@ -34,6 +34,7 @@ async fn handle_init_svc(core: &mut ArmCore, jvm: &mut Jvm, id: SvcId) -> Result
         InitSvcId::JavaArrayNew => EmulatedFunction::call(&java_array_new, core, jvm).await?.write(core, lr),
         InitSvcId::JavaClassLoad => EmulatedFunction::call(&java_class_load, core, jvm).await?.write(core, lr),
         InitSvcId::Alloc => EmulatedFunction::call(&alloc, core, &mut ()).await?.write(core, lr),
+        InitSvcId::IncMem => inc_mem(core).await?.write(core, lr),
     }
 }
 
@@ -146,9 +147,66 @@ async fn get_interface(core: &mut ArmCore, ptr_name: u32) -> Result<u32> {
     match name.as_str() {
         "WIPIC_knlInterface" => get_wipic_knl_interface(core),
         "WIPI_JBInterface" => get_wipi_jb_interface(core),
+        "WIPICX_incMemInterface" => get_inc_mem_interface(core),
         _ => {
             tracing::warn!("Unknown {name}");
 
+            Ok(0)
+        }
+    }
+}
+
+
+/// KTF extension used by the ARM-side C/C++ runtime when its static allocator
+/// needs another arena.  Several late WIPI 1.2 games (including Inotia 2)
+/// refuse to enable new/malloc/free when this interface is absent.
+///
+/// The extension is a one-entry interface table.  The guest calls the entry
+/// with a requested byte count and receives a writable guest-memory address.
+fn get_inc_mem_interface(core: &mut ArmCore) -> Result<u32> {
+    let fn_inc_mem = core.make_svc_stub(SVC_CATEGORY_INIT, InitSvcId::IncMem)?;
+    let address = Allocator::alloc(core, size_of::<u32>() as u32)?;
+    write_generic(core, address, fn_inc_mem)?;
+    tracing::info!("WIPICX_incMemInterface available table={address:#x} fn={fn_inc_mem:#x}");
+    Ok(address)
+}
+
+async fn inc_mem(core: &mut ArmCore) -> Result<u32> {
+    // Known KTF binaries normally pass the requested byte count in r0.  Log
+    // r0-r3 as well because this carrier extension is not part of the public
+    // WIPI C API and handset runtimes used slightly different wrappers.
+    let a0 = core.read_param(0)?;
+    let a1 = core.read_param(1)?;
+    let a2 = core.read_param(2)?;
+    let a3 = core.read_param(3)?;
+
+    // Prefer r0.  If r0 looks pointer-like/empty and r1 is a sane byte count,
+    // accept r1 as a compatibility fallback.  Cap a single request so a bad
+    // ABI guess cannot consume the whole emulator heap.
+    const MAX_REQUEST: u32 = 64 * 1024 * 1024;
+    let mut requested = a0;
+    if requested == 0 || requested > MAX_REQUEST {
+        if a1 > 0 && a1 <= MAX_REQUEST {
+            requested = a1;
+        }
+    }
+
+    if requested == 0 || requested > MAX_REQUEST {
+        tracing::warn!("WIPICX_incMem rejected args r0={a0:#x} r1={a1:#x} r2={a2:#x} r3={a3:#x}");
+        return Ok(0);
+    }
+
+    // Give the guest allocator a little alignment headroom.  The ArmCore heap
+    // is already mapped and managed by Allocator, so this produces a stable
+    // writable guest address without changing the application's image mapping.
+    let requested = requested.next_multiple_of(16);
+    match Allocator::alloc(core, requested) {
+        Ok(address) => {
+            tracing::info!("WIPICX_incMem request={requested:#x} -> {address:#x} args=[{a0:#x},{a1:#x},{a2:#x},{a3:#x}]");
+            Ok(address)
+        }
+        Err(error) => {
+            tracing::warn!("WIPICX_incMem allocation failed request={requested:#x}: {error:?}");
             Ok(0)
         }
     }

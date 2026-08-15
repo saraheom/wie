@@ -263,7 +263,7 @@ pub async fn get_total_memory(_context: &mut dyn WIPICContext) -> Result<i32> {
     // The ARM runtime maps a substantially larger heap than the old 1 MiB
     // placeholder reported here. Some later WIPI titles (including Inotia 2)
     // explicitly refuse to start when the platform reports only 1 MiB.
-    tracing::debug!("MC_knlGetTotalMemory() -> {REPORTED_WIPI_MEMORY:#x}");
+    tracing::info!("MC_knlGetTotalMemory() -> {REPORTED_WIPI_MEMORY:#x}");
 
     Ok(REPORTED_WIPI_MEMORY)
 }
@@ -272,7 +272,7 @@ pub async fn get_free_memory(_context: &mut dyn WIPICContext) -> Result<i32> {
     // This remains an approximation until the allocator exposes live free-byte
     // accounting, but 16 MiB is conservative relative to WIE's mapped heap and
     // matches the expectations of later WIPI 1.2 games much better than 1 MiB.
-    tracing::debug!("MC_knlGetFreeMemory() -> {REPORTED_WIPI_MEMORY:#x}");
+    tracing::info!("MC_knlGetFreeMemory() -> {REPORTED_WIPI_MEMORY:#x}");
 
     Ok(REPORTED_WIPI_MEMORY)
 }
