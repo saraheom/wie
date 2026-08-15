@@ -31,6 +31,7 @@ import { errorFeedback, initUiFeedback, requestConfirmation, successFeedback } f
 import { AppSettings, loadAppSettings, saveAppSettings } from "./app_settings";
 import { exportGameEntry, parseGameEntry } from "./game_entry";
 import { IndexedDBStore } from "./indexed_db_store";
+import { applyTranslations, setLanguage, t } from "./i18n";
 
 installDebugLogging();
 
@@ -72,6 +73,7 @@ let controlEditing = false;
 let selectedControlPad: ControlPadName = "direction";
 let saveManagerGameId: string | undefined;
 let appSettings: AppSettings = loadAppSettings();
+setLanguage(appSettings.language);
 let pendingEditGameId: string | undefined;
 
 const element = <T extends HTMLElement>(id: string): T => {
@@ -272,7 +274,7 @@ const updateControlEditorUi = () => {
   if (size) size.value = String(Math.round(pad.scale * 100));
   if (gap) gap.value = String(Math.round(pad.gap));
   if (opacity) opacity.value = String(Math.round(layout.opacity * 100));
-  if (orientation) orientation.textContent = currentGame.settings.orientation === "portrait" ? "Portrait layout" : "Landscape layout";
+  if (orientation) orientation.textContent = currentGame.settings.orientation === "portrait" ? (appSettings.language === "ko" ? "세로 레이아웃" : "Portrait layout") : (appSettings.language === "ko" ? "가로 레이아웃" : "Landscape layout");
   if (sizeValue) sizeValue.textContent = `${Math.round(pad.scale * 100)}%`;
   if (gapValue) gapValue.textContent = `${Math.round(pad.gap)} px`;
   if (opacityValue) opacityValue.textContent = `${Math.round(layout.opacity * 100)}%`;
@@ -440,7 +442,7 @@ const renderLibrary = async () => {
     });
   }
 
-  if (count) count.textContent = `${games.length} ${games.length === 1 ? "game" : "games"}`;
+  if (count) count.textContent = appSettings.language === "ko" ? `${games.length}${t(games.length === 1 ? "count.game" : "count.games")}` : `${games.length} ${t(games.length === 1 ? "count.game" : "count.games")}`;
 
   const liveGameIds = new Set(games.map((game) => game.id));
   for (const gameId of Array.from(coverUrlCache.keys())) {
@@ -518,7 +520,7 @@ const renderLibrary = async () => {
     const badges = document.createElement("div");
     badges.className = "game-badges";
     const orientation = document.createElement("span");
-    orientation.textContent = game.settings.orientation === "landscape" ? "Landscape" : "Portrait";
+    orientation.textContent = game.settings.orientation === "landscape" ? t("badge.landscape") : t("badge.portrait");
     const display = document.createElement("span");
     display.textContent = game.settings.displayMode === "native" ? "240×320" : game.settings.displayMode;
     badges.append(orientation, display);
@@ -770,7 +772,7 @@ const initGameActions = () => {
     game.favorite = !game.favorite;
     await library.put(game);
     closeGameActions();
-    successFeedback(game.favorite ? "Added to favorites." : "Removed from favorites.");
+    successFeedback(game.favorite ? t("toast.favoriteAdded") : t("toast.favoriteRemoved"));
     await renderLibrary();
   });
 
@@ -916,10 +918,10 @@ const updateLibrarySortUi = () => {
     const asc = appSettings.librarySortDirection === "asc";
     directionButton.textContent = asc ? "↑" : "↓";
     const meaning = appSettings.librarySort === "name"
-      ? (asc ? "A to Z" : "Z to A")
+      ? (asc ? t("sort.aToZ") : t("sort.zToA"))
       : appSettings.librarySort === "recent"
-        ? (asc ? "Oldest first" : "Newest first")
-        : (asc ? "Non-favorites first" : "Favorites first");
+        ? (asc ? t("sort.oldest") : t("sort.newest"))
+        : (asc ? t("sort.nonFavorites") : t("sort.favoritesFirst"));
     directionButton.ariaLabel = `Reverse sort order. Current: ${meaning}`;
     directionButton.title = meaning;
   }
@@ -930,6 +932,7 @@ const initLibrarySortControl = () => {
   const directionButton = document.getElementById("library-sort-direction") as HTMLButtonElement | null;
   if (!sort || !directionButton) return;
   updateLibrarySortUi();
+  debugLog("LIBRARY", `sort control initialized mode=${appSettings.librarySort} direction=${appSettings.librarySortDirection}`);
 
   sort.addEventListener("change", async () => {
     appSettings.librarySort = sort.value as AppSettings["librarySort"];
@@ -957,8 +960,11 @@ const initLibrarySortControl = () => {
     updateLibrarySortUi();
   };
 
-  directionButton.addEventListener("touchend", (event) => { void reverseSortDirection(event); }, { passive: false });
-  directionButton.addEventListener("click", (event) => { void reverseSortDirection(event); });
+  directionButton.addEventListener("pointerup", (event) => { void reverseSortDirection(event); });
+  directionButton.addEventListener("click", (event) => {
+    // Keyboard/accessibility fallback. Pointer taps are handled above and de-duplicated.
+    void reverseSortDirection(event);
+  });
 };
 
 const initInput = () => {
@@ -1178,12 +1184,12 @@ const renderSaveBackups = async (game: GameRecord) => {
 
     const restore = document.createElement("button");
     restore.type = "button";
-    restore.textContent = "Restore";
+    restore.textContent = t("saves.restore");
     restore.addEventListener("click", () => void restoreBackupForGame(game, backup));
 
     const exportButton = document.createElement("button");
     exportButton.type = "button";
-    exportButton.textContent = "Export";
+    exportButton.textContent = t("saves.export");
     exportButton.addEventListener("click", () => {
       void exportSaveBackup(backup).catch((error) => {
         console.error("Save export failed", error);
@@ -1194,7 +1200,7 @@ const renderSaveBackups = async (game: GameRecord) => {
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "danger-button";
-    remove.textContent = "Delete";
+    remove.textContent = t("saves.delete");
     remove.addEventListener("click", async () => {
       const confirmed = await requestConfirmation({
         title: "Delete Backup?",
@@ -1230,7 +1236,7 @@ const openSaveManager = async (gameId: string) => {
   const game = await library.get(gameId);
   if (!game) return;
   saveManagerGameId = gameId;
-  element("save-manager-title").textContent = `${game.name} — Saves`;
+  element("save-manager-title").textContent = appSettings.language === "ko" ? `${game.name} — 세이브` : `${game.name} — Saves`;
   element("save-manager-overlay").hidden = false;
   await renderSaveBackups(game);
   debugLog("SAVE", `manager opened game=${game.name}`, game.saveSources);
@@ -1429,6 +1435,8 @@ const openHomeSettings = () => {
   element<HTMLSelectElement>("home-default-orientation").value = appSettings.defaultOrientation;
   element<HTMLSelectElement>("home-default-display").value = appSettings.defaultDisplayMode;
   element<HTMLInputElement>("home-keep-awake").checked = appSettings.keepScreenAwake;
+  const language = document.getElementById("home-language") as HTMLSelectElement | null;
+  if (language) language.value = appSettings.language;
   element("home-settings-overlay").hidden = false;
   debugLog("SETTINGS", "home settings opened");
 };
@@ -1473,6 +1481,15 @@ const initHomeSettings = () => {
     debugLog("SETTINGS", `keep screen awake=${appSettings.keepScreenAwake}`);
     if (appSettings.keepScreenAwake) void requestWakeLockForPlayer();
     else void releaseWakeLock();
+  });
+  document.getElementById("home-language")?.addEventListener("change", async (event) => {
+    appSettings.language = (event.currentTarget as HTMLSelectElement).value === "ko" ? "ko" : "en";
+    saveAppSettings(appSettings);
+    setLanguage(appSettings.language);
+    applyTranslations();
+    updateLibrarySortUi();
+    await renderLibrary();
+    debugLog("SETTINGS", `language=${appSettings.language}`);
   });
 };
 
@@ -1646,6 +1663,8 @@ const initSaveIoDiagnostics = () => {
 const main = async () => {
   debugLog("BOOT", "main() starting");
   initUiFeedback();
+  setLanguage(appSettings.language);
+  applyTranslations();
   initGlobalDiagnostics();
   initSaveIoDiagnostics();
   library = await GameLibrary.open();
@@ -1660,6 +1679,7 @@ const main = async () => {
   initGameActions();
   initGameEditor();
   initHomeSettings();
+  initLibrarySortControl();
   initInput();
   initControlEditor();
   initSaveManagement();

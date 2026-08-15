@@ -1,7 +1,7 @@
 import { GameDisplayMode, GameOrientation } from "./game_library";
 
 export type LibrarySortMode = "recent" | "name" | "favorites";
-export type AppLanguage = "en";
+export type AppLanguage = "en" | "ko";
 export type LibrarySortDirection = "asc" | "desc";
 
 export interface AppSettings {
@@ -43,7 +43,7 @@ export const loadAppSettings = (): AppSettings => {
         parsed.defaultDisplayMode === "max"
           ? parsed.defaultDisplayMode
           : defaults.defaultDisplayMode,
-      language: "en",
+      language: parsed.language === "ko" ? "ko" : "en",
       keepScreenAwake: parsed.keepScreenAwake !== false,
     };
   } catch {
