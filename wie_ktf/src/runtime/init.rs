@@ -34,7 +34,14 @@ async fn handle_init_svc(core: &mut ArmCore, jvm: &mut Jvm, id: SvcId) -> Result
         InitSvcId::JavaArrayNew => EmulatedFunction::call(&java_array_new, core, jvm).await?.write(core, lr),
         InitSvcId::JavaClassLoad => EmulatedFunction::call(&java_class_load, core, jvm).await?.write(core, lr),
         InitSvcId::Alloc => EmulatedFunction::call(&alloc, core, &mut ()).await?.write(core, lr),
-        InitSvcId::IncMem => inc_mem(core).await?.write(core, lr),
+        InitSvcId::IncMem0 => inc_mem_slot(core, 0).await?.write(core, lr),
+        InitSvcId::IncMem1 => inc_mem_slot(core, 1).await?.write(core, lr),
+        InitSvcId::IncMem2 => inc_mem_slot(core, 2).await?.write(core, lr),
+        InitSvcId::IncMem3 => inc_mem_slot(core, 3).await?.write(core, lr),
+        InitSvcId::IncMem4 => inc_mem_slot(core, 4).await?.write(core, lr),
+        InitSvcId::IncMem5 => inc_mem_slot(core, 5).await?.write(core, lr),
+        InitSvcId::IncMem6 => inc_mem_slot(core, 6).await?.write(core, lr),
+        InitSvcId::IncMem7 => inc_mem_slot(core, 7).await?.write(core, lr),
     }
 }
 
@@ -164,49 +171,70 @@ async fn get_interface(core: &mut ArmCore, ptr_name: u32) -> Result<u32> {
 /// The extension is a one-entry interface table.  The guest calls the entry
 /// with a requested byte count and receives a writable guest-memory address.
 fn get_inc_mem_interface(core: &mut ArmCore) -> Result<u32> {
-    let fn_inc_mem = core.make_svc_stub(SVC_CATEGORY_INIT, InitSvcId::IncMem)?;
-    let address = Allocator::alloc(core, size_of::<u32>() as u32)?;
-    write_generic(core, address, fn_inc_mem)?;
-    tracing::info!("WIPICX_incMemInterface available table={address:#x} fn={fn_inc_mem:#x}");
+    // The late KTF SDK extension is not publicly documented. Phase 7.2 proved
+    // that returning a single function pointer at table[0] is insufficient:
+    // Inotia 2 accepts the interface pointer but never invokes slot 0.
+    //
+    // Expose eight independently traced entries so the guest can use the slot
+    // layout expected by its handset SDK. Each entry reaches the same guarded
+    // allocator heuristic, but logs its table index for ABI discovery.
+    const SLOT_COUNT: usize = 8;
+    let address = Allocator::alloc(core, (SLOT_COUNT * size_of::<u32>()) as u32)?;
+
+    for slot in 0..SLOT_COUNT {
+        let id = match slot {
+            0 => InitSvcId::IncMem0,
+            1 => InitSvcId::IncMem1,
+            2 => InitSvcId::IncMem2,
+            3 => InitSvcId::IncMem3,
+            4 => InitSvcId::IncMem4,
+            5 => InitSvcId::IncMem5,
+            6 => InitSvcId::IncMem6,
+            7 => InitSvcId::IncMem7,
+            _ => unreachable!(),
+        };
+        let stub = core.make_svc_stub(SVC_CATEGORY_INIT, id)?;
+        write_generic(core, address + (slot as u32 * 4), stub)?;
+        tracing::info!("WIPICX_incMemInterface slot={slot} fn={stub:#x}");
+    }
+
+    tracing::info!("WIPICX_incMemInterface multi-slot table={address:#x} slots={SLOT_COUNT}");
     Ok(address)
 }
 
-async fn inc_mem(core: &mut ArmCore) -> Result<u32> {
-    // Known KTF binaries normally pass the requested byte count in r0.  Log
-    // r0-r3 as well because this carrier extension is not part of the public
-    // WIPI C API and handset runtimes used slightly different wrappers.
+async fn inc_mem_slot(core: &mut ArmCore, slot: u32) -> Result<u32> {
     let a0 = core.read_param(0)?;
     let a1 = core.read_param(1)?;
     let a2 = core.read_param(2)?;
     let a3 = core.read_param(3)?;
 
-    // Prefer r0.  If r0 looks pointer-like/empty and r1 is a sane byte count,
-    // accept r1 as a compatibility fallback.  Cap a single request so a bad
-    // ABI guess cannot consume the whole emulator heap.
-    const MAX_REQUEST: u32 = 64 * 1024 * 1024;
-    let mut requested = a0;
-    if requested == 0 || requested > MAX_REQUEST {
-        if a1 > 0 && a1 <= MAX_REQUEST {
-            requested = a1;
-        }
-    }
+    tracing::info!(
+        "WIPICX_incMem slot={slot} called args=[{a0:#x},{a1:#x},{a2:#x},{a3:#x}]"
+    );
 
-    if requested == 0 || requested > MAX_REQUEST {
-        tracing::warn!("WIPICX_incMem rejected args r0={a0:#x} r1={a1:#x} r2={a2:#x} r3={a3:#x}");
+    // A real allocation size should be nonzero and reasonably small. Guest
+    // pointers live around 0x48xxxxxx, so rejecting very large values also
+    // makes free/destroy-style methods harmless while we identify this ABI.
+    const MIN_REQUEST: u32 = 16;
+    const MAX_REQUEST: u32 = 32 * 1024 * 1024;
+    let args = [a0, a1, a2, a3];
+    let requested = args
+        .into_iter()
+        .find(|value| *value >= MIN_REQUEST && *value <= MAX_REQUEST);
+
+    let Some(requested) = requested else {
+        tracing::info!("WIPICX_incMem slot={slot} no allocation-sized argument; returning 0");
         return Ok(0);
-    }
+    };
 
-    // Give the guest allocator a little alignment headroom.  The ArmCore heap
-    // is already mapped and managed by Allocator, so this produces a stable
-    // writable guest address without changing the application's image mapping.
     let requested = requested.next_multiple_of(16);
     match Allocator::alloc(core, requested) {
         Ok(address) => {
-            tracing::info!("WIPICX_incMem request={requested:#x} -> {address:#x} args=[{a0:#x},{a1:#x},{a2:#x},{a3:#x}]");
+            tracing::info!("WIPICX_incMem slot={slot} request={requested:#x} -> {address:#x}");
             Ok(address)
         }
         Err(error) => {
-            tracing::warn!("WIPICX_incMem allocation failed request={requested:#x}: {error:?}");
+            tracing::warn!("WIPICX_incMem slot={slot} allocation failed request={requested:#x}: {error:?}");
             Ok(0)
         }
     }

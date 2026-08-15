@@ -10,7 +10,14 @@ pub enum InitSvcId {
     JavaArrayNew = 4,
     JavaClassLoad = 5,
     Alloc = 6,
-    IncMem = 7,
+    IncMem0 = 7,
+    IncMem1 = 8,
+    IncMem2 = 9,
+    IncMem3 = 10,
+    IncMem4 = 11,
+    IncMem5 = 12,
+    IncMem6 = 13,
+    IncMem7 = 14,
 }
 
 impl TryFrom<SvcId> for InitSvcId {
@@ -25,7 +32,14 @@ impl TryFrom<SvcId> for InitSvcId {
             4 => Self::JavaArrayNew,
             5 => Self::JavaClassLoad,
             6 => Self::Alloc,
-            7 => Self::IncMem,
+            7 => Self::IncMem0,
+            8 => Self::IncMem1,
+            9 => Self::IncMem2,
+            10 => Self::IncMem3,
+            11 => Self::IncMem4,
+            12 => Self::IncMem5,
+            13 => Self::IncMem6,
+            14 => Self::IncMem7,
             _ => return Err(wie_util::WieError::FatalError(alloc::format!("Unknown KTF init SVC id {}", value.0))),
         })
     }
