@@ -56,7 +56,38 @@ pub async fn load_native(
 ) -> Result<ExeInterfaceFunctions> {
     let bss_size = parse_bss_size(filename)?;
 
-    core.load(data, IMAGE_BASE, data.len() + bss_size as usize)?;
+    // Phase 7.4A diagnostic experiment:
+    //
+    // KTF client.bin declares its static BSS size in the filename.  WIE used
+    // to map exactly code/data + BSS.  Large late-generation titles such as
+    // Inotia 2 declare >1 MiB of BSS and may expect the handset loader to
+    // leave additional contiguous writable address space after that region
+    // for the ARM-side C runtime heap (_sbrk/new/malloc).
+    //
+    // Keep the BSS value passed to the guest completely unchanged.  We only
+    // map extra address-space headroom so this experiment cannot make the
+    // relocation/bootstrap code believe its BSS is larger than declared.
+    const LARGE_BSS_THRESHOLD: u32 = 512 * 1024;
+    const DIAGNOSTIC_NATIVE_HEADROOM: usize = 8 * 1024 * 1024;
+    let headroom = if bss_size >= LARGE_BSS_THRESHOLD {
+        DIAGNOSTIC_NATIVE_HEADROOM
+    } else {
+        0
+    };
+    let nominal_map_size = data.len() + bss_size as usize;
+    let mapped_size = nominal_map_size + headroom;
+
+    tracing::info!(
+        "[KTF_MEM] native image file={filename} base={IMAGE_BASE:#x} data={:#x} bss={bss_size:#x} nominal_end={:#x} headroom={:#x} mapped_end={:#x} global_allocator_base={:#x} global_allocator_size={:#x}",
+        data.len(),
+        IMAGE_BASE as usize + nominal_map_size,
+        headroom,
+        IMAGE_BASE as usize + mapped_size,
+        0x4000_0000u32,
+        0x1000_0000u32,
+    );
+
+    core.load(data, IMAGE_BASE, mapped_size)?;
 
     // Patterns target instruction encodings, which the guest self-rebase at
     // IMAGE_BASE+1 doesn't rewrite — so installing here is sound and skips a
@@ -125,6 +156,15 @@ pub async fn load_native(
     let exe_interface: ExeInterface = read_generic(core, wipi_exe.ptr_exe_interface)?;
     let exe_interface_functions: ExeInterfaceFunctions = read_generic(core, exe_interface.ptr_functions)?;
 
+    tracing::info!(
+        "[KTF_INIT] exe_interface_ptr={:#x} functions_ptr={:#x} fn_init={:#x}",
+        wipi_exe.ptr_exe_interface,
+        exe_interface.ptr_functions,
+        exe_interface_functions.fn_init,
+    );
+    tracing::info!(
+        "[KTF_INIT] params p0={ptr_param_0:#x} p1={ptr_param_1:#x} jvm={ptr_jvm_context:#x} p3={ptr_param_3:#x} p4={ptr_param_4:#x}"
+    );
     tracing::debug!("Call init at {:#x}", exe_interface_functions.fn_init);
     let result = core
         .run_function::<u32>(
@@ -147,20 +187,52 @@ pub async fn load_native(
 }
 
 async fn get_interface(core: &mut ArmCore, ptr_name: u32) -> Result<u32> {
-    tracing::trace!("get_interface({ptr_name:#x})");
-
+    let (pc, lr) = core.read_pc_lr()?;
+    let caller = lr & !1;
     let name = String::from_utf8(read_null_terminated_string_bytes(core, ptr_name)?).unwrap();
 
-    match name.as_str() {
+    tracing::info!(
+        "[KTF_IFACE] request={name} svc_pc={pc:#x} caller_lr={lr:#x} caller={caller:#x}"
+    );
+
+    // Capture a small word window around the return address.  This does not
+    // disassemble the code on-device, but combined with wie_ktf_dump it lets
+    // us line the runtime trace up with the relocated ARM image precisely.
+    let window_start = caller.saturating_sub(16) & !3;
+    let mut words = [0u32; 8];
+    let mut words_ok = true;
+    for (index, word) in words.iter_mut().enumerate() {
+        match read_generic::<u32, _>(core, window_start + (index as u32 * 4)) {
+            Ok(value) => *word = value,
+            Err(_) => {
+                words_ok = false;
+                break;
+            }
+        }
+    }
+    if words_ok {
+        tracing::info!(
+            "[KTF_IFACE] caller_words base={window_start:#x} [{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+            words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]
+        );
+    } else {
+        tracing::info!("[KTF_IFACE] caller_words unavailable base={window_start:#x}");
+    }
+
+    let result = match name.as_str() {
         "WIPIC_knlInterface" => get_wipic_knl_interface(core),
         "WIPI_JBInterface" => get_wipi_jb_interface(core),
         "WIPICX_incMemInterface" => get_inc_mem_interface(core),
         _ => {
             tracing::warn!("Unknown {name}");
-
             Ok(0)
         }
-    }
+    }?;
+
+    tracing::info!(
+        "[KTF_IFACE] response={name} ptr={result:#x} caller={caller:#x}"
+    );
+    Ok(result)
 }
 
 
