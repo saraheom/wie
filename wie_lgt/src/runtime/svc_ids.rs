@@ -196,6 +196,7 @@ pub enum WIPICSvcId {
     ListRecord = 0x197,
     UpdateRecord = 0x198,
     SelectRecord = 0x199,
+    ListDatabases = 0x19c,
     Unk8 = 0x1a0,
     Connect = 0x258,
     Close = 0x259,
@@ -298,6 +299,7 @@ impl TryFrom<SvcId> for WIPICSvcId {
             0x197 => Self::ListRecord,
             0x198 => Self::UpdateRecord,
             0x199 => Self::SelectRecord,
+            0x19c => Self::ListDatabases,
             0x1a0 => Self::Unk8,
             0x258 => Self::Connect,
             0x259 => Self::Close,
@@ -334,6 +336,7 @@ impl From<WIPICSvcId> for u32 {
 #[repr(u32)]
 pub enum StdlibSvcId {
     Unk2 = 0x3f6,
+    Sprintf = 0x3f7,
     Atoi = 0x3fb,
     Strcpy = 0x405,
     Strncpy = 0x406,
@@ -343,6 +346,7 @@ pub enum StdlibSvcId {
     Unk5 = 0x410,
     Strlen = 0x411,
     Memcpy = 0x414,
+    Memcmp = 0x416,
     Memset = 0x418,
     Time = 0x41a,
     Localtime = 0x420,

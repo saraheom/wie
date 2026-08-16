@@ -89,6 +89,24 @@ export const requestConfirmation = (options: ConfirmOptions): Promise<boolean> =
   });
 };
 
+
+const normalizeIosViewport = () => {
+  // iOS WKWebView may retain the textarea/modal focus scroll offset after a
+  // confirmation closes. Blur first, then normalize twice across layout frames.
+  const active = document.activeElement as HTMLElement | null;
+  active?.blur?.();
+
+  const reset = () => {
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+    window.scrollTo(0, 0);
+  };
+  window.requestAnimationFrame(() => {
+    reset();
+    window.requestAnimationFrame(reset);
+  });
+};
+
 const settleConfirmation = (value: boolean) => {
   if (!pendingResolve) return;
   debugLog("UI", `confirmation settled: ${value ? "confirm" : "cancel"}`);
@@ -102,6 +120,7 @@ const settleConfirmation = (value: boolean) => {
   const resolve = pendingResolve;
   pendingResolve = undefined;
   resolve(value);
+  normalizeIosViewport();
 };
 
 const bestEffortHaptic = (strength: "tap" | "success" | "warning" = "tap") => {

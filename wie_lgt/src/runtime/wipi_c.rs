@@ -165,6 +165,10 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         WIPICSvcId::ListRecord => database::list_record.into_body(),
         WIPICSvcId::UpdateRecord => database::update_record.into_body(),
         WIPICSvcId::SelectRecord => database::select_record.into_body(),
+        WIPICSvcId::ListDatabases => {
+            tracing::info!("[LGT_COMPAT] WIPIC 0x19c -> MC_dbListDataBase");
+            database::list_databases.into_body()
+        },
         WIPICSvcId::Unk8 => database::exists_database.into_body(),
         WIPICSvcId::Connect => net::connect.into_body(),
         WIPICSvcId::Close => net::close.into_body(),

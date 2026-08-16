@@ -1,4 +1,4 @@
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec};
 use chrono::{DateTime, Datelike, FixedOffset, TimeZone, Timelike};
 use core::cmp::min;
 
@@ -53,6 +53,7 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
 
         match id.0 {
             x if x == StdlibSvcId::Unk2 as u32 => EmulatedFunction::call(&unk2, core, &mut ()).await?.write(core, lr),
+            x if x == StdlibSvcId::Sprintf as u32 => EmulatedFunction::call(&sprintf_lgt, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Atoi as u32 => EmulatedFunction::call(&atoi, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Strcpy as u32 => EmulatedFunction::call(&stdlib::strcpy, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Strncpy as u32 => EmulatedFunction::call(&strncpy, core, &mut ()).await?.write(core, lr),
@@ -62,6 +63,7 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
             x if x == StdlibSvcId::Unk5 as u32 => EmulatedFunction::call(&unk5, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Strlen as u32 => EmulatedFunction::call(&stdlib::strlen, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Memcpy as u32 => EmulatedFunction::call(&stdlib::memcpy, core, &mut ()).await?.write(core, lr),
+            x if x == StdlibSvcId::Memcmp as u32 => EmulatedFunction::call(&memcmp_lgt, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Memset as u32 => EmulatedFunction::call(&stdlib::memset, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Time as u32 => EmulatedFunction::call(&time, core, system).await?.write(core, lr),
             x if x == StdlibSvcId::Localtime as u32 => EmulatedFunction::call(&localtime, core, &mut ()).await?.write(core, lr),
@@ -74,6 +76,152 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
     }
 
     core.register_svc_handler(SVC_CATEGORY_STDLIB, handle_stdlib_svc, system)
+}
+
+
+async fn memcmp_lgt(core: &mut ArmCore, _: &mut (), ptr_a: u32, ptr_b: u32, size: u32) -> Result<i32> {
+    tracing::info!("[LGT_COMPAT] stdlib 0x416 memcmp({ptr_a:#x}, {ptr_b:#x}, {size:#x})");
+
+    if size == 0 {
+        return Ok(0);
+    }
+
+    // Keep guest-controlled allocations bounded. Real game calls are tiny; this
+    // protects the host from a corrupt length while retaining normal C semantics.
+    const MAX_COMPARE: u32 = 32 * 1024 * 1024;
+    if size > MAX_COMPARE {
+        return Err(WieError::FatalError(format!("memcmp length too large: {size:#x}")));
+    }
+
+    let mut a = vec![0u8; size as usize];
+    let mut b = vec![0u8; size as usize];
+    core.read_bytes(ptr_a, &mut a)?;
+    core.read_bytes(ptr_b, &mut b)?;
+
+    for (left, right) in a.iter().zip(b.iter()) {
+        if left != right {
+            return Ok((*left as i32) - (*right as i32));
+        }
+    }
+
+    Ok(0)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn sprintf_lgt(
+    core: &mut ArmCore,
+    _: &mut (),
+    dest: u32,
+    ptr_format: u32,
+    a0: u32,
+    a1: u32,
+    a2: u32,
+    a3: u32,
+    a4: u32,
+    a5: u32,
+) -> Result<u32> {
+    tracing::info!(
+        "[LGT_COMPAT] stdlib 0x3f7 sprintf({dest:#x}, {ptr_format:#x}, {a0:#x}, {a1:#x}, {a2:#x}, {a3:#x}, {a4:#x}, {a5:#x})"
+    );
+
+    let format_bytes = read_null_terminated_string_bytes(core, ptr_format)?;
+    let format_string = encoding_rs::EUC_KR.decode(&format_bytes).0.into_owned();
+    let args = [a0, a1, a2, a3, a4, a5];
+    let result = format_guest_printf(core, &format_string, &args)?;
+    let encoded = encoding_rs::EUC_KR.encode(&result).0;
+    let byte_len = encoded.len() as u32;
+    write_null_terminated_string_bytes(core, dest, &encoded)?;
+
+    tracing::info!("[LGT_COMPAT] stdlib 0x3f7 sprintf -> {byte_len} bytes: {result:?}");
+    Ok(byte_len)
+}
+
+fn format_guest_printf(core: &ArmCore, format_string: &str, args: &[u32]) -> Result<String> {
+    const MAX_WIDTH: usize = 4096;
+    let mut result = String::with_capacity(format_string.len());
+    let mut chars = format_string.chars();
+    let mut arg_index = 0usize;
+
+    let next_arg = |index: &mut usize| -> u32 {
+        let value = args.get(*index).copied().unwrap_or(0);
+        *index = (*index).saturating_add(1);
+        value
+    };
+
+    while let Some(ch) = chars.next() {
+        if ch != '%' {
+            result.push(ch);
+            continue;
+        }
+
+        let mut flag = None;
+        let mut width: Option<usize> = None;
+        let mut longs = 0u32;
+        loop {
+            let Some(spec) = chars.next() else {
+                result.push('%');
+                break;
+            };
+
+            match spec {
+                '%' => { result.push('%'); break; }
+                'l' => { longs += 1; }
+                '0' if width.is_none() => { flag = Some('0'); }
+                '0'..='9' => {
+                    width = Some(width.unwrap_or(0).saturating_mul(10).saturating_add(spec.to_digit(10).unwrap() as usize));
+                }
+                'd' | 'u' | 'x' | 'X' => {
+                    let raw = if longs >= 2 {
+                        let low = next_arg(&mut arg_index) as u64;
+                        let high = next_arg(&mut arg_index) as u64;
+                        (high << 32) | low
+                    } else {
+                        next_arg(&mut arg_index) as u64
+                    };
+                    let width = width.unwrap_or(0).min(MAX_WIDTH);
+                    match spec {
+                        'd' => {
+                            let value = if longs >= 2 { raw as i64 } else { raw as u32 as i32 as i64 };
+                            if flag == Some('0') { result += &format!("{value:0width$}"); } else { result += &format!("{value:width$}"); }
+                        }
+                        'u' => {
+                            if flag == Some('0') { result += &format!("{raw:0width$}"); } else { result += &format!("{raw:width$}"); }
+                        }
+                        'x' => {
+                            if flag == Some('0') { result += &format!("{raw:0width$x}"); } else { result += &format!("{raw:width$x}"); }
+                        }
+                        'X' => {
+                            if flag == Some('0') { result += &format!("{raw:0width$X}"); } else { result += &format!("{raw:width$X}"); }
+                        }
+                        _ => unreachable!(),
+                    }
+                    break;
+                }
+                's' => {
+                    let ptr = next_arg(&mut arg_index);
+                    if ptr == 0 {
+                        result.push_str("(null)");
+                    } else {
+                        let bytes = read_null_terminated_string_bytes(core, ptr)?;
+                        result.push_str(&encoding_rs::EUC_KR.decode(&bytes).0);
+                    }
+                    break;
+                }
+                'c' => {
+                    result.push(next_arg(&mut arg_index) as u8 as char);
+                    break;
+                }
+                other => {
+                    tracing::warn!("unsupported LGT sprintf format specifier: %{other}");
+                    result.push('%');
+                    result.push(other);
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 async fn strncpy(core: &mut ArmCore, _: &mut (), ptr_dst: u32, ptr_src: u32, size: u32) -> Result<()> {
