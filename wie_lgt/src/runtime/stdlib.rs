@@ -4,7 +4,7 @@ use core::cmp::min;
 
 use wie_backend::System;
 use wie_core_arm::{Allocator, ArmCore, EmulatedFunction, ResultWriter, SvcId, stdlib};
-use wie_util::{ByteWrite, Result, WieError, read_generic, read_null_terminated_string_bytes, write_generic, write_null_terminated_string_bytes};
+use wie_util::{ByteRead, ByteWrite, Result, WieError, read_generic, read_null_terminated_string_bytes, write_generic, write_null_terminated_string_bytes};
 
 use crate::runtime::{SVC_CATEGORY_STDLIB, svc_ids::StdlibSvcId};
 
@@ -79,7 +79,7 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
 }
 
 
-async fn memcmp_lgt(core: &mut ArmCore, _: &mut (), ptr_a: u32, ptr_b: u32, size: u32) -> Result<i32> {
+async fn memcmp_lgt(core: &mut ArmCore, _: &mut (), ptr_a: u32, ptr_b: u32, size: u32) -> Result<u32> {
     tracing::info!("[LGT_COMPAT] stdlib 0x416 memcmp({ptr_a:#x}, {ptr_b:#x}, {size:#x})");
 
     if size == 0 {
@@ -100,7 +100,7 @@ async fn memcmp_lgt(core: &mut ArmCore, _: &mut (), ptr_a: u32, ptr_b: u32, size
 
     for (left, right) in a.iter().zip(b.iter()) {
         if left != right {
-            return Ok((*left as i32) - (*right as i32));
+            return Ok(((*left as i32) - (*right as i32)) as u32);
         }
     }
 
