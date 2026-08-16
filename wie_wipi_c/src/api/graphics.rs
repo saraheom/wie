@@ -112,6 +112,27 @@ pub async fn set_context(context: &mut dyn WIPICContext, p_grp_ctx: WIPICWord, o
     Ok(())
 }
 
+pub async fn get_context(context: &mut dyn WIPICContext, p_grp_ctx: WIPICWord, op: WIPICGraphicsContextIdx, pv: WIPICWord) -> Result<()> {
+    tracing::info!("[LGT_COMPAT] MC_grpGetContext({p_grp_ctx:#x}, {op:?}, {pv:#x})");
+
+    let grp_ctx: WIPICGraphicsContext = read_generic(context, p_grp_ctx)?;
+    match op {
+        WIPICGraphicsContextIdx::ClipIdx => write_generic(context, pv, grp_ctx.clip)?,
+        WIPICGraphicsContextIdx::FgPixelIdx => write_generic(context, pv, grp_ctx.fgpxl)?,
+        WIPICGraphicsContextIdx::BgPixelIdx => write_generic(context, pv, grp_ctx.bgpxl)?,
+        WIPICGraphicsContextIdx::TransPixelIdx => write_generic(context, pv, grp_ctx.transpxl)?,
+        WIPICGraphicsContextIdx::AlphaIdx => write_generic(context, pv, grp_ctx.alpha)?,
+        WIPICGraphicsContextIdx::PixelopIdx => write_generic(context, pv, grp_ctx.pixel_op_func_ptr)?,
+        WIPICGraphicsContextIdx::PixelParam1Idx => write_generic(context, pv, grp_ctx.param1)?,
+        WIPICGraphicsContextIdx::FontIdx => write_generic(context, pv, grp_ctx.font)?,
+        WIPICGraphicsContextIdx::StyleIdx => write_generic(context, pv, grp_ctx.style)?,
+        WIPICGraphicsContextIdx::OffsetIdx => write_generic(context, pv, grp_ctx.offset)?,
+        _ => tracing::warn!("MC_grpGetContext({p_grp_ctx:#x}, {op:?}, {pv:#x}): unsupported op"),
+    }
+
+    Ok(())
+}
+
 pub async fn put_pixel(context: &mut dyn WIPICContext, dst_fb: WIPICIndirectPtr, x: i32, y: i32, p_gctx: WIPICWord) -> Result<()> {
     tracing::debug!("MC_grpPutPixel({:#x}, {x}, {y}, {p_gctx:?})", dst_fb.0);
 

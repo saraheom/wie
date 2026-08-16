@@ -1582,15 +1582,6 @@ button.ui-action-flash {
   background-repeat: no-repeat;
 }
 
-.state-lab-section {
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding-top: 16px;
-}
-
-.state-lab-output {
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
 
 @media (max-width: 620px) {
   .library-subbar {
