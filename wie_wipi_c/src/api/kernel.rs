@@ -35,26 +35,37 @@ pub async fn get_system_property(context: &mut dyn WIPICContext, ptr_id: WIPICWo
     let id_bytes = read_null_terminated_string_bytes(context, ptr_id)?;
     let id = encoding_rs::EUC_KR.decode(&id_bytes).0;
 
-    let value = match id.as_ref() {
-        "RSSILEVEL" => "30",
-        "BATTERYLEVEL" => "100",
-        "PHONEMODEL" => "Emulator",
-        "PHONENUMBER" => "", // putting this cause some game to fail authentication
-        "MIN" => "01000000000",
-        "ANNUN_CALL" => "0",
-        "ANNUN_SMS" => "0",
-        "ANNUN_SILENT" => "0",
-        "ANNUN_ALARM" => "0",
-        "ANNUN_SECURITY" => "0",
-        "CURRENTCH" => "0",
-        "AIRPLANE_MODE" => "0",
-        "ROAMING_AREA" => "0",
-        "DS_LOCK" => "0",
+    let value: String = match id.as_ref() {
+        "RSSILEVEL" => "30".into(),
+        "BATTERYLEVEL" => "100".into(),
+        "PHONEMODEL" => context.system().legacy_phone_model().into(),
+        "PHONENUMBER" => context.system().legacy_phone_number().into(),
+        "MIN" => {
+            let number = context.system().legacy_phone_number();
+            if number.is_empty() { "01000000000".into() } else { number.into() }
+        }
+        "ESN" => {
+            let esn = context.system().legacy_esn();
+            if esn.is_empty() { "00000000000".into() } else { esn.into() }
+        }
+        "ANNUN_CALL" => "0".into(),
+        "ANNUN_SMS" => "0".into(),
+        "ANNUN_SILENT" => "0".into(),
+        "ANNUN_ALARM" => "0".into(),
+        "ANNUN_SECURITY" => "0".into(),
+        "CURRENTCH" => "0".into(),
+        "AIRPLANE_MODE" => "0".into(),
+        "ROAMING_AREA" => "0".into(),
+        "DS_LOCK" => "0".into(),
         _ => {
             tracing::warn!("unknown system property id: {id}");
             return Ok(-9); // M_E_INVALID
         }
     };
+
+    if matches!(id.as_ref(), "PHONEMODEL" | "PHONENUMBER" | "MIN" | "ESN") {
+        tracing::info!("[DEVICE_COMPAT] system property {id}={value}");
+    }
 
     let bytes = value.as_bytes();
     if bytes.len() + 1 > buf_size as usize {

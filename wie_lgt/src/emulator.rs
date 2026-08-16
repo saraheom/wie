@@ -47,6 +47,8 @@ impl LgtEmulator {
             &app_info.pid,
             &app_info.aid,
             Some(app_info.mclass),
+            app_info.phone_number.as_deref(),
+            app_info.phone_model.as_deref(),
             &files,
             options,
         )
@@ -63,7 +65,7 @@ impl LgtEmulator {
     ) -> Result<Self> {
         let files = [(jar_filename.to_owned(), jar)].into_iter().collect();
 
-        Self::load(platform, jar_filename, pid, aid, main_class_name, &files, options)
+        Self::load(platform, jar_filename, pid, aid, main_class_name, None, None, &files, options)
     }
 
     pub fn loadable_archive(files: &BTreeMap<String, Vec<u8>>) -> bool {
@@ -84,11 +86,21 @@ impl LgtEmulator {
         pid: &str,
         aid: &str,
         main_class_name: Option<String>,
+        phone_number: Option<&str>,
+        phone_model: Option<&str>,
         files: &BTreeMap<String, Vec<u8>>,
         mut options: Options,
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
-        let system = System::new(platform, pid, aid, LgtTaskRunner { core: core.clone() });
+        let mut system = System::new(platform, pid, aid, LgtTaskRunner { core: core.clone() });
+        system.set_legacy_device_identity(phone_number, phone_model);
+        if phone_number.is_some() || phone_model.is_some() {
+            tracing::info!(
+                "[DEVICE_COMPAT] LGT archived identity phone={} model={}",
+                phone_number.unwrap_or("<none>"),
+                phone_model.unwrap_or("<none>")
+            );
+        }
 
         for (filename, data) in files {
             let filename = filename.trim_start_matches("P/");
@@ -156,6 +168,8 @@ struct LgtAppInfo {
     aid: String,
     pid: String,
     mclass: String,
+    phone_number: Option<String>,
+    phone_model: Option<String>,
 }
 
 impl LgtAppInfo {
@@ -163,6 +177,8 @@ impl LgtAppInfo {
         let mut aid = String::new();
         let mut pid = String::new();
         let mut mclass = String::new();
+        let mut phone_number = None;
+        let mut phone_model = None;
 
         let mut lines = data.split(|x| *x == b'\n');
 
@@ -173,10 +189,27 @@ impl LgtAppInfo {
                 pid = String::from_utf8_lossy(&line[4..]).into();
             } else if line.starts_with(b"MClass:") {
                 mclass = String::from_utf8_lossy(&line[7..]).into();
+            } else if line.starts_with(b"DDurl:") {
+                let url = &line[6..];
+                phone_number = Self::query_parameter(url, b"ctn");
+                phone_model = Self::query_parameter(url, b"device_id");
             }
             // TODO load name, it's in euc-kr..
         }
 
-        Self { aid, pid, mclass }
+        Self { aid, pid, mclass, phone_number, phone_model }
+    }
+
+    fn query_parameter(url: &[u8], key: &[u8]) -> Option<String> {
+        let query = url.split(|byte| *byte == b'?').nth(1)?;
+        for field in query.split(|byte| *byte == b'&') {
+            let mut parts = field.splitn(2, |byte| *byte == b'=');
+            let field_key = parts.next()?;
+            let value = parts.next().unwrap_or_default();
+            if field_key == key && !value.is_empty() {
+                return Some(String::from_utf8_lossy(value).into_owned());
+            }
+        }
+        None
     }
 }
