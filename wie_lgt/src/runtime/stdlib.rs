@@ -8,6 +8,45 @@ use wie_util::{ByteWrite, Result, WieError, read_generic, read_null_terminated_s
 
 use crate::runtime::{SVC_CATEGORY_STDLIB, svc_ids::StdlibSvcId};
 
+
+fn trace_unknown_stdlib(core: &ArmCore, id: u32) {
+    let ctx = core.save_context();
+    tracing::error!(
+        "[LGT_ABI] unknown stdlib id={:#x} pc={:#x} lr={:#x} sp={:#x} cpsr={:#x} r0={:#x} r1={:#x} r2={:#x} r3={:#x} r4={:#x} r5={:#x} r6={:#x} r7={:#x} r8={:#x} r9={:#x} r10={:#x} r11={:#x} r12={:#x}",
+        id, ctx.pc, ctx.lr, ctx.sp, ctx.cpsr, ctx.r0, ctx.r1, ctx.r2, ctx.r3, ctx.r4, ctx.r5, ctx.r6, ctx.r7, ctx.r8, ctx.sb, ctx.sl, ctx.fp, ctx.ip
+    );
+
+    let mut stack_words = [0u32; 12];
+    for (i, word) in stack_words.iter_mut().enumerate() {
+        *word = read_generic(core, ctx.sp.wrapping_add((i as u32) * 4)).unwrap_or(0xdead_beef);
+    }
+    tracing::error!("[LGT_ABI] stdlib id={id:#x} stack_words={stack_words:#x?}");
+
+    let caller = ctx.lr & !1;
+    let base = caller.saturating_sub(24);
+    let mut caller_words = [0u32; 16];
+    for (i, word) in caller_words.iter_mut().enumerate() {
+        *word = read_generic(core, base.wrapping_add((i as u32) * 4)).unwrap_or(0xdead_beef);
+    }
+    tracing::error!("[LGT_ABI] stdlib id={id:#x} caller={caller:#x} caller_words_base={base:#x} words={caller_words:#x?}");
+
+    for (name, ptr) in [("r0", ctx.r0), ("r1", ctx.r1), ("r2", ctx.r2), ("r3", ctx.r3)] {
+        if ptr >= 0x10000 {
+            let mut words = [0u32; 8];
+            let mut ok = true;
+            for (i, word) in words.iter_mut().enumerate() {
+                match read_generic(core, ptr.wrapping_add((i as u32) * 4)) {
+                    Ok(v) => *word = v,
+                    Err(_) => { ok = false; break; }
+                }
+            }
+            if ok {
+                tracing::error!("[LGT_ABI] stdlib id={id:#x} {name}_preview ptr={ptr:#x} words={words:#x?}");
+            }
+        }
+    }
+}
+
 pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Result<()> {
     async fn handle_stdlib_svc(core: &mut ArmCore, system: &mut System, id: SvcId) -> Result<()> {
         let (_, lr) = core.read_pc_lr()?;
@@ -27,7 +66,10 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
             x if x == StdlibSvcId::Time as u32 => EmulatedFunction::call(&time, core, system).await?.write(core, lr),
             x if x == StdlibSvcId::Localtime as u32 => EmulatedFunction::call(&localtime, core, &mut ()).await?.write(core, lr),
             x if x == StdlibSvcId::Unk3 as u32 => EmulatedFunction::call(&unk3, core, &mut ()).await?.write(core, lr),
-            _ => Err(WieError::FatalError(format!("Unknown lgt stdlib import: {:#x}", id.0))),
+            _ => {
+                trace_unknown_stdlib(core, id.0);
+                Err(WieError::FatalError(format!("Unknown lgt stdlib import: {:#x}", id.0)))
+            },
         }
     }
 
