@@ -80,7 +80,7 @@ pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Resul
 
 
 async fn memcmp_lgt(core: &mut ArmCore, _: &mut (), ptr_a: u32, ptr_b: u32, size: u32) -> Result<u32> {
-    tracing::info!("[LGT_COMPAT] stdlib 0x416 memcmp({ptr_a:#x}, {ptr_b:#x}, {size:#x})");
+    tracing::debug!("[LGT_COMPAT] stdlib 0x416 memcmp({ptr_a:#x}, {ptr_b:#x}, {size:#x})");
 
     if size == 0 {
         return Ok(0);

@@ -42,7 +42,9 @@ struct DatabaseHandle {
 }
 
 const MIN_BUFFER_CAPACITY: u32 = 64;
-const KTF_DATABASE_STORAGE_LIMIT: u64 = 1024 * 1024;
+// Virtual handset persistent-storage quota exposed to WIPI applications.
+// Later commercial titles such as Inotia 2 require >2 MiB at startup.
+const KTF_DATABASE_STORAGE_LIMIT: u64 = 16 * 1024 * 1024;
 // "MCDB" — sentinel at the start of the handle struct so we can distinguish
 // a real DB handle pointer from an unrelated guest pointer (e.g. a C-string
 // name pointer that KTF's slot 6 passes through the same SVC argument slot).
@@ -182,7 +184,7 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
     let usage = system.platform().database_repository().usage(&pid).await;
     let available = KTF_DATABASE_STORAGE_LIMIT.saturating_sub(usage).min(i32::MAX as u64) as i32;
 
-    tracing::debug!("MC_dbListDataBase() = {available} (used={usage}, limit={KTF_DATABASE_STORAGE_LIMIT})");
+    tracing::info!("[DB_STORAGE] MC_dbListDataBase available={available} used={usage} limit={KTF_DATABASE_STORAGE_LIMIT}");
     Ok(available)
 }
 
