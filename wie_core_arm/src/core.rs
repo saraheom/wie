@@ -283,6 +283,8 @@ impl ArmCore {
             inner.engine.reg_write(ArmRegister::Cpsr, new_cpsr);
         }
 
+        let mut consecutive_count_exhausted: u32 = 0;
+
         loop {
             let result = {
                 let mut inner = self.inner.lock();
@@ -293,8 +295,15 @@ impl ArmCore {
 
             match result {
                 EngineRunResult::End => break,
-                EngineRunResult::CountExhausted => YieldFuture::new().await, // yield to allow other tasks to run
+                EngineRunResult::CountExhausted => {
+                    consecutive_count_exhausted = consecutive_count_exhausted.saturating_add(1);
+                    if matches!(consecutive_count_exhausted, 64 | 256 | 1024 | 4096 | 16384) {
+                        self.trace_long_native_run(address, consecutive_count_exhausted);
+                    }
+                    YieldFuture::new().await; // yield to allow other tasks to run
+                }
                 EngineRunResult::Svc { category, lr, spsr } => {
+                    consecutive_count_exhausted = 0;
                     {
                         let mut inner = self.inner.lock();
                         // Restore the pre-exception execution state before running the Rust SVC handler.
@@ -321,6 +330,75 @@ impl ArmCore {
         self.restore_context(&previous_context);
 
         Ok(result)
+    }
+
+    fn trace_long_native_run(&self, entry: u32, chunks: u32) {
+        let mut inner = self.inner.lock();
+        let engine = &mut inner.engine;
+
+        let pc = engine.reg_read(ArmRegister::PC);
+        let lr = engine.reg_read(ArmRegister::LR);
+        let sp = engine.reg_read(ArmRegister::SP);
+        let cpsr = engine.reg_read(ArmRegister::Cpsr);
+        let r0 = engine.reg_read(ArmRegister::R0);
+        let r1 = engine.reg_read(ArmRegister::R1);
+        let r2 = engine.reg_read(ArmRegister::R2);
+        let r3 = engine.reg_read(ArmRegister::R3);
+        let r4 = engine.reg_read(ArmRegister::R4);
+        let r5 = engine.reg_read(ArmRegister::R5);
+        let r6 = engine.reg_read(ArmRegister::R6);
+        let r7 = engine.reg_read(ArmRegister::R7);
+        let r8 = engine.reg_read(ArmRegister::R8);
+        let r9 = engine.reg_read(ArmRegister::SB);
+        let r10 = engine.reg_read(ArmRegister::SL);
+        let r11 = engine.reg_read(ArmRegister::FP);
+        let r12 = engine.reg_read(ArmRegister::IP);
+
+        tracing::warn!(
+            "[NATIVE_LOOP] entry={entry:#x} chunks={chunks} approx_instructions={} pc={pc:#x} lr={lr:#x} sp={sp:#x} cpsr={cpsr:#x} r0={r0:#x} r1={r1:#x} r2={r2:#x} r3={r3:#x} r4={r4:#x} r5={r5:#x} r6={r6:#x} r7={r7:#x} r8={r8:#x} r9={r9:#x} r10={r10:#x} r11={r11:#x} r12={r12:#x}",
+            chunks.saturating_mul(1000)
+        );
+
+        let code_base = (pc & !1).saturating_sub(16) & !3;
+        let mut code_words = [0u32; 12];
+        let mut code_ok = true;
+        for (index, word) in code_words.iter_mut().enumerate() {
+            let address = code_base + index as u32 * 4;
+            let mut bytes = [0u8; 4];
+            if engine.mem_read(address, 4, &mut bytes).is_err() {
+                code_ok = false;
+                break;
+            }
+            *word = u32::from_le_bytes(bytes);
+        }
+        if code_ok {
+            tracing::warn!(
+                "[NATIVE_LOOP] code base={code_base:#x} [{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                code_words[0], code_words[1], code_words[2], code_words[3], code_words[4], code_words[5], code_words[6], code_words[7], code_words[8], code_words[9], code_words[10], code_words[11]
+            );
+        } else {
+            tracing::warn!("[NATIVE_LOOP] code unavailable base={code_base:#x}");
+        }
+
+        let mut stack_words = [0u32; 12];
+        let mut stack_ok = true;
+        for (index, word) in stack_words.iter_mut().enumerate() {
+            let address = sp + index as u32 * 4;
+            let mut bytes = [0u8; 4];
+            if engine.mem_read(address, 4, &mut bytes).is_err() {
+                stack_ok = false;
+                break;
+            }
+            *word = u32::from_le_bytes(bytes);
+        }
+        if stack_ok {
+            tracing::warn!(
+                "[NATIVE_LOOP] stack sp={sp:#x} [{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                stack_words[0], stack_words[1], stack_words[2], stack_words[3], stack_words[4], stack_words[5], stack_words[6], stack_words[7], stack_words[8], stack_words[9], stack_words[10], stack_words[11]
+            );
+        } else {
+            tracing::warn!("[NATIVE_LOOP] stack unavailable sp={sp:#x}");
+        }
     }
 
     pub fn register_svc_handler<F, C, R, P>(&mut self, category: u32, handler: F, context: &C) -> Result<()>
