@@ -27,9 +27,6 @@ pub use self::{
 pub struct System {
     pid: String,
     aid: String,
-    legacy_phone_number: String,
-    legacy_phone_model: String,
-    legacy_esn: String,
     executor: Executor,
     platform: Arc<Box<dyn Platform>>,
     filesystem: FilesystemOverlay,
@@ -49,9 +46,6 @@ impl System {
         Self {
             pid: pid.to_owned(),
             aid: aid.to_owned(), // TODO create metadata dictionary or something
-            legacy_phone_number: String::new(),
-            legacy_phone_model: "Emulator".into(),
-            legacy_esn: String::new(),
             executor: Executor::new(),
             filesystem: FilesystemOverlay::new(platform.clone(), aid),
             platform,
@@ -99,35 +93,6 @@ impl System {
 
     pub fn aid(&self) -> &str {
         &self.aid
-    }
-
-    /// Configure the identity of the legacy handset represented by this
-    /// emulator session. LGT OMA archives often preserve the original CTN
-    /// (phone number) and device_id in app_info/DDurl. Commercial WIPI titles
-    /// used those values for local first-run/license checks.
-    pub fn set_legacy_device_identity(&mut self, phone_number: Option<&str>, phone_model: Option<&str>) {
-        if let Some(phone_number) = phone_number.filter(|value| !value.is_empty()) {
-            self.legacy_phone_number = phone_number.to_owned();
-            // There is no ESN field in the archived OMA metadata. A stable,
-            // numeric per-download identifier is more compatible than returning
-            // M_E_INVALID; use the archived CTN as the deterministic fallback.
-            self.legacy_esn = phone_number.to_owned();
-        }
-        if let Some(phone_model) = phone_model.filter(|value| !value.is_empty()) {
-            self.legacy_phone_model = phone_model.to_owned();
-        }
-    }
-
-    pub fn legacy_phone_number(&self) -> &str {
-        &self.legacy_phone_number
-    }
-
-    pub fn legacy_phone_model(&self) -> &str {
-        &self.legacy_phone_model
-    }
-
-    pub fn legacy_esn(&self) -> &str {
-        &self.legacy_esn
     }
 
     pub fn platform(&self) -> &dyn Platform {

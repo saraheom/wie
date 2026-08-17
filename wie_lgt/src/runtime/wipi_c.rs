@@ -174,7 +174,6 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         WIPICSvcId::Connect => net::connect.into_body(),
         WIPICSvcId::Close => net::close.into_body(),
         WIPICSvcId::SocketClose => net::socket_close.into_body(),
-        WIPICSvcId::NetCompat266 => net_compat_266.into_body(),
         WIPICSvcId::ClipCreate => media::clip_create.into_body(),
         WIPICSvcId::ClipFree => media::clip_free.into_body(),
         WIPICSvcId::ClipPutData => media::clip_put_data.into_body(),
@@ -269,18 +268,6 @@ async fn clet_register(core: &mut ArmCore, jvm: &mut Jvm, function_table: u32, a
     }
 
     Ok(())
-}
-
-/// LGT network-family service observed during legacy authentication teardown.
-///
-/// The service lives in the same 0x258.. network range as MC_netConnect and
-/// MC_netSocketClose. Preserved titles call it with an invalid/closed fd while
-/// unwinding an obsolete carrier verification attempt. Treating that cleanup
-/// call as successful is safer than terminating the entire emulator. The ABI
-/// tracer remains available if a title later exercises it with live data.
-async fn net_compat_266(_context: &mut dyn WIPICContext, a0: u32, a1: u32, a2: u32, a3: u32) -> Result<u32> {
-    tracing::info!("[NET_COMPAT] LGT WIPIC 0x266({a0:#x}, {a1:#x}, {a2:#x}, {a3:#x}) -> success");
-    Ok(0)
 }
 
 async fn unk0(_context: &mut dyn WIPICContext, a0: u32, a1: u32, a2: u32, a3: u32) -> Result<u32> {

@@ -1,6 +1,6 @@
 use alloc::{format, string::String, vec};
 use chrono::{DateTime, Datelike, FixedOffset, TimeZone, Timelike};
-use core::cmp::min;
+use core::{cmp::min, sync::atomic::{AtomicBool, Ordering}};
 
 use wie_backend::System;
 use wie_core_arm::{Allocator, ArmCore, EmulatedFunction, ResultWriter, SvcId, stdlib};
@@ -45,6 +45,38 @@ fn trace_unknown_stdlib(core: &ArmCore, id: u32) {
             }
         }
     }
+}
+
+
+static INOTIA_3100_TRACED: AtomicBool = AtomicBool::new(false);
+
+fn trace_inotia_3100(core: &ArmCore) {
+    if INOTIA_3100_TRACED.swap(true, Ordering::Relaxed) {
+        return;
+    }
+
+    let ctx = core.save_context();
+    tracing::error!(
+        "[INOTIA_TRACE] first error=3100 pc={:#x} lr={:#x} sp={:#x} cpsr={:#x} r0={:#x} r1={:#x} r2={:#x} r3={:#x} r4={:#x} r5={:#x} r6={:#x} r7={:#x} r8={:#x} r9={:#x} r10={:#x} r11={:#x} r12={:#x}",
+        ctx.pc, ctx.lr, ctx.sp, ctx.cpsr, ctx.r0, ctx.r1, ctx.r2, ctx.r3,
+        ctx.r4, ctx.r5, ctx.r6, ctx.r7, ctx.r8, ctx.sb, ctx.sl, ctx.fp, ctx.ip
+    );
+
+    let caller = ctx.lr & !1;
+    let base = caller.saturating_sub(48);
+    let mut words = [0u32; 32];
+    for (i, word) in words.iter_mut().enumerate() {
+        *word = read_generic(core, base.wrapping_add((i as u32) * 4)).unwrap_or(0xdead_beef);
+    }
+    tracing::error!(
+        "[INOTIA_TRACE] error=3100 caller={caller:#x} caller_words_base={base:#x} words={words:#x?}"
+    );
+
+    let mut stack_words = [0u32; 16];
+    for (i, word) in stack_words.iter_mut().enumerate() {
+        *word = read_generic(core, ctx.sp.wrapping_add((i as u32) * 4)).unwrap_or(0xdead_beef);
+    }
+    tracing::error!("[INOTIA_TRACE] error=3100 stack_words={stack_words:#x?}");
 }
 
 pub fn register_stdlib_svc_handler(core: &mut ArmCore, system: &System) -> Result<()> {
@@ -120,6 +152,10 @@ async fn sprintf_lgt(
     a4: u32,
     a5: u32,
 ) -> Result<u32> {
+    if a0 == 0x0c1c {
+        trace_inotia_3100(core);
+    }
+
     tracing::info!(
         "[LGT_COMPAT] stdlib 0x3f7 sprintf({dest:#x}, {ptr_format:#x}, {a0:#x}, {a1:#x}, {a2:#x}, {a3:#x}, {a4:#x}, {a5:#x})"
     );
