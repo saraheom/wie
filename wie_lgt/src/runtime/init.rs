@@ -39,7 +39,13 @@ async fn handle_init_svc(core: &mut ArmCore, ptr_jar_path: &mut u32, id: SvcId) 
 }
 
 pub async fn load_native(core: &mut ArmCore, system: &mut System, jvm: &Jvm, jar_path: &str, data: &[u8]) -> Result<()> {
-    let entrypoint = load_executable(core, data)?;
+    // Some commercial LGT titles bundled a carrier/download certificate check that
+    // can no longer succeed off the original handset/network. Keep this strictly
+    // scoped to the two known Inotia 2 LGT binary revisions so unrelated titles
+    // (especially MapleStory) retain their normal runtime behavior.
+    let mut patched_data = data.to_vec();
+    apply_inotia2_certificate_compat(system, &mut patched_data);
+    let entrypoint = load_executable(core, &patched_data)?;
     register_wipic_svc_handler(core, system, jvm)?;
     register_stdlib_svc_handler(core, system)?;
     let ptr_jar_path_value = Allocator::alloc(core, (jar_path.len() + 1) as u32)?;
@@ -117,6 +123,47 @@ async fn get_import_function(core: &mut ArmCore, import_table: u32, function_ind
             )));
         }
     })
+}
+
+
+fn apply_inotia2_certificate_compat(system: &System, data: &mut [u8]) {
+    if system.aid() != "0002BA13" || system.pid() != "PD132645" {
+        return;
+    }
+
+    // These offsets are file offsets inside binary.mod, not guest addresses.
+    // Both are guarded by the exact binary length and the original Thumb prologue
+    // so a different build is never modified accidentally.
+    //
+    // 01.00.08: guest 0x21b4, returns an error code (0 == certificate accepted).
+    // 01.00.04: guest 0x7ca3c, returns a boolean (1 == certificate accepted).
+    const THUMB_PROLOGUE: [u8; 8] = [0xf0, 0xb5, 0x5f, 0x46, 0x56, 0x46, 0x4d, 0x46];
+
+    let patch = match data.len() {
+        775_760 => Some((0x11e8usize, [0x00, 0x20, 0x70, 0x47], "01.00.08", 0x21b4u32)),
+        762_248 => Some((0x7ba70usize, [0x01, 0x20, 0x70, 0x47], "01.00.04", 0x7ca3cu32)),
+        _ => None,
+    };
+
+    let Some((offset, replacement, version, guest_addr)) = patch else {
+        tracing::warn!(
+            "[INOTIA_COMPAT] recognized AID/PID but unsupported binary.mod size={} - certificate shim not applied",
+            data.len()
+        );
+        return;
+    };
+
+    if data.get(offset..offset + THUMB_PROLOGUE.len()) != Some(&THUMB_PROLOGUE) {
+        tracing::warn!(
+            "[INOTIA_COMPAT] {version} signature mismatch at file offset {offset:#x}; certificate shim not applied"
+        );
+        return;
+    }
+
+    data[offset..offset + replacement.len()].copy_from_slice(&replacement);
+    tracing::info!(
+        "[INOTIA_COMPAT] Inotia 2 LGT {version}: bypassed obsolete cert.c2s validation at guest {guest_addr:#x}"
+    );
 }
 
 fn load_executable(core: &mut ArmCore, data: &[u8]) -> Result<u32> {
