@@ -339,8 +339,26 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         context.write_bytes(handle.buffer_ptr + handle.write_cursor, &buf)?;
     }
 
+    // Inotia 1 rewrites save0.dat as a complete record image from offset 0.
+    // If the replacement is shorter than the previous image, retaining the
+    // old tail produces a hybrid record (for example a 324-byte quest save
+    // followed by four stale bytes from an earlier 328-byte image). The host
+    // write still succeeds, but the title rejects the slot on its next
+    // validation pass. Only apply replacement-length semantics to this known
+    // title/save shape; other KTF titles can use offset writes for multi-slot
+    // records and must retain the untouched tail.
+    let inotia1_full_save_rewrite = context.system().pid() == "PD005362"
+        && handle.write_cursor == 0
+        && handle_name_for_log(&handle).starts_with("save");
+
     handle.write_cursor = new_end;
-    if new_end > handle.buffer_len {
+    if inotia1_full_save_rewrite {
+        handle.buffer_len = new_end;
+        tracing::info!(
+            "[INOTIA1_SAVE] full-record replace db={} old_bytes={old_len} new_bytes={new_end}",
+            handle_name_for_log(&handle)
+        );
+    } else if new_end > handle.buffer_len {
         handle.buffer_len = new_end;
     }
     write_generic(context, db_id as _, handle)?;
