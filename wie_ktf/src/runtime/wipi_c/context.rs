@@ -62,6 +62,16 @@ impl WIPICContext for KtfWIPICContext {
         &mut self.system
     }
 
+    fn debug_cpu_context(&self) -> Option<[WIPICWord; 17]> {
+        let c = self.core.save_context();
+        Some([
+            c.r0, c.r1, c.r2, c.r3,
+            c.r4, c.r5, c.r6, c.r7,
+            c.r8, c.sb, c.sl, c.fp,
+            c.ip, c.sp, c.lr, c.pc, c.cpsr,
+        ])
+    }
+
     async fn call_function(&mut self, address: WIPICWord, args: &[WIPICWord]) -> Result<WIPICWord> {
         self.core.run_function(address, args).await
     }

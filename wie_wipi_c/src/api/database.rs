@@ -74,7 +74,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let system = context.system();
     let pid = system.pid().to_owned();
     if pid == "PD005362" {
-        tracing::info!("[PHASE7_18] Inotia1 record-metadata trace active");
+        tracing::info!("[PHASE7_19] Inotia1 guest-validation caller trace active");
     }
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
@@ -179,11 +179,9 @@ pub async fn list_record(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     let ids = db.get_record_ids().await;
 
     if context.system().pid() == "PD005362" {
-        let db_name = load_handle(context, db_id)?
-            .map(|handle| handle_name(&handle).to_owned())
-            .unwrap_or_else(|| "<invalid>".into());
         tracing::info!(
-            "[INOTIA1_META] LIST_RECORDS db={db_name} count={} capacity_bytes={buf_len}",
+            "[INOTIA1_META] LIST_RECORDS db={} count={} capacity_bytes={buf_len}",
+            load_handle(context, db_id)?.as_ref().map(handle_name).unwrap_or("<invalid>"),
             ids.len()
         );
     }
@@ -609,6 +607,75 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 head,
                 tail
             );
+
+            // Phase 7.19: once storage integrity was proven, capture the exact
+            // guest ARM caller state at the Continue-screen save0 read.  The
+            // snapshot is observational only: no registers or guest memory are
+            // changed.  LR plus the R7 frame chain should identify the native
+            // validation routine that accepts the 320-byte pre-Terry payload
+            // but rejects the post-Terry payload.
+            if handle_name(&handle) == "save0.dat" && old_cursor == 0 && take == 320 {
+                if let Some(regs) = context.debug_cpu_context() {
+                    let sp = regs[13];
+                    let lr = regs[14];
+                    let pc = regs[15];
+                    let cpsr = regs[16];
+
+                    let mut stack = [0u8; 64];
+                    let stack_read = context.read_bytes(sp, &mut stack).unwrap_or(0);
+
+                    // The SVC stub normally preserves the guest LR.  Dump code
+                    // around both LR and PC when mapped; failed reads simply
+                    // report zero bytes rather than affecting emulation.
+                    let lr_code_base = (lr & !1).saturating_sub(32);
+                    let mut lr_code = [0u8; 64];
+                    let lr_code_read = context.read_bytes(lr_code_base, &mut lr_code).unwrap_or(0);
+
+                    let pc_code_base = (pc & !1).saturating_sub(16);
+                    let mut pc_code = [0u8; 32];
+                    let pc_code_read = context.read_bytes(pc_code_base, &mut pc_code).unwrap_or(0);
+
+                    // Walk the conventional Thumb R7 frame chain used elsewhere
+                    // by wie_core_arm's profiler: [previous_r7, saved_lr].
+                    let mut frames: Vec<u32> = Vec::new();
+                    let mut frame_r7 = regs[7];
+                    for _ in 0..12 {
+                        if frame_r7 == 0 {
+                            break;
+                        }
+                        let prev_r7: u32 = match read_generic(context, frame_r7) {
+                            Ok(v) => v,
+                            Err(_) => break,
+                        };
+                        let saved_lr: u32 = match read_generic(context, frame_r7 + 4) {
+                            Ok(v) => v,
+                            Err(_) => break,
+                        };
+                        if saved_lr == 0 {
+                            break;
+                        }
+                        frames.push(saved_lr);
+                        if prev_r7 <= frame_r7 {
+                            break;
+                        }
+                        frame_r7 = prev_r7;
+                    }
+
+                    tracing::info!(
+                        "[INOTIA1_ARM] save0_read offset={old_cursor} returned={take} record_len={} remaining={remaining} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={sp:#010x} lr={lr:#010x} pc={pc:#010x} cpsr={cpsr:#010x} frames={:08x?} stack_read={stack_read} stack={:02x?} lr_code_base={lr_code_base:#010x} lr_code_read={lr_code_read} lr_code={:02x?} pc_code_base={pc_code_base:#010x} pc_code_read={pc_code_read} pc_code={:02x?}",
+                        handle.buffer_len,
+                        regs[0], regs[1], regs[2], regs[3],
+                        regs[4], regs[5], regs[6], regs[7],
+                        regs[8], regs[9], regs[10], regs[11], regs[12],
+                        frames,
+                        &stack[..stack_read.min(stack.len())],
+                        &lr_code[..lr_code_read.min(lr_code.len())],
+                        &pc_code[..pc_code_read.min(pc_code.len())],
+                    );
+                } else {
+                    tracing::info!("[INOTIA1_ARM] save0_read CPU snapshot unavailable");
+                }
+            }
         } else {
             tracing::info!(
                 "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} fnv64={fp:016x} head={:02x?} tail={:02x?}",

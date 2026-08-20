@@ -23,6 +23,15 @@ pub trait WIPICContext: ByteRead + ByteWrite + Send + Sync {
     async fn get_resource_size(&self, name: &str) -> Result<Option<usize>>;
     async fn read_resource(&self, name: &str) -> Result<Vec<u8>>;
     fn set_timer(&mut self, due: Instant, callback: WIPICMethodBody);
+
+    /// Optional ARM CPU snapshot for title-scoped diagnostics.
+    ///
+    /// The generic WIPI-C crate deliberately does not depend on wie_core_arm,
+    /// so the snapshot is represented as r0..r12, sp, lr, pc, cpsr.
+    /// Non-ARM/test contexts keep the default None implementation.
+    fn debug_cpu_context(&self) -> Option<[WIPICWord; 17]> {
+        None
+    }
 }
 
 pub struct WIPICResult {
