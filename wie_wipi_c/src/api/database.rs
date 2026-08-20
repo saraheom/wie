@@ -42,8 +42,6 @@ struct DatabaseHandle {
 }
 
 const MIN_BUFFER_CAPACITY: u32 = 64;
-// Virtual handset persistent-storage quota exposed to WIPI applications.
-// Later commercial titles such as Inotia 2 require >2 MiB at startup.
 const KTF_DATABASE_STORAGE_LIMIT: u64 = 16 * 1024 * 1024;
 // "MCDB" — sentinel at the start of the handle struct so we can distinguish
 // a real DB handle pointer from an unrelated guest pointer (e.g. a C-string
@@ -81,23 +79,26 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         return Ok(-12); // M_E_NOENT
     }
 
-    // Mode 4 (`MC_DB_CREATE`) normally wipes an existing record before
-    // opening it. Inotia 1 (PD005362), however, reopens its existing save
-    // database with CREATE as part of normal slot-management. Treating that
-    // reopen as truncate destroys `save0.dat1` immediately after the game has
-    // committed it. Preserve the existing record for this title while keeping
-    // the legacy CREATE behaviour unchanged for every other application.
-    let preserve_existing_create = pid == "PD005362" && mode == 4 && packaged.is_none();
-
+    // Mode 4 (`MC_DB_CREATE`) is true create/truncate semantics.  Phase 7.14
+    // temporarily preserved an existing Inotia 1 record here; the exported
+    // before/after quest snapshots proved that doing so can leave bytes from
+    // the previous save generation in the record.  Revert to strict CREATE:
+    // delete record 1 first, then let subsequent writes rebuild it.
     let initial: Vec<u8> = if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
-        if mode == 4 && packaged.is_none() && !preserve_existing_create {
+        if mode == 4 && packaged.is_none() {
+            if pid == "PD005362" {
+                let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
+                tracing::info!(
+                    "[INOTIA1_SAVE] OPEN db={name} mode=CREATE existing={old_len} -> truncate"
+                );
+            }
             db.delete(1).await;
             Vec::new()
         } else if let Some(data) = db.get(1).await {
-            if preserve_existing_create {
+            if pid == "PD005362" {
                 tracing::info!(
-                    "[INOTIA1_SAVE] preserve existing CREATE db={name} bytes={} pid={pid}",
+                    "[INOTIA1_SAVE] OPEN db={name} mode={mode} existing={} -> preserve",
                     data.len()
                 );
             }
@@ -194,7 +195,7 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
     let usage = system.platform().database_repository().usage(&pid).await;
     let available = KTF_DATABASE_STORAGE_LIMIT.saturating_sub(usage).min(i32::MAX as u64) as i32;
 
-    tracing::info!("[DB_STORAGE] MC_dbListDataBase available={available} used={usage} limit={KTF_DATABASE_STORAGE_LIMIT}");
+    tracing::debug!("MC_dbListDataBase() = {available} (used={usage}, limit={KTF_DATABASE_STORAGE_LIMIT})");
     Ok(available)
 }
 
@@ -212,6 +213,15 @@ pub async fn seek_record_single(context: &mut dyn WIPICContext, db_id: i32, offs
         _ => return Ok(-1),
     };
     let position = (base + offset as i64).clamp(0, handle.buffer_len as i64) as u32;
+    if context.system().pid() == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_SAVE] SEEK db={} offset={offset} origin={origin} old_read={} old_write={} -> {position} len={}",
+            handle_name(&handle),
+            handle.read_cursor,
+            handle.write_cursor,
+            handle.buffer_len
+        );
+    }
     handle.read_cursor = position;
     handle.write_cursor = position;
     write_generic(context, db_id as _, handle)?;
@@ -297,6 +307,29 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     };
 
     let old_len = handle.buffer_len;
+    let db_name = handle_name(&handle).to_owned();
+    let pid = context.system().pid().to_owned();
+
+    if pid == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_SAVE] WRITE begin db={db_name} offset={} len={buf_len} old_len={old_len}",
+            handle.write_cursor
+        );
+    }
+
+    // If Inotia 1 rewrites one of its save records from byte zero, the
+    // new generation is a replacement, not an overlay.  Shrink the logical
+    // record to the end of this first write so bytes from a longer previous
+    // generation cannot survive beyond the rewritten body.  A later footer
+    // write (for example at offset 324) will naturally extend it again.
+    //
+    // This is intentionally title- and save-file-scoped so multi-slot overlay
+    // semantics for every other KTF title remain unchanged.
+    let inotia_full_rewrite =
+        pid == "PD005362"
+        && db_name.starts_with("save")
+        && handle.write_cursor == 0
+        && buf_len >= 200;
 
     // Grow the guest-heap buffer if the next write would land past its
     // end. Doubling-on-demand starting from MIN_BUFFER_CAPACITY keeps the
@@ -340,7 +373,9 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
 
     handle.write_cursor = new_end;
-    if new_end > handle.buffer_len {
+    if inotia_full_rewrite {
+        handle.buffer_len = new_end;
+    } else if new_end > handle.buffer_len {
         handle.buffer_len = new_end;
     }
     write_generic(context, db_id as _, handle)?;
@@ -357,14 +392,18 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;
-        if context.system().pid() == "PD005362" {
-            let db_name = handle_name_for_log(&handle);
-            tracing::info!(
-                "[INOTIA1_SAVE] write-through db={db_name} bytes={} cursor={} write_len={buf_len}",
-                snapshot.len(),
-                handle.write_cursor
-            );
-        }
+    }
+
+    if pid == "PD005362" {
+        let tail_start = snapshot.len().saturating_sub(8);
+        let tail = &snapshot[tail_start..];
+        tracing::info!(
+            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} replacement={} tail={:02x?}",
+            snapshot.len(),
+            handle.write_cursor,
+            inotia_full_rewrite,
+            tail
+        );
     }
 
     Ok(buf_len as _)
@@ -382,8 +421,10 @@ pub async fn delete_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i
         return Ok(-25);
     };
     if context.system().pid() == "PD005362" {
-        let db_name = handle_name_for_log(&handle);
-        tracing::info!("[INOTIA1_SAVE] delete_record db={db_name} rec_id={rec_id}");
+        tracing::info!(
+            "[INOTIA1_SAVE] DELETE_RECORD db={} rec_id={rec_id}",
+            handle_name(&handle)
+        );
     }
     let ok = db.delete(rec_id as u32).await;
     Ok(if ok { 0 } else { -22 })
@@ -497,8 +538,19 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     context.read_bytes(handle.buffer_ptr + handle.read_cursor, &mut data)?;
     context.write_bytes(buf_ptr, &data)?;
 
+    let old_cursor = handle.read_cursor;
     handle.read_cursor += take;
     write_generic(context, db_id as _, handle)?;
+
+    if context.system().pid() == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={}",
+            handle_name(&handle),
+            old_cursor,
+            handle.read_cursor,
+            handle.buffer_len
+        );
+    }
 
     Ok(take as _)
 }
@@ -528,6 +580,15 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
     //     as plain seek-and-rewind.
     if rec_id >= 0 {
         let offset = rec_id as u32;
+        if context.system().pid() == "PD005362" {
+            tracing::info!(
+                "[INOTIA1_SAVE] SELECT/SEEK db={} offset={offset} mode={mode:#x} old_read={} old_write={} len={}",
+                handle_name(&handle),
+                handle.read_cursor,
+                handle.write_cursor,
+                handle.buffer_len
+            );
+        }
         handle.read_cursor = offset;
         handle.write_cursor = offset;
         write_generic(context, db_id as _, handle)?;
@@ -577,7 +638,13 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
         write_generic(context, out_buf + 8, record_size)?;
     }
 
-    tracing::debug!("db.stat_by_name({name:?}, mode={mode}) -> 0 (size={record_size})");
+    if pid == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_SAVE] STAT db={name} mode={mode} record_size={record_size} -> 0"
+        );
+    } else {
+        tracing::debug!("db.stat_by_name({name:?}, mode={mode}) -> 0 (size={record_size})");
+    }
     Ok(0)
 }
 
@@ -616,11 +683,6 @@ pub async fn exists_database_ktf(context: &mut dyn WIPICContext, name_ptr: WIPIC
 /// Returns `Ok(None)` for any pointer that's obviously not a handle —
 /// out-of-range, missing the magic sentinel — so callers can return
 /// `M_E_INVALIDHANDLE` instead of panicking on garbage input.
-fn handle_name_for_log(handle: &DatabaseHandle) -> &str {
-    let name_length = handle.name.iter().position(|&c| c == 0).unwrap_or(handle.name.len());
-    str::from_utf8(&handle.name[..name_length]).unwrap_or("<invalid>")
-}
-
 fn load_handle(context: &mut dyn WIPICContext, db_id: i32) -> Result<Option<DatabaseHandle>> {
     if db_id < 0x10000 {
         return Ok(None);
@@ -630,6 +692,11 @@ fn load_handle(context: &mut dyn WIPICContext, db_id: i32) -> Result<Option<Data
         return Ok(None);
     }
     Ok(Some(handle))
+}
+
+fn handle_name(handle: &DatabaseHandle) -> &str {
+    let name_length = handle.name.iter().position(|&c| c == 0).unwrap_or(handle.name.len());
+    str::from_utf8(&handle.name[..name_length]).unwrap_or("<invalid>")
 }
 
 async fn open_db_for_handle(context: &mut dyn WIPICContext, handle: &DatabaseHandle) -> Option<Box<dyn Database>> {
