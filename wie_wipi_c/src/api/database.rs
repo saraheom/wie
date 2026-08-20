@@ -207,6 +207,61 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
     let available = KTF_DATABASE_STORAGE_LIMIT.saturating_sub(usage).min(i32::MAX as u64) as i32;
 
     tracing::debug!("MC_dbListDataBase() = {available} (used={usage}, limit={KTF_DATABASE_STORAGE_LIMIT})");
+
+    // Phase 8.0 — Inotia 2 KTF internal-heap probe.
+    //
+    // Static analysis of client.bin1149832 identified the visible
+    // "메모리에러" path as a failed 0x100-byte allocation in the game's own
+    // allocator (guest 0x125c54), not a host/WIE allocation failure.
+    //
+    // The allocator globals below are revision-specific to KTF Inotia 2
+    // (AID 010100D5 / PID PD007974).  This block is observational only:
+    // it reads guest state and does not change any memory, return values,
+    // allocator limits, or WIPI behavior.
+    if pid == "PD007974" {
+        let descriptor_limit: u32 = read_generic(context, 0x0019_36d8).unwrap_or(0xffff_ffff);
+        let capacity: u32 = read_generic(context, 0x0019_36dc).unwrap_or(0xffff_ffff);
+        let heap_base: u32 = read_generic(context, 0x0019_36e0).unwrap_or(0xffff_ffff);
+        let heap_source: u32 = read_generic(context, 0x0019_36e4).unwrap_or(0xffff_ffff);
+        let block_table: u32 = read_generic(context, 0x0019_36e8).unwrap_or(0xffff_ffff);
+        let free_head: u32 = read_generic(context, 0x0019_36ec).unwrap_or(0xffff_ffff);
+        let used: u32 = read_generic(context, 0x0019_36f0).unwrap_or(0xffff_ffff);
+        let secondary: u32 = read_generic(context, 0x0019_36f4).unwrap_or(0xffff_ffff);
+        let alloc_count: u32 = read_generic(context, 0x0019_36f8).unwrap_or(0xffff_ffff);
+        let ui_ptr: u32 = read_generic(context, 0x0019_3b00).unwrap_or(0xffff_ffff);
+
+        let free_bytes = if capacity != 0xffff_ffff && used != 0xffff_ffff {
+            capacity.saturating_sub(used)
+        } else {
+            0xffff_ffff
+        };
+
+        tracing::info!(
+            "[PHASE8_0] Inotia2 internal heap probe active"
+        );
+        tracing::info!(
+            "[INOTIA2_HEAP] descriptor_limit={descriptor_limit:#010x} capacity={capacity:#010x} used={used:#010x} free={free_bytes:#010x} heap_base={heap_base:#010x} heap_source={heap_source:#010x} block_table={block_table:#010x} free_head={free_head:#010x} secondary={secondary:#010x} alloc_count={alloc_count:#010x} ui_ptr={ui_ptr:#010x}"
+        );
+
+        if let Some(regs) = context.debug_cpu_context() {
+            tracing::info!(
+                "[INOTIA2_HEAP] caller sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
+                regs[13], regs[14], regs[15], regs[16],
+                regs[0], regs[1], regs[2], regs[3]
+            );
+        }
+
+        // Verify that this is the expected KTF Inotia 2 binary revision.
+        // We only log the words; no signature-gated mutation is performed.
+        let alloc_sig0: u32 = read_generic(context, 0x0012_5c54).unwrap_or(0xffff_ffff);
+        let alloc_sig1: u32 = read_generic(context, 0x0012_5c58).unwrap_or(0xffff_ffff);
+        let init_sig0: u32 = read_generic(context, 0x0014_50bc).unwrap_or(0xffff_ffff);
+        let init_sig1: u32 = read_generic(context, 0x0014_50c0).unwrap_or(0xffff_ffff);
+        tracing::info!(
+            "[INOTIA2_HEAP] signatures alloc@125c54=[{alloc_sig0:#010x},{alloc_sig1:#010x}] init@1450bc=[{init_sig0:#010x},{init_sig1:#010x}]"
+        );
+    }
+
     Ok(available)
 }
 
