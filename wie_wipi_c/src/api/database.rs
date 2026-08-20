@@ -74,7 +74,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let system = context.system();
     let pid = system.pid().to_owned();
     if pid == "PD005362" {
-        tracing::info!("[PHASE7_20] Inotia1 post-Terry checksum-bypass experiment active");
+        tracing::info!("[PHASE7_21] Inotia1 KTF record-length seek-return fix active");
     }
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
@@ -608,7 +608,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 tail
             );
 
-            // Phase 7.19: once storage integrity was proven, capture the exact
+            // Phase 7.21 retains the Phase 7.19 observational ARM trace. Capture the exact
             // guest ARM caller state at the Continue-screen save0 read.  The
             // snapshot is observational only: no registers or guest memory are
             // changed.  LR plus the R7 frame chain should identify the native
@@ -675,65 +675,6 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 } else {
                     tracing::info!("[INOTIA1_ARM] save0_read CPU snapshot unavailable");
                 }
-
-                // Phase 7.20 experiment:
-                //
-                // Phase 7.19 resolved the native caller chain:
-                //   0x11bd4a -> WIPI DB read wrapper 0x10becc
-                //   return 0x11bd4f
-                //   caller return 0x11d119
-                //   outer caller return 0x11b4cf
-                //
-                // Disassembly of this exact Inotia 1 binary shows that the
-                // downstream validator ends with:
-                //
-                //   0x11f11a  CMP r4, r0
-                //   0x11f11c  BEQ 0x11f05a   ; accept
-                //   0x11f11e  MOVS r0, #0    ; reject
-                //
-                // The post-Terry record is 324 bytes while Continue deliberately
-                // reads only the first 320 bytes.  For this experiment only,
-                // when that exact condition is present, turn the final BEQ into
-                // an unconditional B to the same target.  This bypasses only
-                // the final integrity comparison; all decoding/processing that
-                // precedes it still runs normally.
-                //
-                // The patch is guarded by an exact 18-byte signature from the
-                // tested `client.bin138532`, so other titles/revisions are left
-                // untouched even if they share PID behavior accidentally.
-                if handle.buffer_len > 320 {
-                    const VALIDATOR_SIG_ADDR: u32 = 0x0011f110;
-                    const VALIDATOR_BRANCH_ADDR: u32 = 0x0011f11c;
-                    const EXPECTED: [u8; 18] = [
-                        0x30, 0x1c, 0x05, 0x99, 0x1c, 0x78,
-                        0xee, 0xf7, 0x87, 0xf8, 0x84, 0x42,
-                        0x9d, 0xd0, 0x00, 0x20, 0x9c, 0xe7,
-                    ];
-
-                    let mut signature = [0u8; 18];
-                    match context.read_bytes(VALIDATOR_SIG_ADDR, &mut signature) {
-                        Ok(n) if n == signature.len() && signature == EXPECTED => {
-                            // Existing `BEQ` is bytes 9d d0.  `B` to the same
-                            // destination is 9d e7.
-                            context.write_bytes(VALIDATOR_BRANCH_ADDR, &[0x9d, 0xe7])?;
-                            tracing::info!(
-                                "[INOTIA1_FIX] installed signature-guarded final-validation bypass addr={VALIDATOR_BRANCH_ADDR:#010x} record_len={} remaining={remaining}",
-                                handle.buffer_len
-                            );
-                        }
-                        Ok(n) => {
-                            tracing::warn!(
-                                "[INOTIA1_FIX] validator signature mismatch; no patch applied read={n} addr={VALIDATOR_SIG_ADDR:#010x} got={:02x?}",
-                                &signature[..n.min(signature.len())]
-                            );
-                        }
-                        Err(err) => {
-                            tracing::warn!(
-                                "[INOTIA1_FIX] could not inspect validator signature; no patch applied: {err:?}"
-                            );
-                        }
-                    }
-                }
             }
         } else {
             tracing::info!(
@@ -776,19 +717,67 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
     //     as plain seek-and-rewind.
     if rec_id >= 0 {
         let offset = rec_id as u32;
-        if context.system().pid() == "PD005362" {
+        let pid = context.system().pid().to_owned();
+        let db_name = handle_name(&handle).to_owned();
+
+        if pid == "PD005362" {
             tracing::info!(
                 "[INOTIA1_SAVE] SELECT/SEEK db={} offset={offset} mode={mode:#x} old_read={} old_write={} len={}",
-                handle_name(&handle),
+                db_name,
                 handle.read_cursor,
                 handle.write_cursor,
                 handle.buffer_len
             );
         }
+
         handle.read_cursor = offset;
         handle.write_cursor = offset;
+
+        // Phase 7.21: Inotia 1's native DB wrapper uses the return value of
+        // this KTF stream-control slot to recover the logical record length.
+        //
+        // Disassembly of client.bin138532 shows:
+        //
+        //     ret = slot4(handle, 0, 0);
+        //     logical_len = 0x140 - ret;
+        //
+        // The previous WIE implementation always returned 0, so Continue
+        // always derived 0x140 / 320 bytes even after Inotia had saved a
+        // 324-byte post-Terry record.  That caused the final native validator
+        // to reject the slot.  For the affected title/save record, return the
+        // signed delta from the 320-byte baseline:
+        //
+        //     len 320 ->  0
+        //     len 324 -> -4
+        //     len 328 -> -8
+        //
+        // Empty/newly-created records and all other titles/databases retain
+        // the existing return value of 0.  Cursor behavior is unchanged.
+        let inotia_record_len_delta =
+            pid == "PD005362"
+                && db_name == "save0.dat"
+                && offset == 0
+                && mode == 0
+                && handle.buffer_len > 320
+                && handle.buffer_len <= 512;
+
+        let result = if inotia_record_len_delta {
+            320i32 - handle.buffer_len as i32
+        } else {
+            0
+        };
+
         write_generic(context, db_id as _, handle)?;
-        return Ok(0);
+
+        if inotia_record_len_delta {
+            tracing::info!(
+                "[INOTIA1_SEEK_FIX] db={db_name} len={} baseline=320 return={result} expected_read_len={}",
+                handle.buffer_len,
+                320i32 - result
+            );
+        }
+
+        return Ok(result);
     }
 
     Ok(-22) // M_E_BADRECID
