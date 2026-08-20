@@ -73,6 +73,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
 
     let system = context.system();
     let pid = system.pid().to_owned();
+    if pid == "PD005362" {
+        tracing::info!("[PHASE7_17] Inotia1 validation-trace database layer active");
+    }
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
     if !exists && packaged.is_none() && mode == 1 {
@@ -317,20 +320,6 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         );
     }
 
-    // If Inotia 1 rewrites one of its save records from byte zero, the
-    // new generation is a replacement, not an overlay.  Shrink the logical
-    // record to the end of this first write so bytes from a longer previous
-    // generation cannot survive beyond the rewritten body.  A later footer
-    // write (for example at offset 324) will naturally extend it again.
-    //
-    // This is intentionally title- and save-file-scoped so multi-slot overlay
-    // semantics for every other KTF title remain unchanged.
-    let inotia_full_rewrite =
-        pid == "PD005362"
-        && db_name.starts_with("save")
-        && handle.write_cursor == 0
-        && buf_len >= 200;
-
     // Grow the guest-heap buffer if the next write would land past its
     // end. Doubling-on-demand starting from MIN_BUFFER_CAPACITY keeps the
     // realloc count amortized; alloc/free is a guest-side `WIPICContext`
@@ -373,9 +362,7 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
 
     handle.write_cursor = new_end;
-    if inotia_full_rewrite {
-        handle.buffer_len = new_end;
-    } else if new_end > handle.buffer_len {
+    if new_end > handle.buffer_len {
         handle.buffer_len = new_end;
     }
     write_generic(context, db_id as _, handle)?;
@@ -395,13 +382,16 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
 
     if pid == "PD005362" {
-        let tail_start = snapshot.len().saturating_sub(8);
+        let head_end = snapshot.len().min(16);
+        let tail_start = snapshot.len().saturating_sub(16);
+        let head = &snapshot[..head_end];
         let tail = &snapshot[tail_start..];
+        let fp = inotia_fingerprint(&snapshot);
         tracing::info!(
-            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} replacement={} tail={:02x?}",
+            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} fnv64={fp:016x} head={:02x?} tail={:02x?}",
             snapshot.len(),
             handle.write_cursor,
-            inotia_full_rewrite,
+            head,
             tail
         );
     }
@@ -543,12 +533,20 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     write_generic(context, db_id as _, handle)?;
 
     if context.system().pid() == "PD005362" {
+        let returned = &handle_bytes[old_cursor as usize..(old_cursor + take) as usize];
+        let head_end = returned.len().min(16);
+        let tail_start = returned.len().saturating_sub(16);
+        let head = &returned[..head_end];
+        let tail = &returned[tail_start..];
+        let fp = inotia_fingerprint(returned);
         tracing::info!(
-            "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={}",
+            "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} fnv64={fp:016x} head={:02x?} tail={:02x?}",
             handle_name(&handle),
             old_cursor,
             handle.read_cursor,
-            handle.buffer_len
+            handle.buffer_len,
+            head,
+            tail
         );
     }
 
@@ -697,6 +695,15 @@ fn load_handle(context: &mut dyn WIPICContext, db_id: i32) -> Result<Option<Data
 fn handle_name(handle: &DatabaseHandle) -> &str {
     let name_length = handle.name.iter().position(|&c| c == 0).unwrap_or(handle.name.len());
     str::from_utf8(&handle.name[..name_length]).unwrap_or("<invalid>")
+}
+
+fn inotia_fingerprint(data: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
 }
 
 async fn open_db_for_handle(context: &mut dyn WIPICContext, handle: &DatabaseHandle) -> Option<Box<dyn Database>> {
