@@ -429,7 +429,7 @@ pub async fn delete_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord
 pub async fn update_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i32, buf_ptr: WIPICWord, buf_len: WIPICWord) -> Result<i32> {
     tracing::debug!("MC_dbUpdateRecord({db_id:#x}, {rec_id}, {buf_ptr:#x}, {buf_len})");
 
-    let Some(handle) = load_handle(context, db_id)? else {
+    let Some(mut handle) = load_handle(context, db_id)? else {
         return Ok(-25); // M_E_INVALIDHANDLE
     };
     let Some(mut db) = open_db_for_handle(context, &handle).await else {
@@ -446,7 +446,59 @@ pub async fn update_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i
     let mut buf = vec![0; buf_len as usize];
     context.read_bytes(buf_ptr, &mut buf)?;
 
-    if db.set(rec_id, &buf).await { Ok(0) } else { Ok(-22) }
+    if !db.set(rec_id, &buf).await {
+        return Ok(-22);
+    }
+
+    // KTF's stream API keeps record 1 mirrored inside the open guest-side
+    // DatabaseHandle.  Updating the repository without refreshing that
+    // mirror leaves subsequent stream reads in the same session seeing stale
+    // bytes.  Inotia 1 exposes this after its first quest: the slot grows
+    // from 320 to 328 bytes, the repository write succeeds, but the game then
+    // re-reads the old 320-byte mirror and rejects the slot.
+    //
+    // Keep the open handle coherent whenever standard UpdateRecord replaces
+    // record 1. This is correct database semantics and is not title-specific.
+    if rec_id == 1 {
+        if buf_len > handle.buffer_capacity {
+            let Some(rounded) = buf_len.checked_next_power_of_two() else {
+                return Ok(-22);
+            };
+            let new_cap = rounded.max(MIN_BUFFER_CAPACITY);
+            let new_ptr = context.alloc_raw(new_cap)?;
+            if handle.buffer_ptr != 0 && handle.buffer_capacity > 0 {
+                context.free_raw(handle.buffer_ptr, handle.buffer_capacity)?;
+            }
+            handle.buffer_ptr = new_ptr;
+            handle.buffer_capacity = new_cap;
+        } else if handle.buffer_ptr == 0 && buf_len > 0 {
+            let new_cap = buf_len
+                .checked_next_power_of_two()
+                .unwrap_or(MIN_BUFFER_CAPACITY)
+                .max(MIN_BUFFER_CAPACITY);
+            handle.buffer_ptr = context.alloc_raw(new_cap)?;
+            handle.buffer_capacity = new_cap;
+        }
+
+        if buf_len > 0 {
+            context.write_bytes(handle.buffer_ptr, &buf)?;
+        }
+        handle.buffer_len = buf_len;
+        handle.read_cursor = handle.read_cursor.min(buf_len);
+        handle.write_cursor = handle.write_cursor.min(buf_len);
+        write_generic(context, db_id as _, handle)?;
+
+        if context.system().pid() == "PD005362" {
+            let db_name = handle_name_for_log(&handle);
+            tracing::info!(
+                "[INOTIA1_SAVE] update_record mirror-sync db={db_name} rec_id={rec_id} bytes={buf_len} read_cursor={} write_cursor={}",
+                handle.read_cursor,
+                handle.write_cursor
+            );
+        }
+    }
+
+    Ok(0)
 }
 
 pub async fn select_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i32, buf_ptr: WIPICWord, buf_len: WIPICWord) -> Result<i32> {
@@ -668,8 +720,8 @@ mod tests {
     use crate::context::test::TestContext;
 
     use super::{
-        KTF_DATABASE_STORAGE_LIMIT, delete_database, exists_database, list_databases, list_record_info, open_database, select_record, stream_read,
-        stream_write, update_record,
+        KTF_DATABASE_STORAGE_LIMIT, delete_database, exists_database, list_databases, list_record_info, open_database, seek_record_single, select_record,
+        stream_read, stream_write, update_record,
     };
 
     #[futures_test::test]
@@ -721,6 +773,25 @@ mod tests {
         let mut data = [0; 2];
         context.read_bytes(0x2100, &mut data).unwrap();
         assert_eq!(data, [4, 5]);
+    }
+
+    #[futures_test::test]
+    async fn update_record_refreshes_open_stream_mirror() {
+        let mut context = database_test_context();
+        let db_id = open_test_database(&mut context).await;
+
+        context.write_bytes(0x2000, &[1, 2, 3]).unwrap();
+        assert_eq!(stream_write(&mut context, db_id, 0x2000, 3).await.unwrap(), 3);
+
+        context.write_bytes(0x2010, &[4, 5, 6, 7]).unwrap();
+        assert_eq!(update_record(&mut context, db_id, 1, 0x2010, 4).await.unwrap(), 0);
+
+        assert_eq!(seek_record_single(&mut context, db_id, 0, 0).await.unwrap(), 0);
+        assert_eq!(stream_read(&mut context, db_id, 0x2100, 4).await.unwrap(), 4);
+
+        let mut data = [0; 4];
+        context.read_bytes(0x2100, &mut data).unwrap();
+        assert_eq!(data, [4, 5, 6, 7]);
     }
 
     #[futures_test::test]
