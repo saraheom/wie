@@ -81,16 +81,26 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         return Ok(-12); // M_E_NOENT
     }
 
-    // Mode 4 (`MC_DB_CREATE`) wipes any prior contents up front unless the
-    // DB is backed by a packaged resource. Other modes seed the per-handle
-    // buffer with the existing record or packaged data so seek+overlay writes
-    // preserve unrelated bytes (multi-slot saves at fixed byte offsets).
+    // Mode 4 (`MC_DB_CREATE`) normally wipes an existing record before
+    // opening it. Inotia 1 (PD005362), however, reopens its existing save
+    // database with CREATE as part of normal slot-management. Treating that
+    // reopen as truncate destroys `save0.dat1` immediately after the game has
+    // committed it. Preserve the existing record for this title while keeping
+    // the legacy CREATE behaviour unchanged for every other application.
+    let preserve_existing_create = pid == "PD005362" && mode == 4 && packaged.is_none();
+
     let initial: Vec<u8> = if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
-        if mode == 4 && packaged.is_none() {
+        if mode == 4 && packaged.is_none() && !preserve_existing_create {
             db.delete(1).await;
             Vec::new()
         } else if let Some(data) = db.get(1).await {
+            if preserve_existing_create {
+                tracing::info!(
+                    "[INOTIA1_SAVE] preserve existing CREATE db={name} bytes={} pid={pid}",
+                    data.len()
+                );
+            }
             data
         } else if let Some(data) = packaged {
             db.set(1, &data).await;
@@ -347,6 +357,14 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;
+        if context.system().pid() == "PD005362" {
+            let db_name = handle_name_for_log(&handle);
+            tracing::info!(
+                "[INOTIA1_SAVE] write-through db={db_name} bytes={} cursor={} write_len={buf_len}",
+                snapshot.len(),
+                handle.write_cursor
+            );
+        }
     }
 
     Ok(buf_len as _)
@@ -363,6 +381,10 @@ pub async fn delete_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i
     let Some(mut db) = open_db_for_handle(context, &handle).await else {
         return Ok(-25);
     };
+    if context.system().pid() == "PD005362" {
+        let db_name = handle_name_for_log(&handle);
+        tracing::info!("[INOTIA1_SAVE] delete_record db={db_name} rec_id={rec_id}");
+    }
     let ok = db.delete(rec_id as u32).await;
     Ok(if ok { 0 } else { -22 })
 }
@@ -594,6 +616,11 @@ pub async fn exists_database_ktf(context: &mut dyn WIPICContext, name_ptr: WIPIC
 /// Returns `Ok(None)` for any pointer that's obviously not a handle —
 /// out-of-range, missing the magic sentinel — so callers can return
 /// `M_E_INVALIDHANDLE` instead of panicking on garbage input.
+fn handle_name_for_log(handle: &DatabaseHandle) -> &str {
+    let name_length = handle.name.iter().position(|&c| c == 0).unwrap_or(handle.name.len());
+    str::from_utf8(&handle.name[..name_length]).unwrap_or("<invalid>")
+}
+
 fn load_handle(context: &mut dyn WIPICContext, db_id: i32) -> Result<Option<DatabaseHandle>> {
     if db_id < 0x10000 {
         return Ok(None);
