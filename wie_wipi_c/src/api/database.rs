@@ -533,7 +533,10 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     write_generic(context, db_id as _, handle)?;
 
     if context.system().pid() == "PD005362" {
-        let returned = &handle_bytes[old_cursor as usize..(old_cursor + take) as usize];
+        // `data` is the exact byte slice copied from the database handle into
+        // the guest buffer above, so fingerprint that directly.  The previous
+        // Phase 7.17 patch accidentally referenced a nonexistent `handle_bytes`.
+        let returned = &data[..];
         let head_end = returned.len().min(16);
         let tail_start = returned.len().saturating_sub(16);
         let head = &returned[..head_end];
