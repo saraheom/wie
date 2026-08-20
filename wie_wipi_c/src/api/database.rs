@@ -74,7 +74,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let system = context.system();
     let pid = system.pid().to_owned();
     if pid == "PD005362" {
-        tracing::info!("[PHASE7_17] Inotia1 validation-trace database layer active");
+        tracing::info!("[PHASE7_18] Inotia1 record-metadata trace active");
     }
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
@@ -178,6 +178,16 @@ pub async fn list_record(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     };
     let ids = db.get_record_ids().await;
 
+    if context.system().pid() == "PD005362" {
+        let db_name = load_handle(context, db_id)?
+            .map(|handle| handle_name(&handle).to_owned())
+            .unwrap_or_else(|| "<invalid>".into());
+        tracing::info!(
+            "[INOTIA1_META] LIST_RECORDS db={db_name} count={} capacity_bytes={buf_len}",
+            ids.len()
+        );
+    }
+
     let mut cursor = 0;
     for &id in &ids {
         write_generic(context, buf_ptr + cursor, id)?;
@@ -248,7 +258,18 @@ pub async fn list_record_info(context: &mut dyn WIPICContext, ptr_name: WIPICWor
                 write_generic(context, buf_ptr + 4, 0u32)?;
                 write_generic(context, buf_ptr + 8, data.len() as u32)?;
             }
+            if pid == "PD005362" {
+                tracing::info!(
+                    "[INOTIA1_META] LIST_RECORD_INFO db={name} source=packaged capacity={capacity} record_id=1 record_size={}",
+                    data.len()
+                );
+            }
             return Ok(0);
+        }
+        if pid == "PD005362" {
+            tracing::info!(
+                "[INOTIA1_META] LIST_RECORD_INFO db={name} capacity={capacity} -> NOENT"
+            );
         }
         return Ok(-12); // M_E_NOENT
     }
@@ -270,7 +291,19 @@ pub async fn list_record_info(context: &mut dyn WIPICContext, ptr_name: WIPICWor
         write_generic(context, entry_ptr, id)?;
         write_generic(context, entry_ptr + 4, 0u32)?;
         write_generic(context, entry_ptr + 8, data.len() as u32)?;
+        if pid == "PD005362" {
+            tracing::info!(
+                "[INOTIA1_META] LIST_RECORD_INFO db={name} capacity={capacity} entry={written} record_id={id} record_size={}",
+                data.len()
+            );
+        }
         written += 1;
+    }
+
+    if pid == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_META] LIST_RECORD_INFO db={name} entries_written={written} -> 0"
+        );
     }
 
     Ok(0)
@@ -283,16 +316,22 @@ pub async fn exists_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord
         return Ok(-22);
     };
     if read_packaged_database(context, &name).await?.is_some() {
+        if context.system().pid() == "PD005362" {
+            tracing::info!("[INOTIA1_META] EXISTS_STANDARD db={name} source=packaged -> 0");
+        }
         return Ok(0);
     }
 
     let system = context.system();
     let pid = system.pid().to_owned();
-    if system.platform().database_repository().exists(&name, &pid).await {
-        Ok(0)
-    } else {
-        Ok(-12) // M_E_NOENT
+    let exists = system.platform().database_repository().exists(&name, &pid).await;
+    let result = if exists { 0 } else { -12 };
+    if pid == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_META] EXISTS_STANDARD db={name} exists={exists} -> {result}"
+        );
     }
+    Ok(result)
 }
 
 pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WIPICWord, buf_len: WIPICWord) -> Result<i32> {
@@ -387,10 +426,15 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         let head = &snapshot[..head_end];
         let tail = &snapshot[tail_start..];
         let fp = inotia_fingerprint(&snapshot);
+        let first320_len = snapshot.len().min(320);
+        let first320_fp = inotia_fingerprint(&snapshot[..first320_len]);
+        let extra = if snapshot.len() > 320 { &snapshot[320..] } else { &snapshot[0..0] };
         tracing::info!(
-            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} fnv64={fp:016x} head={:02x?} tail={:02x?}",
+            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} fnv64={fp:016x} first320_len={first320_len} first320_fnv64={first320_fp:016x} extra_len={} extra={:02x?} head={:02x?} tail={:02x?}",
             snapshot.len(),
             handle.write_cursor,
+            extra.len(),
+            extra,
             head,
             tail
         );
@@ -533,24 +577,49 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     write_generic(context, db_id as _, handle)?;
 
     if context.system().pid() == "PD005362" {
-        // `data` is the exact byte slice copied from the database handle into
-        // the guest buffer above, so fingerprint that directly.  The previous
-        // Phase 7.17 patch accidentally referenced a nonexistent `handle_bytes`.
+        // `data` is exactly what the guest received.  For save files, also
+        // fingerprint the complete backing record so a 320-byte Continue
+        // read can be correlated with a 324-byte persisted generation without
+        // changing the bytes or cursor semantics.
         let returned = &data[..];
         let head_end = returned.len().min(16);
         let tail_start = returned.len().saturating_sub(16);
         let head = &returned[..head_end];
         let tail = &returned[tail_start..];
         let fp = inotia_fingerprint(returned);
-        tracing::info!(
-            "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} fnv64={fp:016x} head={:02x?} tail={:02x?}",
-            handle_name(&handle),
-            old_cursor,
-            handle.read_cursor,
-            handle.buffer_len,
-            head,
-            tail
-        );
+        let remaining = handle.buffer_len.saturating_sub(handle.read_cursor);
+
+        if handle_name(&handle).starts_with("save") {
+            let mut backing = vec![0u8; handle.buffer_len as usize];
+            if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
+                context.read_bytes(handle.buffer_ptr, &mut backing)?;
+            }
+            let backing_fp = inotia_fingerprint(&backing);
+            let first320_len = backing.len().min(320);
+            let first320_fp = inotia_fingerprint(&backing[..first320_len]);
+            let extra = if backing.len() > 320 { &backing[320..] } else { &backing[0..0] };
+            tracing::info!(
+                "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} returned_fnv64={fp:016x} backing_fnv64={backing_fp:016x} backing_first320_len={first320_len} backing_first320_fnv64={first320_fp:016x} backing_extra_len={} backing_extra={:02x?} head={:02x?} tail={:02x?}",
+                handle_name(&handle),
+                old_cursor,
+                handle.read_cursor,
+                handle.buffer_len,
+                extra.len(),
+                extra,
+                head,
+                tail
+            );
+        } else {
+            tracing::info!(
+                "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} fnv64={fp:016x} head={:02x?} tail={:02x?}",
+                handle_name(&handle),
+                old_cursor,
+                handle.read_cursor,
+                handle.buffer_len,
+                head,
+                tail
+            );
+        }
     }
 
     Ok(take as _)
@@ -624,7 +693,11 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
     let pid = system.pid().to_owned();
     let exists = system.platform().database_repository().exists(&name, &pid).await;
     if !exists {
-        tracing::debug!("db.stat_by_name({name:?}, mode={mode}) -> -22 (not found)");
+        if pid == "PD005362" {
+            tracing::info!("[INOTIA1_META] STAT db={name} mode={mode} -> -22 (not found)");
+        } else {
+            tracing::debug!("db.stat_by_name({name:?}, mode={mode}) -> -22 (not found)");
+        }
         return Ok(-22);
     }
 
@@ -641,7 +714,7 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
 
     if pid == "PD005362" {
         tracing::info!(
-            "[INOTIA1_SAVE] STAT db={name} mode={mode} record_size={record_size} -> 0"
+            "[INOTIA1_META] STAT db={name} mode={mode} record_size={record_size} -> 0"
         );
     } else {
         tracing::debug!("db.stat_by_name({name:?}, mode={mode}) -> 0 (size={record_size})");
@@ -675,7 +748,13 @@ pub async fn exists_database_ktf(context: &mut dyn WIPICContext, name_ptr: WIPIC
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
     let result = if exists { 1 } else { 0 };
-    tracing::debug!("MC_dbExists({name:?}) -> {result}");
+    if pid == "PD005362" {
+        tracing::info!(
+            "[INOTIA1_META] EXISTS_KTF db={name} exists={exists} -> {result}"
+        );
+    } else {
+        tracing::debug!("MC_dbExists({name:?}) -> {result}");
+    }
     Ok(result)
 }
 
