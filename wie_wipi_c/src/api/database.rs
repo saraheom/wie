@@ -1328,6 +1328,109 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 "[INOTIA2_VALIDATE_POST] code@144e6a=[{caller0:#010x},{caller1:#010x},{caller2:#010x},{caller3:#010x},{caller4:#010x},{caller5:#010x}]"
             );
 
+            // Phase 8.7 — probe the first dereferences after startup succeeds.
+            //
+            // Phase 8.6 showed validation_count == 0, so 0x144e58 returns 1
+            // without touching validate_base/validate_stride. 0x1450bc then
+            // stores that success byte through GOT+0x1638 and returns 1.
+            //
+            // The outer startup path next calls 0x144f48. If the success byte
+            // is non-zero, 0x144f48 immediately returns 1 and execution enters
+            // 0x144a2c.
+            //
+            // 0x144a2c begins with:
+            //
+            //   kind  = *(u8  *)GOT[0x0338]
+            //   base  = *(u32 *)GOT[0x0330]
+            //   src   = base + kind * 129
+            //   read_u16(src)
+            //
+            // read_u16() (guest 0x126088) copies two bytes from `src`; if
+            // base==0 and kind==0, that becomes an exact read from address 0,
+            // matching the observed fault.
+            const GOT_STARTUP_KIND: u32 = 0x0019_27fc;   // GOT + 0x0338
+            const GOT_STARTUP_BASE: u32 = 0x0019_27f4;   // GOT + 0x0330
+            const GOT_STARTUP_STATUS: u32 = 0x0019_3afc; // GOT + 0x1638
+
+            let startup_kind_target: u32 =
+                read_generic(context, GOT_STARTUP_KIND).unwrap_or(INVALID);
+            let startup_base_target: u32 =
+                read_generic(context, GOT_STARTUP_BASE).unwrap_or(INVALID);
+            let startup_status_target: u32 =
+                read_generic(context, GOT_STARTUP_STATUS).unwrap_or(INVALID);
+
+            let startup_kind: u8 =
+                if startup_kind_target != 0 && startup_kind_target != INVALID {
+                    read_generic(context, startup_kind_target).unwrap_or(0xff)
+                } else {
+                    0xff
+                };
+            let startup_base: u32 =
+                if startup_base_target != 0 && startup_base_target != INVALID {
+                    read_generic(context, startup_base_target).unwrap_or(INVALID)
+                } else {
+                    INVALID
+                };
+            let startup_status: u8 =
+                if startup_status_target != 0 && startup_status_target != INVALID {
+                    read_generic(context, startup_status_target).unwrap_or(0xff)
+                } else {
+                    0xff
+                };
+
+            let first_src = if startup_base != INVALID && startup_kind != 0xff {
+                startup_base.saturating_add((startup_kind as u32).saturating_mul(129))
+            } else {
+                INVALID
+            };
+
+            let mut first_src_bytes = [0u8; 8];
+            let first_src_read =
+                if first_src != 0 && first_src != INVALID {
+                    context.read_bytes(first_src, &mut first_src_bytes).unwrap_or(0)
+                } else {
+                    0
+                };
+
+            // The next four GOT entries in 0x144a2c are direct table pointers.
+            let table0: u32 = read_generic(context, 0x0019_3aec).unwrap_or(INVALID);
+            let table1: u32 = read_generic(context, 0x0019_3af0).unwrap_or(INVALID);
+            let table2: u32 = read_generic(context, 0x0019_3af4).unwrap_or(INVALID);
+            let table3: u32 = read_generic(context, 0x0019_3af8).unwrap_or(INVALID);
+
+            let predicted_null_read =
+                startup_status != 0
+                    && startup_status != 0xff
+                    && startup_kind == 0
+                    && startup_base == 0
+                    && first_src == 0;
+
+            tracing::info!(
+                "[PHASE8_7] Inotia2 post-startup resource-base probe active"
+            );
+            tracing::info!(
+                "[INOTIA2_STARTUP_RESOURCE] status got@{GOT_STARTUP_STATUS:#010x}->{startup_status_target:#010x} value={startup_status} kind got@{GOT_STARTUP_KIND:#010x}->{startup_kind_target:#010x} value={startup_kind} base got@{GOT_STARTUP_BASE:#010x}->{startup_base_target:#010x} value={startup_base:#010x} first_src={first_src:#010x} first_src_read={first_src_read} first_src_bytes={:02x?} predicted_null_read={predicted_null_read}",
+                &first_src_bytes[..first_src_read.min(first_src_bytes.len())]
+            );
+            tracing::info!(
+                "[INOTIA2_STARTUP_RESOURCE] direct_tables=[{table0:#010x},{table1:#010x},{table2:#010x},{table3:#010x}]"
+            );
+
+            // Signatures covering the success-store and first 0x144a2c read.
+            let status0: u32 = read_generic(context, 0x0014_50dc).unwrap_or(INVALID);
+            let status1: u32 = read_generic(context, 0x0014_50e0).unwrap_or(INVALID);
+            let status2: u32 = read_generic(context, 0x0014_50e4).unwrap_or(INVALID);
+            let start0: u32 = read_generic(context, 0x0014_4a44).unwrap_or(INVALID);
+            let start1: u32 = read_generic(context, 0x0014_4a48).unwrap_or(INVALID);
+            let start2: u32 = read_generic(context, 0x0014_4a4c).unwrap_or(INVALID);
+            let start3: u32 = read_generic(context, 0x0014_4a50).unwrap_or(INVALID);
+            let start4: u32 = read_generic(context, 0x0014_4a54).unwrap_or(INVALID);
+            let start5: u32 = read_generic(context, 0x0014_4a58).unwrap_or(INVALID);
+            let start6: u32 = read_generic(context, 0x0014_4a5c).unwrap_or(INVALID);
+            tracing::info!(
+                "[INOTIA2_STARTUP_RESOURCE] code status@1450dc=[{status0:#010x},{status1:#010x},{status2:#010x}] start@144a44=[{start0:#010x},{start1:#010x},{start2:#010x},{start3:#010x},{start4:#010x},{start5:#010x},{start6:#010x}]"
+            );
+
             if let Some(regs) = context.debug_cpu_context() {
                 let sp = regs[13];
                 let mut stack = [0u8; 64];
