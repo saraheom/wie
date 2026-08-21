@@ -1416,6 +1416,34 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 "[INOTIA2_STARTUP_RESOURCE] direct_tables=[{table0:#010x},{table1:#010x},{table2:#010x},{table3:#010x}]"
             );
 
+            // 0x14368c loads game.dat and stores its parsed resource-table
+            // source through GOT+0x1604.  0x101950 then calls 0x1432f0
+            // repeatedly; resource ID 0x43 writes exactly the `kind` and
+            // `base` globals probed above.  This lets the same checkpoint
+            // verify the complete causal chain after the seek fix.
+            const GOT_GAME_RESOURCE_SOURCE: u32 = 0x0019_3ac8; // GOT+0x1604
+            let game_source_target: u32 =
+                read_generic(context, GOT_GAME_RESOURCE_SOURCE).unwrap_or(INVALID);
+            let game_source: u32 =
+                if game_source_target != 0 && game_source_target != INVALID {
+                    read_generic(context, game_source_target).unwrap_or(INVALID)
+                } else {
+                    INVALID
+                };
+
+            let mut game_source_head = [0u8; 24];
+            let game_source_head_read =
+                if game_source != 0 && game_source != INVALID {
+                    context.read_bytes(game_source, &mut game_source_head).unwrap_or(0)
+                } else {
+                    0
+                };
+
+            tracing::info!(
+                "[INOTIA2_RESOURCE_INIT] game_source got@{GOT_GAME_RESOURCE_SOURCE:#010x}->{game_source_target:#010x} value={game_source:#010x} head_read={game_source_head_read} head={:02x?} resource43_kind={startup_kind} resource43_base={startup_base:#010x}",
+                &game_source_head[..game_source_head_read.min(game_source_head.len())]
+            );
+
             // Signatures covering the success-store and first 0x144a2c read.
             let status0: u32 = read_generic(context, 0x0014_50dc).unwrap_or(INVALID);
             let status1: u32 = read_generic(context, 0x0014_50e0).unwrap_or(INVALID);
@@ -1506,6 +1534,65 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
                     handle.buffer_len
                 );
             }
+        }
+
+        // Phase 8.8 — Inotia 2 exposed the actual KTF stream-seek
+        // contract used by the native stdio wrapper.
+        //
+        // client.bin1149832::0x122fa8 determines a stream length exactly like:
+        //
+        //   saved = seek(handle, 0, CUR);
+        //   begin = seek(handle, 0, SET);
+        //   end   = seek(handle, 0, END);
+        //   seek(handle, saved, SET);
+        //   return end - begin;
+        //
+        // The old WIE implementation treated modes 0/1/2 identically and
+        // always returned 0. Consequently game.dat appeared to have length
+        // zero to Inotia 2. Its resource-table loader then failed before
+        // initializing the resource globals later dereferenced by 0x144a2c.
+        //
+        // Keep this behavior title-scoped while we validate it on-device.
+        // Other KTF titles retain the established compatibility behavior,
+        // including the Inotia 1 save-length return fix below.
+        if pid == "PD007974" {
+            let base: i64 = match mode {
+                0 => 0,                         // SEEK_SET
+                1 => handle.read_cursor as i64, // SEEK_CUR
+                2 => handle.buffer_len as i64,  // SEEK_END
+                _ => {
+                    tracing::warn!(
+                        "[INOTIA2_SEEK_FIX] db={db_name} unsupported mode={mode:#x} offset={rec_id}"
+                    );
+                    return Ok(-22); // M_E_BADRECID / invalid seek mode
+                }
+            };
+
+            let target = base + rec_id as i64;
+            if target < 0 || target > u32::MAX as i64 {
+                tracing::warn!(
+                    "[INOTIA2_SEEK_FIX] db={db_name} invalid target base={base} offset={rec_id} mode={mode:#x}"
+                );
+                return Ok(-22);
+            }
+
+            let target = target as u32;
+            let old_read = handle.read_cursor;
+            let old_write = handle.write_cursor;
+            handle.read_cursor = target;
+            handle.write_cursor = target;
+
+            write_generic(context, db_id as _, handle)?;
+
+            tracing::info!(
+                "[PHASE8_8] Inotia2 KTF stream-seek semantics active"
+            );
+            tracing::info!(
+                "[INOTIA2_SEEK_FIX] db={db_name} mode={mode:#x} offset={rec_id} old_read={old_read} old_write={old_write} len={} -> position={target}",
+                handle.buffer_len
+            );
+
+            return Ok(target as i32);
         }
 
         handle.read_cursor = offset;
