@@ -419,10 +419,41 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
         );
 
         if let Some(regs) = context.debug_cpu_context() {
+            // Phase 8.2: the call site in client.bin1149832 is now identified.
+            //
+            // Guest 0x12300c dispatches MC_dbListDataBase and returns at
+            // 0x12301f.  Its caller, 0x1450bc, keeps a resource/storage
+            // requirement in callee-saved r7, then immediately compares the
+            // value returned by MC_dbListDataBase against:
+            //
+            //     required = r7 + 0x2800
+            //
+            // before deciding whether startup can continue.
+            //
+            // Because r7 is callee-saved it is still live while the WIPI SVC
+            // is executing, so we can observe the exact threshold without
+            // modifying guest state.
+            let required_storage = (regs[7] as u64).saturating_add(0x2800);
+            let available_storage = available as i64;
+            let storage_margin = available_storage - required_storage as i64;
+            let storage_check_pass =
+                available_storage >= 0 && (available_storage as u64) >= required_storage;
+
             tracing::info!(
-                "[INOTIA2_HEAP] caller sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
-                regs[13], regs[14], regs[15], regs[16],
-                regs[0], regs[1], regs[2], regs[3]
+                "[PHASE8_2] Inotia2 startup storage-gate trace active"
+            );
+            tracing::info!(
+                "[INOTIA2_STORAGE_GATE] available={available_storage} r7_resource_total={:#010x} required=r7+0x2800={required_storage} margin={storage_margin} would_pass={storage_check_pass} caller_lr={:#010x} svc_pc={:#010x}",
+                regs[7],
+                regs[14],
+                regs[15]
+            );
+            tracing::info!(
+                "[INOTIA2_STORAGE_GATE] regs r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x}",
+                regs[0], regs[1], regs[2], regs[3],
+                regs[4], regs[5], regs[6], regs[7],
+                regs[8], regs[9], regs[10], regs[11], regs[12],
+                regs[13], regs[14], regs[15], regs[16]
             );
         }
 
