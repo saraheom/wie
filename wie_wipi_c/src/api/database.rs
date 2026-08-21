@@ -514,6 +514,95 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
         tracing::info!(
             "[INOTIA2_HEAP] signatures alloc@125c54=[{alloc_sig0:#010x},{alloc_sig1:#010x}] init@1450bc=[{init_sig0:#010x},{init_sig1:#010x}]"
         );
+
+        // Phase 8.3.1 — guaranteed i_pack pre-rebuild checkpoint.
+        //
+        // Static analysis of client.bin1149832 now gives the exact sequence:
+        //
+        //   0x1450bc succeeds
+        //   0x17812e -> 0x144f48
+        //   0x144f48 -> 0x1439ac
+        //
+        // and 0x1439ac performs an internal allocation *before* it calls the
+        // database open routine that Phase 8.3 traced.  Therefore, if this
+        // pre-open allocation fails, none of the [INOTIA2_DB] lines can ever
+        // appear even though the Phase 8.3 code is present.
+        //
+        // The allocation size is:
+        //
+        //   request = (u16_global - 1) * 4
+        //
+        // where the global is reached through GOT[0x01c0].
+        //
+        // We also inspect the globals populated by 0x143a88 when it parses the
+        // packaged i_pack.dat header.  This is observational only.
+        let rebuild_count_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x01c0).unwrap_or(INVALID);
+        let rebuild_count: u16 =
+            read_generic(context, rebuild_count_ptr).unwrap_or(0xffff);
+        let rebuild_request = if rebuild_count != 0xffff {
+            (rebuild_count as u32).wrapping_sub(1).wrapping_mul(4)
+        } else {
+            INVALID
+        };
+
+        // 0x143a88 i_pack.dat header globals.
+        let ipack_version_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1610).unwrap_or(INVALID);
+        let ipack_count_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1614).unwrap_or(INVALID);
+        let ipack_handle_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1608).unwrap_or(INVALID);
+        let ipack_array_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x160c).unwrap_or(INVALID);
+
+        let ipack_version: u8 =
+            read_generic(context, ipack_version_ptr).unwrap_or(0xff);
+        let ipack_count: u16 =
+            read_generic(context, ipack_count_ptr).unwrap_or(0xffff);
+        let ipack_handle: u32 =
+            read_generic(context, ipack_handle_ptr).unwrap_or(INVALID);
+        let ipack_array: u32 =
+            read_generic(context, ipack_array_ptr).unwrap_or(INVALID);
+
+        let packaged_ipack = read_packaged_database(context, "i_pack.dat").await;
+        match packaged_ipack {
+            Ok(Some(data)) => {
+                let packaged_version = data.first().copied().unwrap_or(0xff);
+                let packaged_count = if data.len() >= 3 {
+                    u16::from_le_bytes([data[1], data[2]])
+                } else {
+                    0xffff
+                };
+                let head_len = data.len().min(16);
+
+                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::info!(
+                    "[INOTIA2_IPACK_PRE] packaged_found=true packaged_len={} packaged_version={} packaged_count={} head={:02x?}",
+                    data.len(),
+                    packaged_version,
+                    packaged_count,
+                    &data[..head_len]
+                );
+            }
+            Ok(None) => {
+                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::info!(
+                    "[INOTIA2_IPACK_PRE] packaged_found=false packaged_len=0"
+                );
+            }
+            Err(err) => {
+                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::info!(
+                    "[INOTIA2_IPACK_PRE] packaged_lookup_error={err:?}"
+                );
+            }
+        }
+
+        tracing::info!(
+            "[INOTIA2_IPACK_PRE] rebuild_count_ptr={rebuild_count_ptr:#010x} rebuild_count={rebuild_count} rebuild_request={rebuild_request:#010x} free_bytes={free_bytes:#010x} request_fits={} ipack_version_ptr={ipack_version_ptr:#010x} ipack_version={ipack_version} ipack_count_ptr={ipack_count_ptr:#010x} ipack_count={ipack_count} ipack_handle_ptr={ipack_handle_ptr:#010x} ipack_handle={ipack_handle:#010x} ipack_array_ptr={ipack_array_ptr:#010x} ipack_array={ipack_array:#010x}",
+            rebuild_request != INVALID && rebuild_request <= free_bytes
+        );
     }
 
     Ok(available)

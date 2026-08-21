@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 
 use jvm::{
     Jvm,
@@ -112,23 +112,58 @@ impl WIPICContext for KtfWIPICContext {
             }
         };
 
-        let result = match stream {
-            Some(stream) => {
-                let available: i32 = match self.jvm.invoke_virtual(&stream, "available", "()I", ()).await {
-                    Ok(available) => available,
-                    Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
-                };
-                drop(stream);
-                Some(available as usize)
+        if let Some(stream) = stream {
+            let available: i32 = match self.jvm.invoke_virtual(&stream, "available", "()I", ()).await {
+                Ok(available) => available,
+                Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
+            };
+            drop(stream);
+            match self.jvm.collect_garbage() {
+                Ok(_) => {}
+                Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
             }
-            None => None,
-        };
+            return Ok(Some(available as usize));
+        }
+
         match self.jvm.collect_garbage() {
             Ok(_) => {}
             Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
         }
 
-        Ok(result)
+        // Phase 8.4 — KTF packaged-database filesystem fallback.
+        //
+        // KTF archives can carry preinstalled database records outside the
+        // JAR under P/ or p/.  The KTF emulator already exposes archive files
+        // through System::filesystem(), but this resource path previously
+        // queried only the Java class loader.  As a result, a file such as
+        // Inotia 2's p/i_pack.dat was invisible to MC_dbOpenDataBase even
+        // though it was present in the package.
+        //
+        // Try the normalized/root form first, then both historical P/ cases.
+        if let Some(size) = self.system.filesystem().size(name).await {
+            tracing::info!(
+                "[KTF_RESOURCE_FALLBACK] size name={name} path={name} size={size}"
+            );
+            return Ok(Some(size));
+        }
+
+        let upper_path = alloc::format!("P/{name}");
+        if let Some(size) = self.system.filesystem().size(&upper_path).await {
+            tracing::info!(
+                "[KTF_RESOURCE_FALLBACK] size name={name} path={upper_path} size={size}"
+            );
+            return Ok(Some(size));
+        }
+
+        let lower_path = alloc::format!("p/{name}");
+        if let Some(size) = self.system.filesystem().size(&lower_path).await {
+            tracing::info!(
+                "[KTF_RESOURCE_FALLBACK] size name={name} path={lower_path} size={size}"
+            );
+            return Ok(Some(size));
+        }
+
+        Ok(None)
     }
 
     async fn read_resource(&self, name: &str) -> Result<Vec<u8>> {
@@ -136,26 +171,79 @@ impl WIPICContext for KtfWIPICContext {
             .await
             .map_err(|err| WieError::FatalError(alloc::format!("Failed to get class loader for resource {name:?}: {err:?}")))?;
         let stream = match JavaLangClassLoader::get_resource_as_stream(&self.jvm, &class_loader, name).await {
-            Ok(Some(stream)) => stream,
-            Ok(None) => return Err(WieError::FatalError(alloc::format!("Resource disappeared before read: {name:?}"))),
+            Ok(stream) => stream,
             Err(err) => {
                 tracing::error!("Java exception while opening resource for read: name={name:?}, error={err:?}");
                 return Err(JvmSupport::to_wie_err(&self.jvm, err).await);
             }
         };
 
-        let data = match JavaIoInputStream::read_until_end(&self.jvm, &stream).await {
-            Ok(data) => data,
-            Err(err) => {
-                tracing::error!("Java exception while reading resource: name={name:?}, error={err:?}");
-                return Err(JvmSupport::to_wie_err(&self.jvm, err).await);
+        if let Some(stream) = stream {
+            let data = match JavaIoInputStream::read_until_end(&self.jvm, &stream).await {
+                Ok(data) => data,
+                Err(err) => {
+                    tracing::error!("Java exception while reading resource: name={name:?}, error={err:?}");
+                    return Err(JvmSupport::to_wie_err(&self.jvm, err).await);
+                }
+            };
+            drop(stream);
+            match self.jvm.collect_garbage() {
+                Ok(_) => {}
+                Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
             }
-        };
-        drop(stream);
+            return Ok(data);
+        }
+
         match self.jvm.collect_garbage() {
             Ok(_) => {}
             Err(err) => return Err(JvmSupport::to_wie_err(&self.jvm, err).await),
         }
+
+        // Keep this lookup order identical to get_resource_size().  The
+        // database layer calls size first and read second, so resolving the
+        // same archive-backed object in both operations is essential.
+        let mut resolved_path: Option<alloc::string::String> = None;
+        let mut resolved_size: Option<usize> = None;
+
+        if let Some(size) = self.system.filesystem().size(name).await {
+            resolved_path = Some(name.into());
+            resolved_size = Some(size);
+        } else {
+            let upper_path = alloc::format!("P/{name}");
+            if let Some(size) = self.system.filesystem().size(&upper_path).await {
+                resolved_path = Some(upper_path);
+                resolved_size = Some(size);
+            } else {
+                let lower_path = alloc::format!("p/{name}");
+                if let Some(size) = self.system.filesystem().size(&lower_path).await {
+                    resolved_path = Some(lower_path);
+                    resolved_size = Some(size);
+                }
+            }
+        }
+
+        let (path, size) = match (resolved_path, resolved_size) {
+            (Some(path), Some(size)) => (path, size),
+            _ => {
+                return Err(WieError::FatalError(alloc::format!(
+                    "Resource disappeared before read: {name:?}"
+                )));
+            }
+        };
+
+        let mut data = vec![0; size];
+        let read = self
+            .system
+            .filesystem()
+            .read(&path, 0, size, &mut data)
+            .await
+            .unwrap_or(0);
+        data.truncate(read);
+
+        tracing::info!(
+            "[KTF_RESOURCE_FALLBACK] read name={name} path={path} expected={size} read={read}"
+        );
+
         Ok(data)
     }
 
