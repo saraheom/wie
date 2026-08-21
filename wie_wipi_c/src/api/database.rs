@@ -208,39 +208,214 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
 
     tracing::debug!("MC_dbListDataBase() = {available} (used={usage}, limit={KTF_DATABASE_STORAGE_LIMIT})");
 
-    // Phase 8.0 — Inotia 2 KTF internal-heap probe.
+    // Phase 8.1 — Inotia 2 KTF internal-heap state scan.
     //
-    // Static analysis of client.bin1149832 identified the visible
-    // "메모리에러" path as a failed 0x100-byte allocation in the game's own
-    // allocator (guest 0x125c54), not a host/WIE allocation failure.
+    // Phase 8.0 proved the code signatures were correct, but its first-level
+    // reads stopped at the PIC/GOT indirection.  The reported "capacity",
+    // "used", etc. were therefore guest addresses of the real globals.
     //
-    // The allocator globals below are revision-specific to KTF Inotia 2
-    // (AID 010100D5 / PID PD007974).  This block is observational only:
-    // it reads guest state and does not change any memory, return values,
-    // allocator limits, or WIPI behavior.
+    // The KTF Inotia 2 allocator at 0x125c54 uses:
+    //   descriptor_limit = *(*GOT[0x1214])
+    //   capacity         = *(*GOT[0x1218])
+    //   heap_base        = *(*GOT[0x121c])
+    //   block_table      =  *(GOT[0x1224])
+    //   free_desc_head   = *(*GOT[0x1228])
+    //   used             = *(*GOT[0x122c])
+    //   alloc_head       = *(*GOT[0x1230])
+    //   alloc_count      = *(*GOT[0x1234])
+    //
+    // This phase is still observational only.  It additionally walks both
+    // descriptor chains to distinguish capacity exhaustion, descriptor
+    // exhaustion, and fragmentation.
     if pid == "PD007974" {
-        let descriptor_limit: u32 = read_generic(context, 0x0019_36d8).unwrap_or(0xffff_ffff);
-        let capacity: u32 = read_generic(context, 0x0019_36dc).unwrap_or(0xffff_ffff);
-        let heap_base: u32 = read_generic(context, 0x0019_36e0).unwrap_or(0xffff_ffff);
-        let heap_source: u32 = read_generic(context, 0x0019_36e4).unwrap_or(0xffff_ffff);
-        let block_table: u32 = read_generic(context, 0x0019_36e8).unwrap_or(0xffff_ffff);
-        let free_head: u32 = read_generic(context, 0x0019_36ec).unwrap_or(0xffff_ffff);
-        let used: u32 = read_generic(context, 0x0019_36f0).unwrap_or(0xffff_ffff);
-        let secondary: u32 = read_generic(context, 0x0019_36f4).unwrap_or(0xffff_ffff);
-        let alloc_count: u32 = read_generic(context, 0x0019_36f8).unwrap_or(0xffff_ffff);
-        let ui_ptr: u32 = read_generic(context, 0x0019_3b00).unwrap_or(0xffff_ffff);
+        const INVALID: u32 = 0xffff_ffff;
+        const GOT_BASE: u32 = 0x0019_24c4;
 
-        let free_bytes = if capacity != 0xffff_ffff && used != 0xffff_ffff {
+        let descriptor_limit_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1214).unwrap_or(INVALID);
+        let capacity_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1218).unwrap_or(INVALID);
+        let heap_base_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x121c).unwrap_or(INVALID);
+        let heap_source: u32 =
+            read_generic(context, GOT_BASE + 0x1220).unwrap_or(INVALID);
+        let block_table: u32 =
+            read_generic(context, GOT_BASE + 0x1224).unwrap_or(INVALID);
+        let free_head_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1228).unwrap_or(INVALID);
+        let used_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x122c).unwrap_or(INVALID);
+        let alloc_head_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1230).unwrap_or(INVALID);
+        let alloc_count_ptr: u32 =
+            read_generic(context, GOT_BASE + 0x1234).unwrap_or(INVALID);
+
+        let descriptor_limit: u32 =
+            read_generic(context, descriptor_limit_ptr).unwrap_or(INVALID);
+        let capacity: u32 =
+            read_generic(context, capacity_ptr).unwrap_or(INVALID);
+        let heap_base: u32 =
+            read_generic(context, heap_base_ptr).unwrap_or(INVALID);
+        let free_head: u32 =
+            read_generic(context, free_head_ptr).unwrap_or(INVALID);
+        let used: u32 =
+            read_generic(context, used_ptr).unwrap_or(INVALID);
+        let alloc_head: u32 =
+            read_generic(context, alloc_head_ptr).unwrap_or(INVALID);
+        let alloc_count: u32 =
+            read_generic(context, alloc_count_ptr).unwrap_or(INVALID);
+
+        // 0x193b00 is the GOT entry used by 0x1450d4 before it stores the
+        // result of allocator(0x100).  Dereference it once more to get the
+        // actual UI allocation result.
+        let ui_ptr_global: u32 =
+            read_generic(context, 0x0019_3b00).unwrap_or(INVALID);
+        let ui_ptr: u32 =
+            read_generic(context, ui_ptr_global).unwrap_or(INVALID);
+
+        let free_bytes = if capacity != INVALID && used != INVALID {
             capacity.saturating_sub(used)
         } else {
-            0xffff_ffff
+            INVALID
         };
 
+        let mut free_descriptor_count: u32 = 0;
+        let mut free_descriptor_chain_ok = true;
+        let mut free_idx = free_head;
+
+        let scan_limit = if descriptor_limit != INVALID {
+            descriptor_limit.min(0x4000)
+        } else {
+            0
+        };
+
+        while free_idx != INVALID && free_descriptor_count < scan_limit {
+            if free_idx >= descriptor_limit {
+                free_descriptor_chain_ok = false;
+                break;
+            }
+
+            let entry = match block_table.checked_add(free_idx.saturating_mul(12)) {
+                Some(v) => v,
+                None => {
+                    free_descriptor_chain_ok = false;
+                    break;
+                }
+            };
+
+            let next: u32 = match read_generic(context, entry + 8) {
+                Ok(v) => v,
+                Err(_) => {
+                    free_descriptor_chain_ok = false;
+                    break;
+                }
+            };
+
+            free_descriptor_count += 1;
+
+            // A proper singly-linked chain cannot need more nodes than the
+            // descriptor table itself.  This also protects against cycles.
+            if free_descriptor_count >= descriptor_limit && next != INVALID {
+                free_descriptor_chain_ok = false;
+                break;
+            }
+
+            free_idx = next;
+        }
+
+        let mut allocated_chain_count: u32 = 0;
+        let mut allocated_chain_ok = true;
+        let mut allocated_size_sum: u64 = 0;
+        let mut largest_gap: u32 = 0;
+        let mut monotonic = true;
+        let mut alloc_idx = alloc_head;
+        let mut cursor = heap_base;
+        let pool_end = heap_base.checked_add(capacity).unwrap_or(INVALID);
+
+        // Keep a compact sample of the first allocated descriptors.  This is
+        // enough to verify the list structure without flooding the log.
+        let mut sample: Vec<(u32, u32, u32, u32)> = Vec::new();
+
+        while alloc_idx != INVALID && allocated_chain_count < scan_limit {
+            if alloc_idx >= descriptor_limit {
+                allocated_chain_ok = false;
+                break;
+            }
+
+            let entry = match block_table.checked_add(alloc_idx.saturating_mul(12)) {
+                Some(v) => v,
+                None => {
+                    allocated_chain_ok = false;
+                    break;
+                }
+            };
+
+            let addr: u32 = match read_generic(context, entry) {
+                Ok(v) => v,
+                Err(_) => {
+                    allocated_chain_ok = false;
+                    break;
+                }
+            };
+            let size: u32 = match read_generic(context, entry + 4) {
+                Ok(v) => v,
+                Err(_) => {
+                    allocated_chain_ok = false;
+                    break;
+                }
+            };
+            let next: u32 = match read_generic(context, entry + 8) {
+                Ok(v) => v,
+                Err(_) => {
+                    allocated_chain_ok = false;
+                    break;
+                }
+            };
+
+            if sample.len() < 12 {
+                sample.push((alloc_idx, addr, size, next));
+            }
+
+            if addr < cursor {
+                monotonic = false;
+            } else {
+                largest_gap = largest_gap.max(addr.saturating_sub(cursor));
+            }
+
+            allocated_size_sum = allocated_size_sum.saturating_add(size as u64);
+
+            let aligned_size = size.saturating_add(3) & !3;
+            cursor = addr.saturating_add(aligned_size);
+
+            allocated_chain_count += 1;
+
+            if allocated_chain_count >= descriptor_limit && next != INVALID {
+                allocated_chain_ok = false;
+                break;
+            }
+
+            alloc_idx = next;
+        }
+
+        if pool_end != INVALID && cursor <= pool_end {
+            largest_gap = largest_gap.max(pool_end - cursor);
+        }
+
+        let request = 0x100u32;
+        let capacity_can_fit = free_bytes != INVALID && free_bytes >= request;
+        let descriptor_can_fit =
+            free_head != INVALID && free_descriptor_count > 0 && free_descriptor_chain_ok;
+        let gap_can_fit = largest_gap >= request;
+
+        tracing::info!("[PHASE8_1] Inotia2 dereferenced heap-state scan active");
         tracing::info!(
-            "[PHASE8_0] Inotia2 internal heap probe active"
+            "[INOTIA2_HEAP] descriptor_limit={descriptor_limit:#010x} capacity={capacity:#010x} used={used:#010x} free={free_bytes:#010x} heap_base={heap_base:#010x} heap_source={heap_source:#010x} block_table={block_table:#010x} free_head={free_head:#010x} alloc_head={alloc_head:#010x} alloc_count={alloc_count:#010x} ui_ptr={ui_ptr:#010x}"
         );
         tracing::info!(
-            "[INOTIA2_HEAP] descriptor_limit={descriptor_limit:#010x} capacity={capacity:#010x} used={used:#010x} free={free_bytes:#010x} heap_base={heap_base:#010x} heap_source={heap_source:#010x} block_table={block_table:#010x} free_head={free_head:#010x} secondary={secondary:#010x} alloc_count={alloc_count:#010x} ui_ptr={ui_ptr:#010x}"
+            "[INOTIA2_HEAP] ptrs descriptor_limit={descriptor_limit_ptr:#010x} capacity={capacity_ptr:#010x} heap_base={heap_base_ptr:#010x} free_head={free_head_ptr:#010x} used={used_ptr:#010x} alloc_head={alloc_head_ptr:#010x} alloc_count={alloc_count_ptr:#010x} ui_global={ui_ptr_global:#010x}"
+        );
+        tracing::info!(
+            "[INOTIA2_HEAP] chains free_desc_count={free_descriptor_count} free_chain_ok={free_descriptor_chain_ok} allocated_chain_count={allocated_chain_count} allocated_chain_ok={allocated_chain_ok} alloc_size_sum={allocated_size_sum} monotonic={monotonic} largest_gap={largest_gap:#010x} request_0x100 capacity_can_fit={capacity_can_fit} descriptor_can_fit={descriptor_can_fit} gap_can_fit={gap_can_fit} sample={sample:?}"
         );
 
         if let Some(regs) = context.debug_cpu_context() {
@@ -251,12 +426,14 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
             );
         }
 
-        // Verify that this is the expected KTF Inotia 2 binary revision.
-        // We only log the words; no signature-gated mutation is performed.
-        let alloc_sig0: u32 = read_generic(context, 0x0012_5c54).unwrap_or(0xffff_ffff);
-        let alloc_sig1: u32 = read_generic(context, 0x0012_5c58).unwrap_or(0xffff_ffff);
-        let init_sig0: u32 = read_generic(context, 0x0014_50bc).unwrap_or(0xffff_ffff);
-        let init_sig1: u32 = read_generic(context, 0x0014_50c0).unwrap_or(0xffff_ffff);
+        let alloc_sig0: u32 =
+            read_generic(context, 0x0012_5c54).unwrap_or(INVALID);
+        let alloc_sig1: u32 =
+            read_generic(context, 0x0012_5c58).unwrap_or(INVALID);
+        let init_sig0: u32 =
+            read_generic(context, 0x0014_50bc).unwrap_or(INVALID);
+        let init_sig1: u32 =
+            read_generic(context, 0x0014_50c0).unwrap_or(INVALID);
         tracing::info!(
             "[INOTIA2_HEAP] signatures alloc@125c54=[{alloc_sig0:#010x},{alloc_sig1:#010x}] init@1450bc=[{init_sig0:#010x},{init_sig1:#010x}]"
         );
@@ -614,6 +791,23 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
         return Ok(-23); // M_E_EOF
     }
 
+    // Phase 8.1.2 defensive invariant: after the KTF slot-4 length query,
+    // Inotia 1 should request the complete save0 record.  Do not mutate the
+    // request here (the guest owns its buffer size); emit a loud diagnostic
+    // if another code path ever causes the lengths to diverge again.
+    if context.system().pid() == "PD005362"
+        && handle_name(&handle) == "save0.dat"
+        && handle.read_cursor == 0
+        && handle.buffer_len > 0
+        && buf_len != handle.buffer_len
+    {
+        tracing::warn!(
+            "[INOTIA1_LENGTH_MISMATCH] request={buf_len} record_len={} delta={} -- Continue may reject this slot",
+            handle.buffer_len,
+            handle.buffer_len as i64 - buf_len as i64
+        );
+    }
+
     let take = core::cmp::min(buf_len, handle.buffer_len - handle.read_cursor);
     if take == 0 {
         return Ok(0);
@@ -807,14 +1001,25 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
         //     len 328 -> -8
         //
         // Empty/newly-created records and all other titles/databases retain
-        // the existing return value of 0.  Cursor behavior is unchanged.
+        // the existing return value of 0. Cursor behavior is unchanged.
+        //
+        // Use the exact stored length for every non-empty Inotia 1 save0
+        // record.  Do not impose a size threshold in either direction:
+        //
+        //     len 300 -> +20 -> native length 300
+        //     len 320 ->   0 -> native length 320
+        //     len 544 -> -224 -> native length 544
+        //
+        // This makes the wrapper follow the record as it grows or shrinks
+        // during gameplay instead of depending on guessed milestones.
+        // The database quota is far below i32::MAX, so the signed delta is
+        // safe for every record WIE can persist here.
         let inotia_record_len_delta =
             pid == "PD005362"
                 && db_name == "save0.dat"
                 && offset == 0
                 && mode == 0
-                && handle.buffer_len > 320
-                && handle.buffer_len <= 512;
+                && handle.buffer_len > 0;
 
         let result = if inotia_record_len_delta {
             320i32 - handle.buffer_len as i32
