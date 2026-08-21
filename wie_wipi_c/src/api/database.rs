@@ -1237,6 +1237,97 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 "[INOTIA2_IPACK_POST] code@143adc=[{code0:#010x},{code1:#010x},{code2:#010x},{code3:#010x},{code4:#010x},{code5:#010x},{code6:#010x},{code7:#010x}]"
             );
 
+            // Phase 8.6 — probe the *next* caller's validation globals.
+            //
+            // Phase 8.5 proved that all four globals written by 0x143adc are
+            // correctly relocated and mapped. The null fault therefore occurs
+            // after 0x143a88 returns to 0x144e58.
+            //
+            // Static disassembly of 0x144e58 shows three GOT-resolved globals
+            // are dereferenced immediately:
+            //
+            //   GOT+0x03b8 -> u16 validation count
+            //   GOT+0x03bc -> u8  record stride
+            //   GOT+0x03b4 -> u32 record-base pointer
+            //
+            // A NULL GOT destination here exactly matches the observed
+            // "Invalid memory access; address: 0". Capture both the GOT
+            // destinations and the values they currently contain.
+            const GOT_VALIDATE_BASE: u32 = 0x0019_2878;   // GOT base + 0x03b4
+            const GOT_VALIDATE_COUNT: u32 = 0x0019_287c;  // GOT base + 0x03b8
+            const GOT_VALIDATE_STRIDE: u32 = 0x0019_2880; // GOT base + 0x03bc
+
+            let validate_base_target: u32 =
+                read_generic(context, GOT_VALIDATE_BASE).unwrap_or(INVALID);
+            let validate_count_target: u32 =
+                read_generic(context, GOT_VALIDATE_COUNT).unwrap_or(INVALID);
+            let validate_stride_target: u32 =
+                read_generic(context, GOT_VALIDATE_STRIDE).unwrap_or(INVALID);
+
+            let validate_base: u32 =
+                if validate_base_target != 0 && validate_base_target != INVALID {
+                    read_generic(context, validate_base_target).unwrap_or(INVALID)
+                } else {
+                    INVALID
+                };
+            let validate_count: u16 =
+                if validate_count_target != 0 && validate_count_target != INVALID {
+                    read_generic(context, validate_count_target).unwrap_or(0xffff)
+                } else {
+                    0xffff
+                };
+            let validate_stride: u8 =
+                if validate_stride_target != 0 && validate_stride_target != INVALID {
+                    read_generic(context, validate_stride_target).unwrap_or(0xff)
+                } else {
+                    0xff
+                };
+
+            let first_record_addr = if validate_base != 0 && validate_base != INVALID {
+                validate_base.saturating_add(6)
+            } else {
+                validate_base
+            };
+
+            let mut first_record = [0u8; 32];
+            let first_record_read =
+                if first_record_addr != 0 && first_record_addr != INVALID {
+                    context.read_bytes(first_record_addr, &mut first_record).unwrap_or(0)
+                } else {
+                    0
+                };
+
+            let null_stage = if validate_count_target == 0 {
+                "count_got_target_null"
+            } else if validate_count != 0 && validate_stride_target == 0 {
+                "stride_got_target_null"
+            } else if validate_count != 0 && validate_base_target == 0 {
+                "base_got_target_null"
+            } else if validate_count != 0 && validate_base == 0 {
+                "record_base_value_null"
+            } else {
+                "none_obvious"
+            };
+
+            tracing::info!(
+                "[PHASE8_6] Inotia2 post-i_pack caller validation-global probe active"
+            );
+            tracing::info!(
+                "[INOTIA2_VALIDATE_POST] got base@{GOT_VALIDATE_BASE:#010x}->{validate_base_target:#010x} value={validate_base:#010x} count@{GOT_VALIDATE_COUNT:#010x}->{validate_count_target:#010x} value={validate_count} stride@{GOT_VALIDATE_STRIDE:#010x}->{validate_stride_target:#010x} value={validate_stride} first_record_addr={first_record_addr:#010x} first_record_read={first_record_read} first_record={:02x?} null_stage={null_stage}",
+                &first_record[..first_record_read.min(first_record.len())]
+            );
+
+            // Signature of the immediate caller block after 0x143a88 returns.
+            let caller0: u32 = read_generic(context, 0x0014_4e6a).unwrap_or(INVALID);
+            let caller1: u32 = read_generic(context, 0x0014_4e6e).unwrap_or(INVALID);
+            let caller2: u32 = read_generic(context, 0x0014_4e72).unwrap_or(INVALID);
+            let caller3: u32 = read_generic(context, 0x0014_4e76).unwrap_or(INVALID);
+            let caller4: u32 = read_generic(context, 0x0014_4e7a).unwrap_or(INVALID);
+            let caller5: u32 = read_generic(context, 0x0014_4e7e).unwrap_or(INVALID);
+            tracing::info!(
+                "[INOTIA2_VALIDATE_POST] code@144e6a=[{caller0:#010x},{caller1:#010x},{caller2:#010x},{caller3:#010x},{caller4:#010x},{caller5:#010x}]"
+            );
+
             if let Some(regs) = context.debug_cpu_context() {
                 let sp = regs[13];
                 let mut stack = [0u8; 64];
