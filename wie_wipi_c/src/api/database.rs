@@ -1177,6 +1177,80 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
             handle.buffer_len.saturating_sub(handle.read_cursor),
             &data[..head_end]
         );
+
+        // Phase 8.5 — KTF Inotia 2 i_pack post-header global-pointer probe.
+        //
+        // Phase 8.4 now exposes p/i_pack.dat correctly.  The guest parses its
+        // 55-byte header (version + count + 13 u32 offsets) successfully, then
+        // deterministically faults at address 0 before another WIPI call.
+        // Static disassembly places the next guest instructions at 0x143adc,
+        // where four PIC/GOT-resolved globals are written.  Capture those GOT
+        // entries and their destinations while we are still inside the final
+        // stream-read SVC, immediately before control returns to the guest.
+        // This block is observational only.
+        if handle_name(&handle) == "i_pack.dat"
+            && old_cursor == 51
+            && take == 4
+            && handle.read_cursor == 55
+        {
+            const INVALID: u32 = 0xffff_ffff;
+
+            // r8 in 0x143a88 resolves to 0x1924c4.  The literals used by the
+            // post-header stores are offsets 0x1610, 0x1614, 0x1608, 0x160c.
+            const GOT_VERSION: u32 = 0x0019_3ad4;
+            const GOT_COUNT: u32 = 0x0019_3ad8;
+            const GOT_HANDLE: u32 = 0x0019_3acc;
+            const GOT_ARRAY: u32 = 0x0019_3ad0;
+
+            let version_target: u32 = read_generic(context, GOT_VERSION).unwrap_or(INVALID);
+            let count_target: u32 = read_generic(context, GOT_COUNT).unwrap_or(INVALID);
+            let handle_target: u32 = read_generic(context, GOT_HANDLE).unwrap_or(INVALID);
+            let array_target: u32 = read_generic(context, GOT_ARRAY).unwrap_or(INVALID);
+
+            let version_probe: u32 = if version_target != 0 && version_target != INVALID {
+                read_generic(context, version_target).unwrap_or(INVALID)
+            } else { INVALID };
+            let count_probe: u32 = if count_target != 0 && count_target != INVALID {
+                read_generic(context, count_target).unwrap_or(INVALID)
+            } else { INVALID };
+            let handle_probe: u32 = if handle_target != 0 && handle_target != INVALID {
+                read_generic(context, handle_target).unwrap_or(INVALID)
+            } else { INVALID };
+            let array_probe: u32 = if array_target != 0 && array_target != INVALID {
+                read_generic(context, array_target).unwrap_or(INVALID)
+            } else { INVALID };
+
+            let code0: u32 = read_generic(context, 0x0014_3adc).unwrap_or(INVALID);
+            let code1: u32 = read_generic(context, 0x0014_3ae0).unwrap_or(INVALID);
+            let code2: u32 = read_generic(context, 0x0014_3ae4).unwrap_or(INVALID);
+            let code3: u32 = read_generic(context, 0x0014_3ae8).unwrap_or(INVALID);
+            let code4: u32 = read_generic(context, 0x0014_3aec).unwrap_or(INVALID);
+            let code5: u32 = read_generic(context, 0x0014_3af0).unwrap_or(INVALID);
+            let code6: u32 = read_generic(context, 0x0014_3af4).unwrap_or(INVALID);
+            let code7: u32 = read_generic(context, 0x0014_3af8).unwrap_or(INVALID);
+
+            tracing::info!("[PHASE8_5] Inotia2 i_pack post-header global-pointer probe active");
+            tracing::info!(
+                "[INOTIA2_IPACK_POST] got version@{GOT_VERSION:#010x}->{version_target:#010x} probe={version_probe:#010x} count@{GOT_COUNT:#010x}->{count_target:#010x} probe={count_probe:#010x} handle@{GOT_HANDLE:#010x}->{handle_target:#010x} probe={handle_probe:#010x} array@{GOT_ARRAY:#010x}->{array_target:#010x} probe={array_probe:#010x}"
+            );
+            tracing::info!(
+                "[INOTIA2_IPACK_POST] code@143adc=[{code0:#010x},{code1:#010x},{code2:#010x},{code3:#010x},{code4:#010x},{code5:#010x},{code6:#010x},{code7:#010x}]"
+            );
+
+            if let Some(regs) = context.debug_cpu_context() {
+                let sp = regs[13];
+                let mut stack = [0u8; 64];
+                let stack_read = context.read_bytes(sp, &mut stack).unwrap_or(0);
+                tracing::info!(
+                    "[INOTIA2_IPACK_POST] regs r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x} stack_read={stack_read} stack={:02x?}",
+                    regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7],
+                    regs[8], regs[9], regs[10], regs[11], regs[12], regs[13], regs[14], regs[15], regs[16],
+                    &stack[..stack_read.min(stack.len())]
+                );
+            } else {
+                tracing::info!("[INOTIA2_IPACK_POST] CPU snapshot unavailable");
+            }
+        }
     }
 
     Ok(take as _)
