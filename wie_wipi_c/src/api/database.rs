@@ -70,6 +70,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     }
 
     let packaged = read_packaged_database(context, &name).await?;
+    let packaged_len = packaged.as_ref().map(|data| data.len()).unwrap_or(0);
 
     let system = context.system();
     let pid = system.pid().to_owned();
@@ -78,7 +79,21 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     }
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
+    if pid == "PD007974" {
+        tracing::info!(
+            "[PHASE8_3] Inotia2 i_pack database trace active"
+        );
+        tracing::info!(
+            "[INOTIA2_DB] OPEN_REQUEST name={name} mode={mode} type={type} exists={exists} packaged_len={packaged_len}"
+        );
+    }
+
     if !exists && packaged.is_none() && mode == 1 {
+        if pid == "PD007974" {
+            tracing::info!(
+                "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} -> -12 (NOENT)"
+            );
+        }
         return Ok(-12); // M_E_NOENT
     }
 
@@ -150,6 +165,27 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
 
     tracing::debug!("Created database handle {ptr_handle:#x} for {name}");
 
+    if pid == "PD007974" {
+        let cpu = context.debug_cpu_context();
+        if let Some(regs) = cpu {
+            tracing::info!(
+                "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} handle={ptr_handle:#010x} initial_len={} buffer_ptr={:#010x} capacity={} lr={:#010x} pc={:#010x}",
+                handle.buffer_len,
+                handle.buffer_ptr,
+                handle.buffer_capacity,
+                regs[14],
+                regs[15]
+            );
+        } else {
+            tracing::info!(
+                "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} handle={ptr_handle:#010x} initial_len={} buffer_ptr={:#010x} capacity={}",
+                handle.buffer_len,
+                handle.buffer_ptr,
+                handle.buffer_capacity
+            );
+        }
+    }
+
     Ok(ptr_handle as _)
 }
 
@@ -159,6 +195,16 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
     let Some(handle) = load_handle(context, db_id)? else {
         return Ok(-25); // M_E_INVALIDHANDLE
     };
+
+    if context.system().pid() == "PD007974" {
+        tracing::info!(
+            "[INOTIA2_DB] CLOSE db={} handle={db_id:#010x} len={} read_cursor={} write_cursor={}",
+            handle_name(&handle),
+            handle.buffer_len,
+            handle.read_cursor,
+            handle.write_cursor
+        );
+    }
 
     // The buffer was kept in sync with disk via write-through on every
     // `stream_write`, so close just frees the guest-heap allocations.
@@ -619,6 +665,30 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
             handle.write_cursor
         );
     }
+    if pid == "PD007974" {
+        let mut head = vec![0u8; (buf_len as usize).min(16)];
+        let head_read = if head.is_empty() {
+            0
+        } else {
+            context.read_bytes(buf_ptr, &mut head).unwrap_or(0)
+        };
+        let cpu = context.debug_cpu_context();
+        if let Some(regs) = cpu {
+            tracing::info!(
+                "[INOTIA2_DB] WRITE_BEGIN db={db_name} handle={db_id:#010x} offset={} request={buf_len} old_len={old_len} head_read={head_read} head={:02x?} lr={:#010x} pc={:#010x}",
+                handle.write_cursor,
+                &head[..head_read.min(head.len())],
+                regs[14],
+                regs[15]
+            );
+        } else {
+            tracing::info!(
+                "[INOTIA2_DB] WRITE_BEGIN db={db_name} handle={db_id:#010x} offset={} request={buf_len} old_len={old_len} head_read={head_read} head={:02x?}",
+                handle.write_cursor,
+                &head[..head_read.min(head.len())]
+            );
+        }
+    }
 
     // Grow the guest-heap buffer if the next write would land past its
     // end. Doubling-on-demand starting from MIN_BUFFER_CAPACITY keeps the
@@ -679,6 +749,15 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;
+    }
+
+    if pid == "PD007974" {
+        tracing::info!(
+            "[INOTIA2_DB] WRITE_RESULT db={db_name} handle={db_id:#010x} wrote={buf_len} final_len={} read_cursor={} write_cursor={}",
+            handle.buffer_len,
+            handle.read_cursor,
+            handle.write_cursor
+        );
     }
 
     if pid == "PD005362" {
@@ -816,7 +895,37 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
         return Ok(-25); // M_E_INVALIDHANDLE
     };
 
+    let inotia2_db_trace = context.system().pid() == "PD007974";
+    if inotia2_db_trace {
+        let cpu = context.debug_cpu_context();
+        if let Some(regs) = cpu {
+            tracing::info!(
+                "[INOTIA2_DB] READ_BEGIN db={} handle={db_id:#010x} offset={} request={buf_len} record_len={} lr={:#010x} pc={:#010x}",
+                handle_name(&handle),
+                handle.read_cursor,
+                handle.buffer_len,
+                regs[14],
+                regs[15]
+            );
+        } else {
+            tracing::info!(
+                "[INOTIA2_DB] READ_BEGIN db={} handle={db_id:#010x} offset={} request={buf_len} record_len={}",
+                handle_name(&handle),
+                handle.read_cursor,
+                handle.buffer_len
+            );
+        }
+    }
+
     if handle.read_cursor >= handle.buffer_len {
+        if inotia2_db_trace {
+            tracing::info!(
+                "[INOTIA2_DB] READ_RESULT db={} handle={db_id:#010x} -> -23 (EOF) offset={} record_len={}",
+                handle_name(&handle),
+                handle.read_cursor,
+                handle.buffer_len
+            );
+        }
         // Don't touch buf — caller may have passed a sentinel (NULL) that
         // we shouldn't write to. Some titles do this past EOF.
         return Ok(-23); // M_E_EOF
@@ -969,6 +1078,18 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
         }
     }
 
+    if inotia2_db_trace {
+        let head_end = data.len().min(16);
+        tracing::info!(
+            "[INOTIA2_DB] READ_RESULT db={} handle={db_id:#010x} returned={take} final_cursor={} record_len={} remaining={} head={:02x?}",
+            handle_name(&handle),
+            handle.read_cursor,
+            handle.buffer_len,
+            handle.buffer_len.saturating_sub(handle.read_cursor),
+            &data[..head_end]
+        );
+    }
+
     Ok(take as _)
 }
 
@@ -1008,6 +1129,26 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
                 handle.write_cursor,
                 handle.buffer_len
             );
+        }
+        if pid == "PD007974" {
+            let cpu = context.debug_cpu_context();
+            if let Some(regs) = cpu {
+                tracing::info!(
+                    "[INOTIA2_DB] SELECT_SEEK db={db_name} handle={db_id:#010x} offset={offset} mode={mode:#x} old_read={} old_write={} len={} lr={:#010x} pc={:#010x}",
+                    handle.read_cursor,
+                    handle.write_cursor,
+                    handle.buffer_len,
+                    regs[14],
+                    regs[15]
+                );
+            } else {
+                tracing::info!(
+                    "[INOTIA2_DB] SELECT_SEEK db={db_name} handle={db_id:#010x} offset={offset} mode={mode:#x} old_read={} old_write={} len={}",
+                    handle.read_cursor,
+                    handle.write_cursor,
+                    handle.buffer_len
+                );
+            }
         }
 
         handle.read_cursor = offset;
@@ -1099,6 +1240,9 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
     let pid = system.pid().to_owned();
     let exists = system.platform().database_repository().exists(&name, &pid).await;
     if !exists {
+        if pid == "PD007974" {
+            tracing::info!("[INOTIA2_DB] STAT db={name} mode={mode} -> -22 (not found)");
+        }
         if pid == "PD005362" {
             tracing::info!("[INOTIA1_META] STAT db={name} mode={mode} -> -22 (not found)");
         } else {
@@ -1118,6 +1262,11 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
         write_generic(context, out_buf + 8, record_size)?;
     }
 
+    if pid == "PD007974" {
+        tracing::info!(
+            "[INOTIA2_DB] STAT db={name} mode={mode} record_size={record_size} -> 0"
+        );
+    }
     if pid == "PD005362" {
         tracing::info!(
             "[INOTIA1_META] STAT db={name} mode={mode} record_size={record_size} -> 0"
@@ -1154,6 +1303,11 @@ pub async fn exists_database_ktf(context: &mut dyn WIPICContext, name_ptr: WIPIC
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
     let result = if exists { 1 } else { 0 };
+    if pid == "PD007974" {
+        tracing::info!(
+            "[INOTIA2_DB] EXISTS_KTF db={name} exists={exists} -> {result}"
+        );
+    }
     if pid == "PD005362" {
         tracing::info!(
             "[INOTIA1_META] EXISTS_KTF db={name} exists={exists} -> {result}"
