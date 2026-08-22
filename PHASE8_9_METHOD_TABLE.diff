@@ -1,0 +1,65 @@
+--- a/wie_ktf/src/runtime/wipi_c/method_table.rs
++++ b/wie_ktf/src/runtime/wipi_c/method_table.rs
+@@ -1,4 +1,5 @@
+ use alloc::{format, vec, vec::Vec};
++use core::sync::atomic::{AtomicBool, Ordering};
+ 
+ use wipi_types::{
+     ktf::wipic::{WIPICDatabaseInterface, WIPICGraphicsInterface, WIPICKnlInterface},
+@@ -19,6 +20,47 @@
+ 
+ fn gen_stub(id: WIPICWord, name: &'static str) -> WIPICMethodBody {
+     let body = move |_: &mut dyn WIPICContext| async move { Err::<(), _>(WieError::Unimplemented(format!("{id}: {name}"))) };
++
++    body.into_body()
++}
++
++// Phase 8.9 — KTF Inotia 2 reaches kernel slot 13 only after the
++// Phase 8.8 stream-seek/resource initialization fix. Upstream WIE
++// exposes the slot as MC_knlGetAccessLevel but routes it to a fatal
++// Unimplemented stub, which terminates the entire guest thread.
++//
++// WIPI applications have a provisioned application access/security
++// level. For the first compatibility test, return level 1 only for
++// the known KTF Inotia 2 PID. Keep every other title on the previous
++// behavior until the generic ADF/security-level mapping is implemented.
++//
++// Log the actual CPU call site once so the device log still gives us
++// a precise native caller if the return value affects a later branch.
++static INOTIA2_ACCESS_LEVEL_LOGGED: AtomicBool = AtomicBool::new(false);
++
++fn get_access_level_compat() -> WIPICMethodBody {
++    let body = |context: &mut dyn WIPICContext| async move {
++        if context.system().pid() == "PD007974" {
++            if !INOTIA2_ACCESS_LEVEL_LOGGED.swap(true, Ordering::Relaxed) {
++                if let Some(regs) = context.debug_cpu_context() {
++                    tracing::info!(
++                        "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1 caller_lr={:#010x} svc_pc={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
++                        regs[14], regs[15], regs[0], regs[1], regs[2], regs[3]
++                    );
++                } else {
++                    tracing::info!(
++                        "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1"
++                    );
++                }
++            }
++
++            return Ok::<WIPICWord, WieError>(1);
++        }
++
++        Err(WieError::Unimplemented(
++            "13: MC_knlGetAccessLevel".into(),
++        ))
++    };
+ 
+     body.into_body()
+ }
+@@ -375,7 +417,7 @@
+             WIPICKernelMethodId::GetParentProgramId => Some(gen_stub(10, "MC_knlGetParentProgramID")),
+             WIPICKernelMethodId::GetAppManagerId => Some(gen_stub(11, "MC_knlGetAppManagerID")),
+             WIPICKernelMethodId::GetProgramInfo => Some(gen_stub(12, "MC_knlGetProgramInfo")),
+-            WIPICKernelMethodId::GetAccessLevel => Some(gen_stub(13, "MC_knlGetAccessLevel")),
++            WIPICKernelMethodId::GetAccessLevel => Some(get_access_level_compat()),
+             WIPICKernelMethodId::GetProgramName => Some(kernel::get_program_name.into_body()),
+             WIPICKernelMethodId::CreateSharedBuf => Some(gen_stub(15, "MC_knlCreateSharedBuf")),
+             WIPICKernelMethodId::DestroySharedBuf => Some(gen_stub(16, "MC_knlDestroySharedBuf")),

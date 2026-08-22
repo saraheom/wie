@@ -104,13 +104,24 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // delete record 1 first, then let subsequent writes rebuild it.
     let initial: Vec<u8> = if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
-        if mode == 4 && packaged.is_none() {
+        let inotia2_ipack_create =
+            pid == "PD007974" && name == "i_pack.dat" && mode == 4;
+
+        if mode == 4 && (packaged.is_none() || inotia2_ipack_create) {
+            let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
+
             if pid == "PD005362" {
-                let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
                 tracing::info!(
                     "[INOTIA1_SAVE] OPEN db={name} mode=CREATE existing={old_len} -> truncate"
                 );
             }
+
+            if inotia2_ipack_create {
+                tracing::info!(
+                    "[PHASE8_9_IPACK_CREATE] Inotia2 i_pack.dat CREATE existing={old_len} packaged_len={packaged_len} -> truncate persistent record before rebuild"
+                );
+            }
+
             db.delete(1).await;
             Vec::new()
         } else if let Some(data) = db.get(1).await {
