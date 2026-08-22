@@ -69,43 +69,20 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         return Ok(-22); // M_E_BADRECID — closest WIPI parameter-error idiom in this file
     }
 
-    // Capture title identity before resource I/O so title-specific compatibility
-    // aliases can be applied without holding a mutable System borrow across
-    // another context call.
-    let (aid, pid) = {
+    // Capture the PID before resource I/O without holding a mutable System
+    // borrow across another context call.
+    let pid = {
         let system = context.system();
-        (system.aid().to_owned(), system.pid().to_owned())
+        system.pid().to_owned()
     };
 
-    let mut packaged = read_packaged_database(context, &name).await?;
+    let packaged = read_packaged_database(context, &name).await?;
 
-    // Phase 8.12 — KTF Inotia 2 certificate companion compatibility.
-    //
-    // After Phase 8.11 passes MC_knlGetExecNames, PD007974 opens cert.c2s
-    // successfully and then immediately opens tcert.c2s.  The preserved WIPI
-    // archive contains only p/cert.c2s (23 bytes); tcert.c2s is absent.  This
-    // old carrier-side companion certificate is therefore unavailable in an
-    // offline emulator.  For this exact title only, expose the packaged
-    // cert.c2s bytes under the missing tcert.c2s database name.  Do not create
-    // a global alias because unrelated WIPI titles can attach different
-    // semantics to these database names.
-    if aid == "010100D5"
-        && pid == "PD007974"
-        && name == "tcert.c2s"
-        && packaged.is_none()
-    {
-        packaged = read_packaged_database(context, "cert.c2s").await?;
-        if let Some(ref data) = packaged {
-            tracing::info!(
-                "[PHASE8_12_TCERT_ALIAS] Inotia2 KTF missing tcert.c2s -> packaged cert.c2s bytes={} ",
-                data.len()
-            );
-        } else {
-            tracing::warn!(
-                "[PHASE8_12_TCERT_ALIAS] Inotia2 KTF tcert.c2s missing and cert.c2s fallback unavailable"
-            );
-        }
-    }
+    // Phase 8.13: do not fabricate tcert.c2s. The Phase 8.12 alias let the
+    // obsolete carrier certificate validator consume cert.c2s as if it were
+    // its companion certificate, after which PD007974 stalled. The exact
+    // legacy validator is bypassed at native-load time instead, preserving the
+    // normal success continuation without inventing certificate contents.
 
     let packaged_len = packaged.as_ref().map(|data| data.len()).unwrap_or(0);
 

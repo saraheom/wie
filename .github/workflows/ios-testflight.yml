@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.12 WIE WebAssembly core
+      - name: Force clean Phase 8.13 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -63,31 +63,35 @@ jobs:
           grep -n 'PHASE8_9_IPACK_CREATE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_10_ACCESS' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'PHASE8_11_EXECNAMES' wie_ktf/src/runtime/wipi_c/method_table.rs
-          grep -n 'PHASE8_12_TCERT_ALIAS' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_12_INOTIA1_NET' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_12_CASH_TX' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_13_INOTIA1_NET30' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_13_INOTIA2_CERT_BYPASS' wie_ktf/src/runtime/init.rs
           grep -n 'get_access_level_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'get_exec_names_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
 
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.12 core source was selected
+      - name: Verify Phase 8.13 core source was selected
         shell: bash
         run: |
           set -euo pipefail
           grep -n 'PHASE8_9_IPACK_CREATE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_10_ACCESS' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'PHASE8_11_EXECNAMES' wie_ktf/src/runtime/wipi_c/method_table.rs
-          grep -n 'PHASE8_12_TCERT_ALIAS' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_12_INOTIA1_NET' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_12_CASH_TX' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_13_INOTIA1_NET30' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_13_INOTIA2_CERT_BYPASS' wie_ktf/src/runtime/init.rs
           grep -n 'net::socket_connect.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'net::set_read_cb.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
+          grep -n 'net::socket_connect_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
+          if grep -q 'PHASE8_12_TCERT_ALIAS' wie_wipi_c/src/api/database.rs; then echo 'obsolete Phase 8.12 tcert alias still present' >&2; exit 1; fi
           test -f wie_web/pkg/wie_web_bg.wasm
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
-          echo 'Phase 8.12 clean WASM build completed.'
+          echo 'Phase 8.13 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash

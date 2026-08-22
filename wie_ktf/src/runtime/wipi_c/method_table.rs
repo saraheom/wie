@@ -469,6 +469,9 @@ pub fn get_net_method_table() -> Vec<WIPICMethodBody> {
         gen_stub(27, "MC_netHttpGetType"),
         gen_stub(28, "MC_netHttpGetEncoding"),
         gen_stub(29, "MC_netHttpClose"),
+        // Phase 8.13: KTF Inotia 1 calls carrier-extension slot 30 at
+        // interface offset 0x78 immediately after creating its socket.
+        net::socket_connect_ktf_legacy.into_body(),
     ]
 }
 

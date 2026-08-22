@@ -1,10 +1,11 @@
 # WIE
 
 
-## Phase 8.12 local compatibility notes
+## Phase 8.13 local compatibility notes
 
-This snapshot adds exact-title Inotia 2 `tcert.c2s` fallback and an Inotia 1
-offline cash-shop network/protocol bridge. See `UI_PHASE8_12_DUAL_INOTIA_COMPAT.md`.
+This snapshot bypasses the exact Inotia 2 KTF legacy carrier-certificate
+validator and adds the missing Inotia 1 KTF network slot 30 used by the
+cash-shop connection path. See `UI_PHASE8_13_DUAL_INOTIA_COMPAT.md`.
 [Homepage](https://wie-site.dlunch.net) | [Try in browser](https://wie.dlunch.net)
 
 A standalone web-based emulator for old mobile apps based on WIPI, SKVM or J2ME.

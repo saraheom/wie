@@ -1,5 +1,5 @@
-WIPI Player Phase 8.9.1 Full Repository Manifest
-Generated: 2026-08-21 (America/New_York)
+WIPI Player Phase 8.13 Full Repository Manifest
+Generated: 2026-08-22 (America/New_York)
 
 Reconstructed phase chain:
 Phase 7.17 FullRepo baseline
@@ -21,11 +21,16 @@ Phase 8.7
 Phase 8.8
 Phase 8.9
 Phase 8.9.1 Rust lifetime compile fix + TestFlight clean-build restoration
+Phase 8.10 Inotia 2 access-mask validation fix
+Phase 8.11 Inotia 2 KTF GetExecNames compatibility
+Phase 8.12 dual Inotia compatibility bridge
+Phase 8.13 Inotia 2 legacy certificate-validator bypass + Inotia 1 KTF net slot 30
 
 Key SHA-256:
-924bff1289a63228627d1234cc4f24a852dc25391e7eb61219b004dab32b6ef7  wie_ktf/src/runtime/wipi_c/method_table.rs
-05e6de9835047249271d3c83e5553e8c1ac8abc24d85f8882044ec501cb9e49e  wie_ktf/src/runtime/wipi_c/context.rs
-0a122961dcfed537f8ce9ead1504e24bcea6b0bee06511c46375531dce47c42b  wie_wipi_c/src/api/database.rs
-5877178799f5517f89714bb4354ddec5f9bfca82f208f099cf4db664f7f3477e  .github/workflows/ios-testflight.yml
+a1fb9abbd813eb4fa7921bfad4492bec61bc8f61b4ddac83e97f3da48b03dc38  wie_ktf/src/runtime/init.rs
+74cca9f504dc5876d539284313483355b58249e9b5e38e7d0a75705f79925c96  wie_ktf/src/runtime/wipi_c/method_table.rs
+0c263dee19b79038f2102fc445599830b926279751a47e38f189c18d159df2a2  wie_wipi_c/src/api/net.rs
+b36815b33052b3e15cc2f658c43dff83982f27af751ba4a0a4cd37d657924832  wie_wipi_c/src/api/database.rs
+138c27063c652d25745aab7146ffa5db09376013fa9bd807110683a7d23a7671  .github/workflows/ios-testflight.yml
 aaa37ae749fa67fc70cac89fd9879872c0ee21eaef41d9c48ba7db8ec3599ee5  Cargo.lock
 50f5134c0a42a8da90f86b3356ec22d4bf454b298c9cf2d40591d906accc0bc8  package-lock.json

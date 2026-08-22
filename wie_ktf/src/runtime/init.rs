@@ -89,6 +89,49 @@ pub async fn load_native(
 
     core.load(data, IMAGE_BASE, mapped_size)?;
 
+    // Phase 8.13 — Inotia 2 KTF legacy certificate-validation bypass.
+    //
+    // PD007974 has already passed its access-level and executable-name gates
+    // by this point. The next function at guest 0x0012ae44 validates the
+    // carrier-era cert.c2s/tcert.c2s pair. The preserved archive has no valid
+    // online companion certificate, and Phase 8.12 proved that aliasing
+    // cert.c2s as tcert.c2s merely stalls inside this obsolete validator.
+    //
+    // The caller at 0x00176ab6 treats any nonzero return as success and
+    // continues through the title's normal startup path. For this exact
+    // AID/PID and known native-image length, replace only the validator entry
+    // with `movs r0,#1; bx lr`. Guard the original bytes so a different game
+    // revision is never patched by address alone.
+    const INOTIA2_AID: &str = "010100D5";
+    const INOTIA2_PID: &str = "PD007974";
+    const INOTIA2_NATIVE_LEN: usize = 608_192;
+    const INOTIA2_CERT_VALIDATOR: u32 = 0x0012_ae44;
+    const INOTIA2_CERT_EXPECT: [u8; 4] = [0xf0, 0xb5, 0x57, 0x46];
+    const INOTIA2_CERT_BYPASS: [u8; 4] = [0x01, 0x20, 0x70, 0x47];
+
+    if system.aid() == INOTIA2_AID
+        && system.pid() == INOTIA2_PID
+        && data.len() == INOTIA2_NATIVE_LEN
+    {
+        let mut current = [0u8; 4];
+        core.read_bytes(INOTIA2_CERT_VALIDATOR, &mut current)?;
+
+        if current == INOTIA2_CERT_EXPECT {
+            core.write_bytes(INOTIA2_CERT_VALIDATOR, &INOTIA2_CERT_BYPASS)?;
+            tracing::info!(
+                "[PHASE8_13_INOTIA2_CERT_BYPASS] validator={INOTIA2_CERT_VALIDATOR:#010x} expect={INOTIA2_CERT_EXPECT:02x?} -> return 1"
+            );
+        } else if current == INOTIA2_CERT_BYPASS {
+            tracing::info!(
+                "[PHASE8_13_INOTIA2_CERT_BYPASS] validator already patched at {INOTIA2_CERT_VALIDATOR:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_13_INOTIA2_CERT_BYPASS] byte guard mismatch at {INOTIA2_CERT_VALIDATOR:#010x}: got={current:02x?}; patch suppressed"
+            );
+        }
+    }
+
     // Patterns target instruction encodings, which the guest self-rebase at
     // IMAGE_BASE+1 doesn't rewrite — so installing here is sound and skips a
     // re-scan after relocation. Hash-matched entries take priority over

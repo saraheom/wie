@@ -133,6 +133,88 @@ pub async fn socket_connect(
     Ok(0)
 }
 
+// Phase 8.13 — KTF Inotia 1 uses a carrier-extension network entry at
+// interface offset 0x78 (slot 30), immediately after MC_netSocket.  WIE's
+// generic table previously ended at slot 29, so the guest dereferenced one
+// word past the allocated method table and crashed before it could send the
+// cash-shop request.
+//
+// Static analysis of PD005362 shows the call shape as six arguments:
+//   (fd, host, port, flags, callback, callback_param)
+// and accepts either immediate 0 or M_E_WOULDBLOCK as a non-failure return.
+// The callback used by this title treats its second argument as the status.
+// Keep this extension exact-title-only, report synchronous success, and queue
+// a conservative asynchronous success callback when the callback is a valid
+// Thumb pointer inside this title's native image.
+pub async fn socket_connect_ktf_legacy(
+    context: &mut dyn WIPICContext,
+    fd: i32,
+    addr: WIPICWord,
+    port: WIPICWord,
+    flags: WIPICWord,
+    cb: WIPICWord,
+    param: WIPICWord,
+) -> Result<i32> {
+    if !is_inotia1_offline_network(context) {
+        return Err(WieError::Unimplemented(
+            "30: KTF legacy MC_netSocketConnectAsync".into(),
+        ));
+    }
+
+    tracing::info!(
+        "[PHASE8_13_INOTIA1_NET30] fd={fd} addr={addr:#010x} port_raw={port:#06x} flags={flags:#010x} cb={cb:#010x} param={param:#010x} -> 0"
+    );
+
+    // Inotia 1's client.bin occupies 0x0010_0000..0x0018_b0c4.  Function
+    // pointers are Thumb pointers, so the low bit must be set.  If a future
+    // variant supplies another callback representation, do not jump through
+    // it blindly; the synchronous success return still prevents the old
+    // out-of-bounds table crash and the diagnostic above records the ABI.
+    const INOTIA1_NATIVE_START: WIPICWord = 0x0010_0001;
+    const INOTIA1_NATIVE_END: WIPICWord = 0x0018_b0c5;
+    let callback_is_safe = (cb & 1) == 1
+        && cb >= INOTIA1_NATIVE_START
+        && cb < INOTIA1_NATIVE_END;
+
+    if callback_is_safe {
+        struct LegacySocketConnectCallback {
+            fd: i32,
+            cb: WIPICWord,
+            param: WIPICWord,
+        }
+
+        #[async_trait::async_trait]
+        impl MethodBody<WieError> for LegacySocketConnectCallback {
+            #[tracing::instrument(name = "timer", skip_all)]
+            async fn call(
+                &self,
+                context: &mut dyn WIPICContext,
+                _: Box<[WIPICWord]>,
+            ) -> Result<WIPICResult> {
+                context.system().sleep(1).await;
+                tracing::info!(
+                    "[PHASE8_13_INOTIA1_NET30_CB] callback={:#010x} fd={} status=0 param={:#010x}",
+                    self.cb,
+                    self.fd,
+                    self.param
+                );
+                context
+                    .call_function(self.cb, &[self.fd as WIPICWord, 0, self.param])
+                    .await?;
+                Ok(WIPICResult { results: Vec::new() })
+            }
+        }
+
+        context.spawn(Box::new(LegacySocketConnectCallback { fd, cb, param }))?;
+    } else {
+        tracing::warn!(
+            "[PHASE8_13_INOTIA1_NET30] callback pointer not in expected Thumb native range; callback suppressed cb={cb:#010x}"
+        );
+    }
+
+    Ok(0)
+}
+
 pub async fn socket_write(
     context: &mut dyn WIPICContext,
     fd: i32,
