@@ -54,8 +54,27 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Force clean Phase 8.9.1 WIE WebAssembly core
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf target/wasm32-unknown-unknown/release
+          rm -rf wie_web/pkg wie_web/dist
+          grep -n 'PHASE8_9_IPACK_CREATE' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_9_ACCESS' wie_ktf/src/runtime/wipi_c/method_table.rs
+          grep -n 'get_access_level_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
+
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
+
+      - name: Verify Phase 8.9.1 core source was selected
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -n 'PHASE8_9_IPACK_CREATE' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_9_ACCESS' wie_ktf/src/runtime/wipi_c/method_table.rs
+          test -f wie_web/pkg/wie_web_bg.wasm
+          echo 'Phase 8.9.1 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash

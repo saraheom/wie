@@ -38,31 +38,35 @@ fn gen_stub(id: WIPICWord, name: &'static str) -> WIPICMethodBody {
 // a precise native caller if the return value affects a later branch.
 static INOTIA2_ACCESS_LEVEL_LOGGED: AtomicBool = AtomicBool::new(false);
 
-fn get_access_level_compat() -> WIPICMethodBody {
-    let body = |context: &mut dyn WIPICContext| async move {
-        if context.system().pid() == "PD007974" {
-            if !INOTIA2_ACCESS_LEVEL_LOGGED.swap(true, Ordering::Relaxed) {
-                if let Some(regs) = context.debug_cpu_context() {
-                    tracing::info!(
-                        "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1 caller_lr={:#010x} svc_pc={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
-                        regs[14], regs[15], regs[0], regs[1], regs[2], regs[3]
-                    );
-                } else {
-                    tracing::info!(
-                        "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1"
-                    );
-                }
+async fn get_access_level_compat_impl(context: &mut dyn WIPICContext) -> Result<WIPICWord> {
+    if context.system().pid() == "PD007974" {
+        if !INOTIA2_ACCESS_LEVEL_LOGGED.swap(true, Ordering::Relaxed) {
+            if let Some(regs) = context.debug_cpu_context() {
+                tracing::info!(
+                    "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1 caller_lr={:#010x} svc_pc={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
+                    regs[14], regs[15], regs[0], regs[1], regs[2], regs[3]
+                );
+            } else {
+                tracing::info!(
+                    "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1"
+                );
             }
-
-            return Ok::<WIPICWord, WieError>(1);
         }
 
-        Err(WieError::Unimplemented(
-            "13: MC_knlGetAccessLevel".into(),
-        ))
-    };
+        return Ok(1);
+    }
 
-    body.into_body()
+    Err(WieError::Unimplemented(
+        "13: MC_knlGetAccessLevel".into(),
+    ))
+}
+
+fn get_access_level_compat() -> WIPICMethodBody {
+    // Use an async function item instead of an async closure. MethodImpl requires
+    // a higher-ranked callable (`for<'a>`) whose returned future borrows the
+    // context for exactly `'a`; the closure form used by the first Phase 8.9
+    // patch failed that lifetime requirement on the TestFlight Rust toolchain.
+    get_access_level_compat_impl.into_body()
 }
 
 pub fn get_kernel_interface(core: &mut ArmCore) -> Result<WIPICKnlInterface> {

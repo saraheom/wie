@@ -1,0 +1,31 @@
+WIPI Player Phase 8.9.1 Full Repository Manifest
+Generated: 2026-08-21 (America/New_York)
+
+Reconstructed phase chain:
+Phase 7.17 FullRepo baseline
+Phase 7.18
+Phase 7.19
+Phase 7.20
+Phase 7.21
+Phase 8.0
+Phase 8.1
+Phase 8.1.1
+Phase 8.1.2
+Phase 8.2
+Phase 8.3
+Phase 8.3.1
+Phase 8.4
+Phase 8.5
+Phase 8.6
+Phase 8.7
+Phase 8.8
+Phase 8.9
+Phase 8.9.1 Rust lifetime compile fix + TestFlight clean-build restoration
+
+Key SHA-256:
+924bff1289a63228627d1234cc4f24a852dc25391e7eb61219b004dab32b6ef7  wie_ktf/src/runtime/wipi_c/method_table.rs
+05e6de9835047249271d3c83e5553e8c1ac8abc24d85f8882044ec501cb9e49e  wie_ktf/src/runtime/wipi_c/context.rs
+0a122961dcfed537f8ce9ead1504e24bcea6b0bee06511c46375531dce47c42b  wie_wipi_c/src/api/database.rs
+5877178799f5517f89714bb4354ddec5f9bfca82f208f099cf4db664f7f3477e  .github/workflows/ios-testflight.yml
+aaa37ae749fa67fc70cac89fd9879872c0ee21eaef41d9c48ba7db8ec3599ee5  Cargo.lock
+50f5134c0a42a8da90f86b3356ec22d4bf454b298c9cf2d40591d906accc0bc8  package-lock.json

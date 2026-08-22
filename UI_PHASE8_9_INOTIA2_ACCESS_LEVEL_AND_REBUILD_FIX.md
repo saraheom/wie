@@ -1,3 +1,5 @@
+> **Build note:** the first Phase 8.9 patch used an async closure for the access-level handler and failed Rust lifetime checking in GitHub Actions. The full-repo Phase 8.9.1 package replaces that closure with an async function item; runtime behavior is unchanged. See `UI_PHASE8_9_1_INOTIA2_ACCESS_LEVEL_RUST_COMPILE_FIX.md`.
+
 # Phase 8.9 — Inotia 2 access-level + i_pack rebuild fix
 
 ## What Phase 8.8 proved
