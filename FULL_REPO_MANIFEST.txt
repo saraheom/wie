@@ -1,4 +1,4 @@
-WIPI Player Phase 8.13 Full Repository Manifest
+WIPI Player Phase 8.13.1 Full Repository Manifest
 Generated: 2026-08-22 (America/New_York)
 
 Reconstructed phase chain:
@@ -27,10 +27,10 @@ Phase 8.12 dual Inotia compatibility bridge
 Phase 8.13 Inotia 2 legacy certificate-validator bypass + Inotia 1 KTF net slot 30
 
 Key SHA-256:
-a1fb9abbd813eb4fa7921bfad4492bec61bc8f61b4ddac83e97f3da48b03dc38  wie_ktf/src/runtime/init.rs
+8a000d92f7c77725e83ef5c861fbe3e17c26fc28ab9c392b760aaa9bd83d8b14  wie_ktf/src/runtime/init.rs
 74cca9f504dc5876d539284313483355b58249e9b5e38e7d0a75705f79925c96  wie_ktf/src/runtime/wipi_c/method_table.rs
 0c263dee19b79038f2102fc445599830b926279751a47e38f189c18d159df2a2  wie_wipi_c/src/api/net.rs
 b36815b33052b3e15cc2f658c43dff83982f27af751ba4a0a4cd37d657924832  wie_wipi_c/src/api/database.rs
-138c27063c652d25745aab7146ffa5db09376013fa9bd807110683a7d23a7671  .github/workflows/ios-testflight.yml
+9c041d6fd649dfb3e9c75823210a0a352bd16f5c2e0b68e7d1281da6fa380008  .github/workflows/ios-testflight.yml
 aaa37ae749fa67fc70cac89fd9879872c0ee21eaef41d9c48ba7db8ec3599ee5  Cargo.lock
 50f5134c0a42a8da90f86b3356ec22d4bf454b298c9cf2d40591d906accc0bc8  package-lock.json

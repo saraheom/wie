@@ -1,9 +1,10 @@
 # WIE
 
 
-## Phase 8.13 local compatibility notes
+## Phase 8.13.1 local compatibility notes
 
-This snapshot bypasses the exact Inotia 2 KTF legacy carrier-certificate
+This snapshot includes the Phase 8.13 dual Inotia compatibility work plus the
+Phase 8.13.1 Rust trait-import compile correction. It bypasses the exact Inotia 2 KTF legacy carrier-certificate
 validator and adds the missing Inotia 1 KTF network slot 30 used by the
 cash-shop connection path. See `UI_PHASE8_13_DUAL_INOTIA_COMPAT.md`.
 [Homepage](https://wie-site.dlunch.net) | [Try in browser](https://wie.dlunch.net)

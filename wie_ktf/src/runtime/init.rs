@@ -4,7 +4,7 @@ use jvm::Jvm;
 
 use wie_backend::System;
 use wie_core_arm::{Allocator, ArmCore, EmulatedFunction, ResultWriter, SvcId};
-use wie_util::{Result, WieError, read_generic, read_null_terminated_string_bytes, write_generic};
+use wie_util::{ByteRead, ByteWrite, Result, WieError, read_generic, read_null_terminated_string_bytes, write_generic};
 
 use wipi_types::ktf::{ExeInterface, ExeInterfaceFunctions, InitParam0, InitParam1, InitParam3, InitParam4, WipiExe};
 
