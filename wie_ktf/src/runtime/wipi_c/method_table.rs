@@ -7,7 +7,7 @@ use wipi_types::{
 };
 
 use wie_core_arm::ArmCore;
-use wie_util::{Result, WieError};
+use wie_util::{Result, WieError, read_null_terminated_string_bytes};
 use wie_wipi_c::{
     MethodImpl, WIPICContext, WIPICMethodBody,
     api::{database, graphics, kernel, media, misc, net, uic, util},
@@ -73,6 +73,94 @@ fn get_access_level_compat() -> WIPICMethodBody {
     // context for exactly `'a`; the closure form used by the first Phase 8.9
     // patch failed that lifetime requirement on the TestFlight Rust toolchain.
     get_access_level_compat_impl.into_body()
+}
+
+// Phase 8.11 — KTF Inotia 2 MC_knlGetExecNames self-registration compatibility.
+//
+// After Phase 8.10 satisfies the access-level mask, this title immediately calls
+// kernel slot 2 as:
+//
+//   MC_knlGetExecNames("010100D5", NULL, NULL, out_buf, 300)
+//
+// Reverse engineering of the caller at guest 0x12b044 shows that a positive
+// return is required.  It then strlen()s the first returned entry, examines the
+// final 21 bytes, and requires bytes [0..8] and [9..17] of that suffix to be
+// identical.  The canonical KTF self executable name below has exactly the
+// expected 8 + 1 + 8 + 4 layout:
+//
+//   010100D5/010100D5.jar
+//
+// This also matches the archive's actual executable JAR name (010100D5.jar).
+// Write a WIPI-style string list (entry NUL + terminating NUL) and report one
+// match.  Keep this compatibility path scoped to the exact Inotia 2 build until
+// the emulator has a general installed-program registry/ADF query layer.
+static INOTIA2_GET_EXEC_NAMES_LOGGED: AtomicBool = AtomicBool::new(false);
+const INOTIA2_KTF_EXEC_NAME: &[u8] = b"010100D5/010100D5.jar";
+
+async fn get_exec_names_compat_impl(
+    context: &mut dyn WIPICContext,
+    ptr_prg_name: WIPICWord,
+    ptr_version: WIPICWord,
+    ptr_vendor: WIPICWord,
+    ptr_out: WIPICWord,
+    out_size: WIPICWord,
+) -> Result<i32> {
+    if context.system().aid() == "010100D5" && context.system().pid() == "PD007974" {
+        // This exact caller supplies the current AID and leaves version/vendor
+        // unspecified.  Reject unexpected filters rather than fabricating a
+        // match with semantics we have not yet implemented generically.
+        if ptr_prg_name == 0 || ptr_version != 0 || ptr_vendor != 0 || ptr_out == 0 {
+            tracing::warn!(
+                "[PHASE8_11_EXECNAMES] unexpected Inotia2 query prg={ptr_prg_name:#010x} ver={ptr_version:#010x} vendor={ptr_vendor:#010x} out={ptr_out:#010x} size={out_size}"
+            );
+            return Ok(0);
+        }
+
+        let prg_name = read_null_terminated_string_bytes(context, ptr_prg_name)?;
+        if prg_name.as_slice() != b"010100D5" {
+            tracing::warn!(
+                "[PHASE8_11_EXECNAMES] Inotia2 query did not match current AID: bytes={prg_name:?}"
+            );
+            return Ok(0);
+        }
+
+        // One 21-byte entry + NUL + final list NUL.
+        let required = INOTIA2_KTF_EXEC_NAME.len() + 2;
+        if (out_size as usize) < required {
+            tracing::warn!(
+                "[PHASE8_11_EXECNAMES] short output buffer size={out_size} required={required}"
+            );
+            return Ok(-18); // M_E_SHORTBUF
+        }
+
+        context.write_bytes(ptr_out, INOTIA2_KTF_EXEC_NAME)?;
+        context.write_bytes(ptr_out.wrapping_add(INOTIA2_KTF_EXEC_NAME.len() as WIPICWord), &[0, 0])?;
+
+        if !INOTIA2_GET_EXEC_NAMES_LOGGED.swap(true, Ordering::Relaxed) {
+            if let Some(regs) = context.debug_cpu_context() {
+                tracing::info!(
+                    "[PHASE8_11_EXECNAMES] Inotia2 KTF self executable returned: 010100D5/010100D5.jar count=1 out={ptr_out:#010x} size={out_size} caller_lr={:#010x} svc_pc={:#010x}",
+                    regs[14], regs[15]
+                );
+            } else {
+                tracing::info!(
+                    "[PHASE8_11_EXECNAMES] Inotia2 KTF self executable returned: 010100D5/010100D5.jar count=1 out={ptr_out:#010x} size={out_size}"
+                );
+            }
+        }
+
+        return Ok(1);
+    }
+
+    Err(WieError::Unimplemented(
+        "2: MC_knlGetExecNames".into(),
+    ))
+}
+
+fn get_exec_names_compat() -> WIPICMethodBody {
+    // Function item (rather than async closure) preserves the higher-ranked
+    // lifetime required by MethodImpl on the TestFlight Rust toolchain.
+    get_exec_names_compat_impl.into_body()
 }
 
 pub fn get_kernel_interface(core: &mut ArmCore) -> Result<WIPICKnlInterface> {
@@ -416,7 +504,7 @@ pub fn get_method_body(table_id: WIPICTableId, function_id: u16) -> Option<WIPIC
         WIPICTableId::Kernel => match WIPICKernelMethodId::try_from(function_id).ok()? {
             WIPICKernelMethodId::Printk => Some(kernel::printk.into_body()),
             WIPICKernelMethodId::Sprintk => Some(kernel::sprintk.into_body()),
-            WIPICKernelMethodId::GetExecNames => Some(gen_stub(2, "MC_knlGetExecNames")),
+            WIPICKernelMethodId::GetExecNames => Some(get_exec_names_compat()),
             WIPICKernelMethodId::Execute => Some(gen_stub(3, "MC_knlExecute")),
             WIPICKernelMethodId::Mexecute => Some(gen_stub(4, "MC_knlMExecute")),
             WIPICKernelMethodId::Load => Some(gen_stub(5, "MC_knlLoad")),
