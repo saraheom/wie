@@ -1,4 +1,4 @@
-use alloc::{borrow::ToOwned, boxed::Box, str, string::String, vec, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, format, str, string::String, vec, vec::Vec};
 use core::mem::size_of;
 
 use bytemuck::{Pod, Zeroable};
@@ -49,6 +49,59 @@ const KTF_DATABASE_STORAGE_LIMIT: u64 = 16 * 1024 * 1024;
 const DATABASE_HANDLE_MAGIC: u32 = 0x4D434442;
 const MAX_NAME_LEN: usize = 31; // leave a byte for null terminator inside the 32-byte field
 
+// Phase 8.14 — Inotia 2 ships four generated database caches twice: a
+// compact source copy inside 010100D5.jar and the already-expanded KTF
+// database image under p/.  KTF opens these files with mode 4 when rebuilding
+// them.  Preserving an existing record on CREATE caused each launch to append
+// another expanded copy after the compact seed.  After nine rebuilds, for
+// example, filetext.dat had grown from 93,067 bytes to 2,808,205 bytes.
+// Besides wasting memory, the stale compact header at byte zero made the game
+// compute bogus offsets, which manifested as broken strings and eventually an
+// invalid-memory-access crash in the key-setting screen.
+//
+// Keep this list exact-title/specific-data-only.  i_pack.dat already has its
+// own Phase 8.9 CREATE fix and is intentionally not treated as a prebuilt
+// cache here.
+fn is_inotia2_generated_cache(name: &str) -> bool {
+    matches!(
+        name,
+        "eventdata.dat" | "filetext.dat" | "i_mapfeature.dat" | "i_tile.dat"
+    )
+}
+
+async fn read_inotia2_prebuilt_cache(
+    context: &mut dyn WIPICContext,
+    name: &str,
+) -> Result<Option<Vec<u8>>> {
+    if !is_inotia2_generated_cache(name) {
+        return Ok(None);
+    }
+
+    // Clone the overlay so no System borrow is held across filesystem awaits.
+    // The outer KTF archive stores the canonical expanded DBs under p/.
+    let filesystem = context.system().filesystem().clone();
+    for prefix in ["p/", "P/"] {
+        let path = format!("{prefix}{name}");
+        let Some(size) = filesystem.size(&path).await else {
+            continue;
+        };
+
+        let mut data = vec![0u8; size];
+        let Some(read) = filesystem.read(&path, 0, size, &mut data).await else {
+            continue;
+        };
+        if read == size {
+            return Ok(Some(data));
+        }
+
+        tracing::warn!(
+            "[PHASE8_14_INOTIA2_CACHE_RESTORE] short archive read path={path} expected={size} read={read}"
+        );
+    }
+
+    Ok(None)
+}
+
 pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, mode: i32, r#type: i32) -> Result<i32> {
     tracing::debug!("MC_dbOpenDataBase({ptr_name:#x}, {mode}, {type})");
 
@@ -77,6 +130,11 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     };
 
     let packaged = read_packaged_database(context, &name).await?;
+    let inotia2_prebuilt_cache = if pid == "PD007974" && is_inotia2_generated_cache(&name) {
+        read_inotia2_prebuilt_cache(context, &name).await?
+    } else {
+        None
+    };
 
     // Phase 8.13: do not fabricate tcert.c2s. The Phase 8.12 alias let the
     // obsolete carrier certificate validator consume cert.c2s as if it were
@@ -119,8 +177,10 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         let mut db = system.platform().database_repository().open(&name, &pid).await;
         let inotia2_ipack_create =
             pid == "PD007974" && name == "i_pack.dat" && mode == 4;
+        let inotia2_cache_create =
+            pid == "PD007974" && is_inotia2_generated_cache(&name) && mode == 4;
 
-        if mode == 4 && (packaged.is_none() || inotia2_ipack_create) {
+        if mode == 4 && (packaged.is_none() || inotia2_ipack_create || inotia2_cache_create) {
             let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
 
             if pid == "PD005362" {
@@ -134,6 +194,12 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                     "[PHASE8_9_IPACK_CREATE] Inotia2 i_pack.dat CREATE existing={old_len} packaged_len={packaged_len} -> truncate persistent record before rebuild"
                 );
             }
+            if inotia2_cache_create {
+                let canonical_len = inotia2_prebuilt_cache.as_ref().map(|data| data.len()).unwrap_or(0);
+                tracing::info!(
+                    "[PHASE8_14_INOTIA2_CACHE_CREATE] name={name} existing={old_len} compact_packaged={packaged_len} canonical_expanded={canonical_len} -> truncate before rebuild"
+                );
+            }
 
             db.delete(1).await;
             Vec::new()
@@ -144,17 +210,55 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                     data.len()
                 );
             }
-            data
+
+            // Repair records polluted by the pre-8.14 CREATE behavior without
+            // requiring the user to erase all saved state.  Size is a safe
+            // discriminator here: these four files are static generated caches,
+            // while the canonical expanded copy is shipped in p/ by the title.
+            if pid == "PD007974" && mode != 4 {
+                if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
+                    if data.len() != prebuilt.len() {
+                        tracing::info!(
+                            "[PHASE8_14_INOTIA2_CACHE_RESTORE] name={name} persistent_len={} canonical_len={} -> restore p/ snapshot",
+                            data.len(),
+                            prebuilt.len()
+                        );
+                        db.set(1, prebuilt).await;
+                        prebuilt.clone()
+                    } else {
+                        data
+                    }
+                } else {
+                    data
+                }
+            } else {
+                data
+            }
+        } else if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
+            db.set(1, prebuilt).await;
+            prebuilt.clone()
         } else if let Some(data) = packaged {
             db.set(1, &data).await;
             data
         } else {
             Vec::new()
         }
-    } else if let Some(data) = packaged {
-        let mut db = system.platform().database_repository().open(&name, &pid).await;
-        db.set(1, &data).await;
-        data
+    } else if mode != 4 {
+        if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
+            let mut db = system.platform().database_repository().open(&name, &pid).await;
+            tracing::info!(
+                "[PHASE8_14_INOTIA2_CACHE_RESTORE] name={name} persistent=missing canonical_len={} -> seed p/ snapshot",
+                prebuilt.len()
+            );
+            db.set(1, prebuilt).await;
+            prebuilt.clone()
+        } else if let Some(data) = packaged {
+            let mut db = system.platform().database_repository().open(&name, &pid).await;
+            db.set(1, &data).await;
+            data
+        } else {
+            Vec::new()
+        }
     } else if mode == 4 {
         system.platform().database_repository().open(&name, &pid).await;
         Vec::new()

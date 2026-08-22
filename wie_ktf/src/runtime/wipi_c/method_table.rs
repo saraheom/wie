@@ -315,7 +315,7 @@ pub fn get_util_method_table() -> Vec<WIPICMethodBody> {
         util::htons.into_body(),
         gen_stub(2, "MC_utilNtohl"),
         gen_stub(3, "MC_utilNtohs"),
-        gen_stub(4, "MC_utilInetAddrInt"),
+        util::inet_addr_int.into_body(),
         gen_stub(5, "MC_utilInetAddrStr"),
         gen_stub(6, "OEMC_utilHashbySHA1"),
     ]
@@ -470,7 +470,7 @@ pub fn get_net_method_table() -> Vec<WIPICMethodBody> {
         gen_stub(28, "MC_netHttpGetEncoding"),
         gen_stub(29, "MC_netHttpClose"),
         // Phase 8.13: KTF Inotia 1 calls carrier-extension slot 30 at
-        // interface offset 0x78 immediately after creating its socket.
+        // interface offset 0x78 after converting the legacy endpoint address.
         net::socket_connect_ktf_legacy.into_body(),
     ]
 }

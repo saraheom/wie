@@ -134,7 +134,7 @@ pub async fn socket_connect(
 }
 
 // Phase 8.13 — KTF Inotia 1 uses a carrier-extension network entry at
-// interface offset 0x78 (slot 30), immediately after MC_netSocket.  WIE's
+// interface offset 0x78 (slot 30), after MC_netSocket and MC_utilInetAddrInt.  WIE's
 // generic table previously ended at slot 29, so the guest dereferenced one
 // word past the allocated method table and crashed before it could send the
 // cash-shop request.
