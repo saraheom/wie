@@ -24,36 +24,42 @@ fn gen_stub(id: WIPICWord, name: &'static str) -> WIPICMethodBody {
     body.into_body()
 }
 
-// Phase 8.9 — KTF Inotia 2 reaches kernel slot 13 only after the
-// Phase 8.8 stream-seek/resource initialization fix. Upstream WIE
-// exposes the slot as MC_knlGetAccessLevel but routes it to a fatal
-// Unimplemented stub, which terminates the entire guest thread.
+// Phase 8.10 — KTF Inotia 2 legacy authentication access mask.
 //
-// WIPI applications have a provisioned application access/security
-// level. For the first compatibility test, return level 1 only for
-// the known KTF Inotia 2 PID. Keep every other title on the previous
-// behavior until the generic ADF/security-level mapping is implemented.
+// Phase 8.9 established that this title reaches kernel slot 13
+// (MC_knlGetAccessLevel) and must not hit WIE's generic fatal stub.  The first
+// compatibility value, 1, was enough to keep the guest alive but the game's
+// own Com2uS/KTF authentication routine then displayed error 1001.
 //
-// Log the actual CPU call site once so the device log still gives us
-// a precise native caller if the return value affects a later branch.
+// Static analysis of the exact PD007974 / 010100D5 client.bin used by this
+// title identifies the next check precisely: the guest calls kernel table
+// slot 13 (offset 0x34), computes `access_level & 0xbc`, and requires the
+// result to equal 0xbc.  A mismatch returns literal 0x3e9 (decimal 1001).
+// The following call is kernel slot 29 (offset 0x74), GetSystemProperty, for
+// PHONENUMBER; an empty string is explicitly accepted by this build.
+//
+// Return only the minimum mask this known title requests.  Other games retain
+// the previous Unimplemented behavior until a generic ADF/security mapping is
+// implemented, avoiding a global permission escalation for unrelated titles.
+const INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC;
 static INOTIA2_ACCESS_LEVEL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 async fn get_access_level_compat_impl(context: &mut dyn WIPICContext) -> Result<WIPICWord> {
-    if context.system().pid() == "PD007974" {
+    if context.system().aid() == "010100D5" && context.system().pid() == "PD007974" {
         if !INOTIA2_ACCESS_LEVEL_LOGGED.swap(true, Ordering::Relaxed) {
             if let Some(regs) = context.debug_cpu_context() {
                 tracing::info!(
-                    "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1 caller_lr={:#010x} svc_pc={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
+                    "[PHASE8_10_ACCESS] Inotia2 KTF legacy auth mask active: return=0xbc caller_lr={:#010x} svc_pc={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
                     regs[14], regs[15], regs[0], regs[1], regs[2], regs[3]
                 );
             } else {
                 tracing::info!(
-                    "[PHASE8_9_ACCESS] Inotia2 MC_knlGetAccessLevel compatibility active: return=1"
+                    "[PHASE8_10_ACCESS] Inotia2 KTF legacy auth mask active: return=0xbc"
                 );
             }
         }
 
-        return Ok(1);
+        return Ok(INOTIA2_KTF_REQUIRED_ACCESS_MASK);
     }
 
     Err(WieError::Unimplemented(
