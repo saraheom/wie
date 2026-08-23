@@ -39,10 +39,57 @@ const M_E_WOULDBLOCK: i32 = -19;
 // Keep this tiny local receive queue exact-title-only; no external connection
 // is made and no speculative catalog/purchase payload is fabricated.
 const INOTIA1_CASH_SERVER_HELLO: [u8; 3] = [0x00, 0x03, 0x00];
-static INOTIA1_CASH_RX_OFFSET: Mutex<usize> = Mutex::new(0);
+
+// Phase 8.18 — first authentic client request recovered from Phase 8.17:
+//   00 14 01 0b "01012349876" 01 00 00 00 64
+//
+// Command 1's native response parser consumes:
+//   u32, u32, u8, u8, u32, u32, string8, string8, u32 status
+// (24 payload bytes with empty strings).  Zero is outside the three explicit
+// legacy error status codes (1003/1004/1009), so queue a minimal success frame
+// after the real command-1 request. This is an offline preservation shim: no
+// live billing service is contacted and later commands remain capture-only
+// until their original packet contracts are observed.
+const INOTIA1_CASH_CMD1_SUCCESS: [u8; 27] = [
+    0x00, 0x1b, 0x01, // length=27, command=1
+    0x00, 0x00, 0x00, 0x00, // field 1
+    0x00, 0x00, 0x00, 0x00, // field 2
+    0x00, // field 3
+    0x00, // field 4
+    0x00, 0x00, 0x00, 0x00, // field 5
+    0x00, 0x00, 0x00, 0x00, // field 6
+    0x00, // string 1 length
+    0x00, // string 2 length
+    0x00, 0x00, 0x00, 0x00, // status=success
+];
+
+const CASH_RX_HELLO: u8 = 0;
+const CASH_RX_WAIT: u8 = 1;
+const CASH_RX_CMD1: u8 = 2;
+
+#[derive(Copy, Clone)]
+struct Inotia1CashRxState {
+    phase: u8,
+    offset: usize,
+}
+
+static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1CashRxState {
+    phase: CASH_RX_HELLO,
+    offset: 0,
+});
 
 fn reset_inotia1_cash_rx() {
-    *INOTIA1_CASH_RX_OFFSET.lock() = 0;
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_HELLO,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cash_cmd1_success() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD1,
+        offset: 0,
+    };
 }
 
 fn is_inotia1_offline_network(context: &mut dyn WIPICContext) -> bool {
@@ -257,6 +304,22 @@ pub async fn socket_write(
         "[PHASE8_12_CASH_TX] fd={fd} len={len} buf={ptr_buf:#010x} head={head:02x?} -> accepted locally"
     );
 
+    // Phase 8.18 — respond only after the title itself emits its authentic
+    // command-1 request. The recovered frame is 20 bytes and command byte 2
+    // is 0x01. Preserve later commands for protocol capture instead of
+    // guessing purchase semantics.
+    if head.len() >= 3 && head[0] == 0x00 && head[1] == 0x14 && head[2] == 0x01 {
+        queue_inotia1_cash_cmd1_success();
+        tracing::info!(
+            "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 27-byte local success response"
+        );
+    } else if head.len() >= 3 {
+        tracing::info!(
+            "[PHASE8_18_INOTIA1_CASH_PROTOCOL] outbound command={} len={len}; no synthetic response yet",
+            head[2]
+        );
+    }
+
     // Pretend the complete buffer was accepted.  The original client then
     // advances its send cursor normally and waits for a read callback.
     Ok(len)
@@ -313,25 +376,39 @@ pub async fn socket_read_ktf_legacy(
         return Ok(0);
     }
 
-    let mut offset = INOTIA1_CASH_RX_OFFSET.lock();
-    if *offset >= INOTIA1_CASH_SERVER_HELLO.len() {
+    let mut state = INOTIA1_CASH_RX_STATE.lock();
+    let frame: &[u8] = match state.phase {
+        CASH_RX_HELLO => &INOTIA1_CASH_SERVER_HELLO,
+        CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
+        _ => {
+            tracing::info!(
+                "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
+            );
+            return Ok(M_E_WOULDBLOCK);
+        }
+    };
+
+    if state.offset >= frame.len() {
+        state.phase = CASH_RX_WAIT;
+        state.offset = 0;
         tracing::info!(
-            "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local greeting consumed -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
+            "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local frame consumed -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
         );
         return Ok(M_E_WOULDBLOCK);
     }
 
-    let remaining = INOTIA1_CASH_SERVER_HELLO.len() - *offset;
+    let remaining = frame.len() - state.offset;
     let count = remaining.min(len as usize);
-    let begin = *offset;
+    let begin = state.offset;
     let end = begin + count;
-    let bytes = &INOTIA1_CASH_SERVER_HELLO[begin..end];
+    let bytes = &frame[begin..end];
     context.write_bytes(ptr_buf, bytes)?;
-    *offset = end;
+    state.offset = end;
+    let phase = state.phase;
+    let frame_len = frame.len();
 
     tracing::info!(
-        "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} buf={ptr_buf:#010x} requested={len} returned={count} offset={end}/{} bytes={bytes:02x?}",
-        INOTIA1_CASH_SERVER_HELLO.len()
+        "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} phase={phase} buf={ptr_buf:#010x} requested={len} returned={count} offset={end}/{frame_len} bytes={bytes:02x?}"
     );
     Ok(count as i32)
 }

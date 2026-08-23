@@ -84,15 +84,15 @@ impl KtfEmulator {
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D5" && pid == "PD007974" {
-            // Phase 8.17: Phase 8.16's 4k slice was active in the field but
-            // PD007974 still showed visible native-interpreter stutter.  Raise
-            // only this exact title to 16k guest instructions per async slice.
-            // That is still a short cooperative quantum on modern iOS hardware,
-            // while cutting Rust/WASM scheduler crossings by another 4x.
-            core.set_run_slice_instructions(16_000);
+            // Phase 8.18: restore the known-working 4k cooperative slice.
+            // Phase 8.17's 16k experiment did not eliminate gameplay stutter
+            // and makes each async handoff coarser. The dominant startup cost
+            // is instead the title's static-resource rebuild/write amplification,
+            // addressed in the database layer below. Keep this title-specific.
+            core.set_run_slice_instructions(4_000);
             core.set_thread_lifecycle_logging(false);
             tracing::info!(
-                "[PHASE8_17_INOTIA2_EXEC_QUANTUM] native run slice=16000 instructions; hot timer thread lifecycle logging=debug"
+                "[PHASE8_18_INOTIA2_EXEC_QUANTUM] native run slice=4000 instructions; hot timer thread lifecycle logging=debug"
             );
         }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });

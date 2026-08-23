@@ -39,6 +39,11 @@ struct DatabaseHandle {
     buffer_ptr: u32,
     buffer_len: u32,
     buffer_capacity: u32,
+    // Host-side metadata stored in the opaque guest handle. KTF callers only
+    // pass this pointer back to WIPI APIs; they do not inspect its layout.
+    // Phase 8.18 uses the original open mode to defer writeback only for
+    // Inotia 2's static mode-4 installation resources.
+    open_mode: i32,
 }
 
 const MIN_BUFFER_CAPACITY: u32 = 64;
@@ -84,6 +89,10 @@ fn inotia2_canonical_installed_len(name: &str) -> Option<usize> {
         "i_tile.dat" => Some(194_928),
         _ => None,
     }
+}
+
+fn is_inotia2_static_install_resource(name: &str) -> bool {
+    inotia2_canonical_installed_len(name).is_some()
 }
 
 async fn read_inotia2_prebuilt_cache(
@@ -158,6 +167,17 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         system.platform().database_repository().exists(&name, &pid).await
     };
 
+    // Phase 8.18 — these are immutable installation/resource records for this
+    // exact Inotia 2 build. The game legitimately opens them with CREATE on
+    // startup, but flushing every tiny stream write to the iOS repository
+    // causes severe write amplification. We still execute the guest rebuild
+    // routine (it initializes required in-memory tables), while buffering its
+    // writes in the guest handle and committing once at close.
+    let inotia2_static_create = pid == "PD007974"
+        && aid == "010100D5"
+        && mode == 4
+        && is_inotia2_static_install_resource(&name);
+
     let mut inotia2_resource_fastpath = false;
     if pid == "PD007974" && aid == "010100D5" && mode != 4 && exists {
         if let Some(expected_len) = inotia2_canonical_installed_len(&name) {
@@ -175,7 +195,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         }
     }
 
-    let packaged = if inotia2_resource_fastpath {
+    let packaged = if inotia2_resource_fastpath || (inotia2_static_create && exists) {
         None
     } else {
         read_packaged_database(context, &name).await?
@@ -183,6 +203,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let inotia2_prebuilt_cache = if pid == "PD007974"
         && is_inotia2_generated_cache(&name)
         && !inotia2_resource_fastpath
+        && (!inotia2_static_create || !exists)
     {
         read_inotia2_prebuilt_cache(context, &name).await?
     } else {
@@ -232,7 +253,17 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         let inotia2_cache_create =
             pid == "PD007974" && is_inotia2_generated_cache(&name) && mode == 4;
 
-        if mode == 4 && (packaged.is_none() || inotia2_ipack_create || inotia2_cache_create) {
+        if inotia2_static_create {
+            let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
+            let canonical_len = inotia2_canonical_installed_len(&name).unwrap_or(0);
+            tracing::info!(
+                "[PHASE8_18_INOTIA2_INSTALL_WRITEBACK] OPEN name={name} mode=CREATE existing={old_len} canonical={canonical_len} -> preserve repository copy; rebuild buffered in guest memory"
+            );
+            // Deliberately do NOT delete record 1 here. If the title/app is
+            // interrupted mid-rebuild, the last known-good canonical resource
+            // remains available on the next launch.
+            Vec::new()
+        } else if mode == 4 && (packaged.is_none() || inotia2_ipack_create || inotia2_cache_create) {
             let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
 
             if pid == "PD005362" {
@@ -319,6 +350,26 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         } else {
             Vec::new()
         }
+    } else if mode == 4 && inotia2_static_create {
+        // Fresh imports have no persistent canonical copy to preserve yet.
+        // Seed one once from the shipped expanded resource before allowing the
+        // native installer to rebuild its in-memory working copy.
+        let seed = if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
+            Some(prebuilt.clone())
+        } else {
+            packaged.clone()
+        };
+        if let Some(seed) = seed {
+            let mut db = system.platform().database_repository().open(&name, &pid).await;
+            db.set(1, &seed).await;
+            tracing::info!(
+                "[PHASE8_18_INOTIA2_INSTALL_WRITEBACK] SEED name={name} canonical_len={} for fresh install",
+                seed.len()
+            );
+        } else {
+            system.platform().database_repository().open(&name, &pid).await;
+        }
+        Vec::new()
     } else if mode == 4 {
         system.platform().database_repository().open(&name, &pid).await;
         Vec::new()
@@ -359,6 +410,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         buffer_ptr: 0,
         buffer_len: 0,
         buffer_capacity: 0,
+        open_mode: mode,
     };
     handle.name[..name_bytes.len()].copy_from_slice(name_bytes);
 
@@ -369,6 +421,21 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         handle.buffer_ptr = buf_ptr;
         handle.buffer_len = initial.len() as u32;
         handle.buffer_capacity = cap;
+    } else if inotia2_static_create {
+        // Avoid repeated power-of-two realloc/copy cycles while the native
+        // installer reconstructs large static tables (especially i_pack.dat).
+        let canonical_len = inotia2_canonical_installed_len(&name).unwrap_or(0);
+        if canonical_len > 0 {
+            let cap = (canonical_len as u32)
+                .saturating_add(64)
+                .max(MIN_BUFFER_CAPACITY);
+            let buf_ptr = context.alloc_raw(cap)?;
+            handle.buffer_ptr = buf_ptr;
+            handle.buffer_capacity = cap;
+            tracing::info!(
+                "[PHASE8_18_INOTIA2_INSTALL_WRITEBACK] PREALLOC name={name} capacity={cap}"
+            );
+        }
     }
 
     let ptr_handle = context.alloc_raw(size_of::<DatabaseHandle>() as _)?;
@@ -407,18 +474,72 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
         return Ok(-25); // M_E_INVALIDHANDLE
     };
 
-    if context.system().pid() == "PD007974" {
+    let db_name = handle_name(&handle).to_owned();
+    let (pid, aid) = {
+        let system = context.system();
+        (system.pid().to_owned(), system.aid().to_owned())
+    };
+
+    if pid == "PD007974" {
         tracing::debug!(
-            "[INOTIA2_DB] CLOSE db={} handle={db_id:#010x} len={} read_cursor={} write_cursor={}",
-            handle_name(&handle),
+            "[INOTIA2_DB] CLOSE db={} handle={db_id:#010x} len={} read_cursor={} write_cursor={} mode={}",
+            db_name,
             handle.buffer_len,
             handle.read_cursor,
-            handle.write_cursor
+            handle.write_cursor,
+            handle.open_mode
         );
     }
 
-    // The buffer was kept in sync with disk via write-through on every
-    // `stream_write`, so close just frees the guest-heap allocations.
+    // Phase 8.18 — Inotia 2's required startup rebuild is allowed to execute,
+    // but its static mode-4 resources are write-back cached. Commit once here
+    // instead of copying/flushing the entire growing record on every stream
+    // write. Generated caches are normalized to the known-good expanded p/
+    // snapshots, while i_pack uses the rebuilt bytes when they are canonical.
+    if pid == "PD007974"
+        && aid == "010100D5"
+        && handle.open_mode == 4
+        && is_inotia2_static_install_resource(&db_name)
+    {
+        let canonical_len = inotia2_canonical_installed_len(&db_name).unwrap_or(0);
+        let mut rebuilt = vec![0u8; handle.buffer_len as usize];
+        if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
+            context.read_bytes(handle.buffer_ptr, &mut rebuilt)?;
+        }
+
+        let (commit, source): (Vec<u8>, &str) = if is_inotia2_generated_cache(&db_name) {
+            if let Some(prebuilt) = read_inotia2_prebuilt_cache(context, &db_name).await? {
+                (prebuilt, "p/canonical-expanded")
+            } else {
+                (rebuilt, "rebuilt-no-prebuilt")
+            }
+        } else if rebuilt.len() == canonical_len {
+            (rebuilt, "rebuilt")
+        } else if let Some(packaged) = read_packaged_database(context, &db_name).await? {
+            (packaged, "p/packaged-fallback")
+        } else {
+            (rebuilt, "rebuilt-noncanonical")
+        };
+
+        if !commit.is_empty() {
+            let mut db = context
+                .system()
+                .platform()
+                .database_repository()
+                .open(&db_name, &pid)
+                .await;
+            db.set(1, &commit).await;
+        }
+
+        tracing::info!(
+            "[PHASE8_18_INOTIA2_INSTALL_WRITEBACK] CLOSE name={db_name} rebuilt_len={} canonical={canonical_len} committed_len={} source={source}",
+            handle.buffer_len,
+            commit.len()
+        );
+    }
+
+    // Normal titles and non-static records remain write-through exactly as
+    // before. The handle/buffer can now be released.
     if handle.buffer_ptr != 0 && handle.buffer_capacity > 0 {
         context.free_raw(handle.buffer_ptr, handle.buffer_capacity)?;
     }
@@ -1036,6 +1157,22 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         handle.buffer_len = new_end;
     }
     write_generic(context, db_id as _, handle)?;
+
+    // Phase 8.18 — the exact Inotia 2 static install records are intentionally
+    // write-back cached. Avoid both repository I/O and the O(n) full-buffer
+    // snapshot on every small append. close_database performs one guarded
+    // canonical commit after the native rebuild has initialized its tables.
+    if pid == "PD007974"
+        && handle.open_mode == 4
+        && is_inotia2_static_install_resource(&db_name)
+    {
+        tracing::debug!(
+            "[PHASE8_18_INOTIA2_INSTALL_WRITEBACK] WRITE_DEFER name={db_name} offset={} len={buf_len} final_len={}",
+            handle.write_cursor.saturating_sub(buf_len),
+            handle.buffer_len
+        );
+        return Ok(buf_len as _);
+    }
 
     // Write-through to disk on every stream_write. Some titles tear down
     // the game without making a final `close_database` call after their

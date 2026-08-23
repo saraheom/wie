@@ -131,41 +131,15 @@ pub async fn load_native(
             );
         }
 
-        // Phase 8.17 — skip the *actual* repeated installation call.
+        // Phase 8.18 — do not bypass the native installation/rebuild routine.
         //
-        // Phase 8.16 patched a lower-level resource verifier at 0x00144e6a,
-        // and the marker proved that patch executed, but the caller still
-        // entered 0x00144f48 and rebuilt i_pack.dat plus all generated caches.
-        // Static analysis of this exact client.bin shows only one call site for
-        // that rebuild/progress routine.  At 0x001780e2 the original Thumb
-        // instruction is `bne 0x0017812e`; that branch is the sole edge into
-        // `bl 0x00144f48`.  NOP it so the normal fall-through marks the
-        // installation state as 2 and continues with the already-valid p/
-        // resources.  Guard both title identity and original bytes.
-        const INOTIA2_INSTALL_CALL_BRANCH: u32 = 0x0017_80e2;
-        const INOTIA2_INSTALL_CALL_EXPECT: [u8; 2] = [0x24, 0xd1];
-        // Thumb NOP (`mov r8,r8`).
-        const INOTIA2_INSTALL_CALL_BYPASS: [u8; 2] = [0xc0, 0x46];
-
-        let mut install_call_branch = [0u8; 2];
-        core.read_bytes(INOTIA2_INSTALL_CALL_BRANCH, &mut install_call_branch)?;
-        if install_call_branch == INOTIA2_INSTALL_CALL_EXPECT {
-            core.write_bytes(
-                INOTIA2_INSTALL_CALL_BRANCH,
-                &INOTIA2_INSTALL_CALL_BYPASS,
-            )?;
-            tracing::info!(
-                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] branch={INOTIA2_INSTALL_CALL_BRANCH:#010x} -> skip repeated cache rebuild/progress bar"
-            );
-        } else if install_call_branch == INOTIA2_INSTALL_CALL_BYPASS {
-            tracing::info!(
-                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] branch already patched at {INOTIA2_INSTALL_CALL_BRANCH:#010x}"
-            );
-        } else {
-            tracing::warn!(
-                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] byte guard mismatch at {INOTIA2_INSTALL_CALL_BRANCH:#010x}: got={install_call_branch:02x?}; patch suppressed"
-            );
-        }
+        // Phase 8.17 NOPed the caller branch at 0x001780e2. Field testing
+        // proved that routine also performs required in-memory resource-table
+        // initialization: skipping it removes the progress bar, but the title
+        // immediately falls back to its own "memory error" screen. Keep the
+        // original control flow intact. The database layer now makes this
+        // required pass cheap and non-destructive by buffering static install
+        // records and committing each only once at close.
     }
 
     // Phase 8.17 — Inotia 1 offline cash-shop bootstrap.
