@@ -297,7 +297,14 @@ impl ArmCore {
                 EngineRunResult::End => break,
                 EngineRunResult::CountExhausted => {
                     consecutive_count_exhausted = consecutive_count_exhausted.saturating_add(1);
-                    if matches!(consecutive_count_exhausted, 64 | 256 | 1024 | 4096 | 16384) {
+                    // Phase 8.15: the earlier compatibility probes emitted three
+                    // WARN records at 64/256/1024/4096/16384 chunks. In a healthy
+                    // native-heavy title such as Inotia 2 this produced thousands
+                    // of console messages per minute and the WASM -> WebView log
+                    // bridge itself became a material source of gameplay stutter.
+                    // Preserve the deep-hang diagnostic only at the highest
+                    // threshold (~16.4M uninterrupted guest instructions).
+                    if consecutive_count_exhausted == 16384 {
                         self.trace_long_native_run(address, consecutive_count_exhausted);
                     }
                     YieldFuture::new().await; // yield to allow other tasks to run

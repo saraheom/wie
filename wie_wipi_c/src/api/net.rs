@@ -245,6 +245,34 @@ pub async fn socket_write(
     Ok(len)
 }
 
+// Phase 8.15 — KTF Inotia 1 uses another carrier-extension entry at
+// interface offset 0x80 (slot 32) immediately after the asynchronous slot-30
+// connect callback succeeds. Static analysis of PD005362 shows a three-word
+// call shape `(fd, buffer, length)` and the same return convention as a socket
+// write: positive byte count means progress and M_E_WOULDBLOCK is retryable.
+//
+// Route only this legacy extension through the already-isolated offline
+// packet-capture writer. This keeps the old server unreachable while allowing
+// the original game to emit the request bytes needed to reconstruct the cash
+// shop protocol locally.
+pub async fn socket_write_ktf_legacy(
+    context: &mut dyn WIPICContext,
+    fd: i32,
+    ptr_buf: WIPICWord,
+    len: i32,
+) -> Result<i32> {
+    if !is_inotia1_offline_network(context) {
+        return Err(WieError::Unimplemented(
+            "32: KTF legacy MC_netSocketWrite".into(),
+        ));
+    }
+
+    tracing::info!(
+        "[PHASE8_15_INOTIA1_NET32] fd={fd} buf={ptr_buf:#010x} len={len} -> offline packet-capture writer"
+    );
+    socket_write(context, fd, ptr_buf, len).await
+}
+
 pub async fn socket_read(
     context: &mut dyn WIPICContext,
     fd: i32,

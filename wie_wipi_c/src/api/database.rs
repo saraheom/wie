@@ -122,11 +122,11 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         return Ok(-22); // M_E_BADRECID — closest WIPI parameter-error idiom in this file
     }
 
-    // Capture the PID before resource I/O without holding a mutable System
-    // borrow across another context call.
-    let pid = {
+    // Capture the title identifiers before resource I/O without holding a mutable
+    // System borrow across another context call.
+    let (pid, aid) = {
         let system = context.system();
-        system.pid().to_owned()
+        (system.pid().to_owned(), system.aid().to_owned())
     };
 
     let packaged = read_packaged_database(context, &name).await?;
@@ -151,17 +151,17 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let exists = system.platform().database_repository().exists(&name, &pid).await;
 
     if pid == "PD007974" {
-        tracing::info!(
+        tracing::debug!(
             "[PHASE8_3] Inotia2 i_pack database trace active"
         );
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] OPEN_REQUEST name={name} mode={mode} type={type} exists={exists} packaged_len={packaged_len}"
         );
     }
 
     if !exists && packaged.is_none() && mode == 1 {
         if pid == "PD007974" {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} -> -12 (NOENT)"
             );
         }
@@ -209,6 +209,35 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                     "[INOTIA1_SAVE] OPEN db={name} mode={mode} existing={} -> preserve",
                     data.len()
                 );
+            }
+
+            let mut data = data;
+
+            // Phase 8.15 — PD007974 is distributed with a complete preinstalled
+            // KTF database image under p/.  Older WIE runs left appinfo.dat in
+            // its installer-state form (the bundled installed snapshot has the
+            // final byte set to 1), so the title showed and executed its legacy
+            // installation pass again on every launch even though all expanded
+            // caches were already valid.  appinfo.dat is static installation
+            // metadata, not player progress.  For this exact title, prefer the
+            // bundled installed snapshot when an older persistent copy differs.
+            if pid == "PD007974" && aid == "010100D5" && name == "appinfo.dat" && mode != 4 {
+                if let Some(installed) = packaged.as_ref() {
+                    let installed_marker = installed.len() == 5 && installed[4] == 1;
+                    if installed_marker && data.as_slice() != installed.as_slice() {
+                        tracing::info!(
+                            "[PHASE8_15_INOTIA2_INSTALL_SKIP] stale appinfo persistent={:02x?} -> bundled installed metadata={:02x?}",
+                            data,
+                            installed
+                        );
+                        db.set(1, installed).await;
+                        data = installed.clone();
+                    } else if installed_marker {
+                        tracing::info!(
+                            "[PHASE8_15_INOTIA2_INSTALL_SKIP] appinfo already matches bundled installed metadata"
+                        );
+                    }
+                }
             }
 
             // Repair records polluted by the pre-8.14 CREATE behavior without
@@ -296,7 +325,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     if pid == "PD007974" {
         let cpu = context.debug_cpu_context();
         if let Some(regs) = cpu {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} handle={ptr_handle:#010x} initial_len={} buffer_ptr={:#010x} capacity={} lr={:#010x} pc={:#010x}",
                 handle.buffer_len,
                 handle.buffer_ptr,
@@ -305,7 +334,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                 regs[15]
             );
         } else {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} handle={ptr_handle:#010x} initial_len={} buffer_ptr={:#010x} capacity={}",
                 handle.buffer_len,
                 handle.buffer_ptr,
@@ -325,7 +354,7 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
     };
 
     if context.system().pid() == "PD007974" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] CLOSE db={} handle={db_id:#010x} len={} read_cursor={} write_cursor={}",
             handle_name(&handle),
             handle.buffer_len,
@@ -581,14 +610,14 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
             free_head != INVALID && free_descriptor_count > 0 && free_descriptor_chain_ok;
         let gap_can_fit = largest_gap >= request;
 
-        tracing::info!("[PHASE8_1] Inotia2 dereferenced heap-state scan active");
-        tracing::info!(
+        tracing::debug!("[PHASE8_1] Inotia2 dereferenced heap-state scan active");
+        tracing::debug!(
             "[INOTIA2_HEAP] descriptor_limit={descriptor_limit:#010x} capacity={capacity:#010x} used={used:#010x} free={free_bytes:#010x} heap_base={heap_base:#010x} heap_source={heap_source:#010x} block_table={block_table:#010x} free_head={free_head:#010x} alloc_head={alloc_head:#010x} alloc_count={alloc_count:#010x} ui_ptr={ui_ptr:#010x}"
         );
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_HEAP] ptrs descriptor_limit={descriptor_limit_ptr:#010x} capacity={capacity_ptr:#010x} heap_base={heap_base_ptr:#010x} free_head={free_head_ptr:#010x} used={used_ptr:#010x} alloc_head={alloc_head_ptr:#010x} alloc_count={alloc_count_ptr:#010x} ui_global={ui_ptr_global:#010x}"
         );
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_HEAP] chains free_desc_count={free_descriptor_count} free_chain_ok={free_descriptor_chain_ok} allocated_chain_count={allocated_chain_count} allocated_chain_ok={allocated_chain_ok} alloc_size_sum={allocated_size_sum} monotonic={monotonic} largest_gap={largest_gap:#010x} request_0x100 capacity_can_fit={capacity_can_fit} descriptor_can_fit={descriptor_can_fit} gap_can_fit={gap_can_fit} sample={sample:?}"
         );
 
@@ -613,16 +642,16 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
             let storage_check_pass =
                 available_storage >= 0 && (available_storage as u64) >= required_storage;
 
-            tracing::info!(
+            tracing::debug!(
                 "[PHASE8_2] Inotia2 startup storage-gate trace active"
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_STORAGE_GATE] available={available_storage} r7_resource_total={:#010x} required=r7+0x2800={required_storage} margin={storage_margin} would_pass={storage_check_pass} caller_lr={:#010x} svc_pc={:#010x}",
                 regs[7],
                 regs[14],
                 regs[15]
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_STORAGE_GATE] regs r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x}",
                 regs[0], regs[1], regs[2], regs[3],
                 regs[4], regs[5], regs[6], regs[7],
@@ -639,7 +668,7 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
             read_generic(context, 0x0014_50bc).unwrap_or(INVALID);
         let init_sig1: u32 =
             read_generic(context, 0x0014_50c0).unwrap_or(INVALID);
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_HEAP] signatures alloc@125c54=[{alloc_sig0:#010x},{alloc_sig1:#010x}] init@1450bc=[{init_sig0:#010x},{init_sig1:#010x}]"
         );
 
@@ -704,8 +733,8 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
                 };
                 let head_len = data.len().min(16);
 
-                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
-                tracing::info!(
+                tracing::debug!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::debug!(
                     "[INOTIA2_IPACK_PRE] packaged_found=true packaged_len={} packaged_version={} packaged_count={} head={:02x?}",
                     data.len(),
                     packaged_version,
@@ -714,20 +743,20 @@ pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
                 );
             }
             Ok(None) => {
-                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
-                tracing::info!(
+                tracing::debug!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::debug!(
                     "[INOTIA2_IPACK_PRE] packaged_found=false packaged_len=0"
                 );
             }
             Err(err) => {
-                tracing::info!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
-                tracing::info!(
+                tracing::debug!("[PHASE8_3_1] Inotia2 i_pack pre-rebuild checkpoint active");
+                tracing::debug!(
                     "[INOTIA2_IPACK_PRE] packaged_lookup_error={err:?}"
                 );
             }
         }
 
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_IPACK_PRE] rebuild_count_ptr={rebuild_count_ptr:#010x} rebuild_count={rebuild_count} rebuild_request={rebuild_request:#010x} free_bytes={free_bytes:#010x} request_fits={} ipack_version_ptr={ipack_version_ptr:#010x} ipack_version={ipack_version} ipack_count_ptr={ipack_count_ptr:#010x} ipack_count={ipack_count} ipack_handle_ptr={ipack_handle_ptr:#010x} ipack_handle={ipack_handle:#010x} ipack_array_ptr={ipack_array_ptr:#010x} ipack_array={ipack_array:#010x}",
             rebuild_request != INVALID && rebuild_request <= free_bytes
         );
@@ -891,7 +920,7 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         };
         let cpu = context.debug_cpu_context();
         if let Some(regs) = cpu {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] WRITE_BEGIN db={db_name} handle={db_id:#010x} offset={} request={buf_len} old_len={old_len} head_read={head_read} head={:02x?} lr={:#010x} pc={:#010x}",
                 handle.write_cursor,
                 &head[..head_read.min(head.len())],
@@ -899,7 +928,7 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
                 regs[15]
             );
         } else {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] WRITE_BEGIN db={db_name} handle={db_id:#010x} offset={} request={buf_len} old_len={old_len} head_read={head_read} head={:02x?}",
                 handle.write_cursor,
                 &head[..head_read.min(head.len())]
@@ -969,7 +998,7 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
 
     if pid == "PD007974" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] WRITE_RESULT db={db_name} handle={db_id:#010x} wrote={buf_len} final_len={} read_cursor={} write_cursor={}",
             handle.buffer_len,
             handle.read_cursor,
@@ -1116,7 +1145,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     if inotia2_db_trace {
         let cpu = context.debug_cpu_context();
         if let Some(regs) = cpu {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] READ_BEGIN db={} handle={db_id:#010x} offset={} request={buf_len} record_len={} lr={:#010x} pc={:#010x}",
                 handle_name(&handle),
                 handle.read_cursor,
@@ -1125,7 +1154,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 regs[15]
             );
         } else {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] READ_BEGIN db={} handle={db_id:#010x} offset={} request={buf_len} record_len={}",
                 handle_name(&handle),
                 handle.read_cursor,
@@ -1136,7 +1165,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
 
     if handle.read_cursor >= handle.buffer_len {
         if inotia2_db_trace {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_DB] READ_RESULT db={} handle={db_id:#010x} -> -23 (EOF) offset={} record_len={}",
                 handle_name(&handle),
                 handle.read_cursor,
@@ -1297,7 +1326,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
 
     if inotia2_db_trace {
         let head_end = data.len().min(16);
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] READ_RESULT db={} handle={db_id:#010x} returned={take} final_cursor={} record_len={} remaining={} head={:02x?}",
             handle_name(&handle),
             handle.read_cursor,
@@ -1357,11 +1386,11 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
             let code6: u32 = read_generic(context, 0x0014_3af4).unwrap_or(INVALID);
             let code7: u32 = read_generic(context, 0x0014_3af8).unwrap_or(INVALID);
 
-            tracing::info!("[PHASE8_5] Inotia2 i_pack post-header global-pointer probe active");
-            tracing::info!(
+            tracing::debug!("[PHASE8_5] Inotia2 i_pack post-header global-pointer probe active");
+            tracing::debug!(
                 "[INOTIA2_IPACK_POST] got version@{GOT_VERSION:#010x}->{version_target:#010x} probe={version_probe:#010x} count@{GOT_COUNT:#010x}->{count_target:#010x} probe={count_probe:#010x} handle@{GOT_HANDLE:#010x}->{handle_target:#010x} probe={handle_probe:#010x} array@{GOT_ARRAY:#010x}->{array_target:#010x} probe={array_probe:#010x}"
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_IPACK_POST] code@143adc=[{code0:#010x},{code1:#010x},{code2:#010x},{code3:#010x},{code4:#010x},{code5:#010x},{code6:#010x},{code7:#010x}]"
             );
 
@@ -1437,10 +1466,10 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 "none_obvious"
             };
 
-            tracing::info!(
+            tracing::debug!(
                 "[PHASE8_6] Inotia2 post-i_pack caller validation-global probe active"
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_VALIDATE_POST] got base@{GOT_VALIDATE_BASE:#010x}->{validate_base_target:#010x} value={validate_base:#010x} count@{GOT_VALIDATE_COUNT:#010x}->{validate_count_target:#010x} value={validate_count} stride@{GOT_VALIDATE_STRIDE:#010x}->{validate_stride_target:#010x} value={validate_stride} first_record_addr={first_record_addr:#010x} first_record_read={first_record_read} first_record={:02x?} null_stage={null_stage}",
                 &first_record[..first_record_read.min(first_record.len())]
             );
@@ -1452,7 +1481,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
             let caller3: u32 = read_generic(context, 0x0014_4e76).unwrap_or(INVALID);
             let caller4: u32 = read_generic(context, 0x0014_4e7a).unwrap_or(INVALID);
             let caller5: u32 = read_generic(context, 0x0014_4e7e).unwrap_or(INVALID);
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_VALIDATE_POST] code@144e6a=[{caller0:#010x},{caller1:#010x},{caller2:#010x},{caller3:#010x},{caller4:#010x},{caller5:#010x}]"
             );
 
@@ -1533,14 +1562,14 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                     && startup_base == 0
                     && first_src == 0;
 
-            tracing::info!(
+            tracing::debug!(
                 "[PHASE8_7] Inotia2 post-startup resource-base probe active"
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_STARTUP_RESOURCE] status got@{GOT_STARTUP_STATUS:#010x}->{startup_status_target:#010x} value={startup_status} kind got@{GOT_STARTUP_KIND:#010x}->{startup_kind_target:#010x} value={startup_kind} base got@{GOT_STARTUP_BASE:#010x}->{startup_base_target:#010x} value={startup_base:#010x} first_src={first_src:#010x} first_src_read={first_src_read} first_src_bytes={:02x?} predicted_null_read={predicted_null_read}",
                 &first_src_bytes[..first_src_read.min(first_src_bytes.len())]
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_STARTUP_RESOURCE] direct_tables=[{table0:#010x},{table1:#010x},{table2:#010x},{table3:#010x}]"
             );
 
@@ -1567,7 +1596,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                     0
                 };
 
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_RESOURCE_INIT] game_source got@{GOT_GAME_RESOURCE_SOURCE:#010x}->{game_source_target:#010x} value={game_source:#010x} head_read={game_source_head_read} head={:02x?} resource43_kind={startup_kind} resource43_base={startup_base:#010x}",
                 &game_source_head[..game_source_head_read.min(game_source_head.len())]
             );
@@ -1583,7 +1612,7 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
             let start4: u32 = read_generic(context, 0x0014_4a54).unwrap_or(INVALID);
             let start5: u32 = read_generic(context, 0x0014_4a58).unwrap_or(INVALID);
             let start6: u32 = read_generic(context, 0x0014_4a5c).unwrap_or(INVALID);
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_STARTUP_RESOURCE] code status@1450dc=[{status0:#010x},{status1:#010x},{status2:#010x}] start@144a44=[{start0:#010x},{start1:#010x},{start2:#010x},{start3:#010x},{start4:#010x},{start5:#010x},{start6:#010x}]"
             );
 
@@ -1591,14 +1620,14 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
                 let sp = regs[13];
                 let mut stack = [0u8; 64];
                 let stack_read = context.read_bytes(sp, &mut stack).unwrap_or(0);
-                tracing::info!(
+                tracing::debug!(
                     "[INOTIA2_IPACK_POST] regs r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={:#010x} lr={:#010x} pc={:#010x} cpsr={:#010x} stack_read={stack_read} stack={:02x?}",
                     regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7],
                     regs[8], regs[9], regs[10], regs[11], regs[12], regs[13], regs[14], regs[15], regs[16],
                     &stack[..stack_read.min(stack.len())]
                 );
             } else {
-                tracing::info!("[INOTIA2_IPACK_POST] CPU snapshot unavailable");
+                tracing::debug!("[INOTIA2_IPACK_POST] CPU snapshot unavailable");
             }
         }
     }
@@ -1646,7 +1675,7 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
         if pid == "PD007974" {
             let cpu = context.debug_cpu_context();
             if let Some(regs) = cpu {
-                tracing::info!(
+                tracing::debug!(
                     "[INOTIA2_DB] SELECT_SEEK db={db_name} handle={db_id:#010x} offset={offset} mode={mode:#x} old_read={} old_write={} len={} lr={:#010x} pc={:#010x}",
                     handle.read_cursor,
                     handle.write_cursor,
@@ -1655,7 +1684,7 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
                     regs[15]
                 );
             } else {
-                tracing::info!(
+                tracing::debug!(
                     "[INOTIA2_DB] SELECT_SEEK db={db_name} handle={db_id:#010x} offset={offset} mode={mode:#x} old_read={} old_write={} len={}",
                     handle.read_cursor,
                     handle.write_cursor,
@@ -1712,10 +1741,10 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
 
             write_generic(context, db_id as _, handle)?;
 
-            tracing::info!(
+            tracing::debug!(
                 "[PHASE8_8] Inotia2 KTF stream-seek semantics active"
             );
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA2_SEEK_FIX] db={db_name} mode={mode:#x} offset={rec_id} old_read={old_read} old_write={old_write} len={} -> position={target}",
                 handle.buffer_len
             );
@@ -1813,7 +1842,7 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
     let exists = system.platform().database_repository().exists(&name, &pid).await;
     if !exists {
         if pid == "PD007974" {
-            tracing::info!("[INOTIA2_DB] STAT db={name} mode={mode} -> -22 (not found)");
+            tracing::debug!("[INOTIA2_DB] STAT db={name} mode={mode} -> -22 (not found)");
         }
         if pid == "PD005362" {
             tracing::info!("[INOTIA1_META] STAT db={name} mode={mode} -> -22 (not found)");
@@ -1835,7 +1864,7 @@ pub async fn stat_by_name_ktf(context: &mut dyn WIPICContext, name_ptr: WIPICWor
     }
 
     if pid == "PD007974" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] STAT db={name} mode={mode} record_size={record_size} -> 0"
         );
     }
@@ -1876,7 +1905,7 @@ pub async fn exists_database_ktf(context: &mut dyn WIPICContext, name_ptr: WIPIC
 
     let result = if exists { 1 } else { 0 };
     if pid == "PD007974" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA2_DB] EXISTS_KTF db={name} exists={exists} -> {result}"
         );
     }

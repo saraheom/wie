@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.14 WIE WebAssembly core
+      - name: Force clean Phase 8.15 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -70,6 +70,10 @@ jobs:
           grep -n 'PHASE8_14_INOTIA2_CACHE_CREATE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA2_CACHE_RESTORE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA1_INETADDR' wie_wipi_c/src/api/util.rs
+          grep -n 'PHASE8_15_INOTIA2_INSTALL_SKIP' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_15_INOTIA1_NET32' wie_wipi_c/src/api/net.rs
+          grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
+          grep -n 'consecutive_count_exhausted == 16384' wie_core_arm/src/core.rs
           grep -n 'util::inet_addr_int.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'ByteRead, ByteWrite' wie_ktf/src/runtime/init.rs
           grep -n 'get_access_level_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -78,7 +82,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.14 core source was selected
+      - name: Verify Phase 8.15 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -92,6 +96,10 @@ jobs:
           grep -n 'PHASE8_14_INOTIA2_CACHE_CREATE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA2_CACHE_RESTORE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA1_INETADDR' wie_wipi_c/src/api/util.rs
+          grep -n 'PHASE8_15_INOTIA2_INSTALL_SKIP' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_15_INOTIA1_NET32' wie_wipi_c/src/api/net.rs
+          grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
+          grep -n 'consecutive_count_exhausted == 16384' wie_core_arm/src/core.rs
           grep -n 'util::inet_addr_int.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'ByteRead, ByteWrite' wie_ktf/src/runtime/init.rs
           grep -n 'net::socket_connect.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -101,7 +109,7 @@ jobs:
           test -f wie_web/pkg/wie_web_bg.wasm
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
-          echo 'Phase 8.14 clean WASM build completed.'
+          echo 'Phase 8.15 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash
