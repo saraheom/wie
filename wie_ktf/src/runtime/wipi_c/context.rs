@@ -13,6 +13,8 @@ use wie_jvm_support::JvmSupport;
 use wie_util::{ByteRead, ByteWrite, Result, WieError, read_generic, write_generic};
 use wie_wipi_c::{WIPICContext, WIPICMethodBody};
 
+pub type KtfResourceCache = Arc<Mutex<BTreeMap<String, Vec<u8>>>>;
+
 #[derive(Clone)]
 pub struct KtfWIPICContext {
     core: ArmCore,
@@ -22,17 +24,29 @@ pub struct KtfWIPICContext {
     // Inotia 2 repeatedly asks the packaged filesystem for the same multi-MB
     // canonical install resources during map/skill transitions.  The backend
     // filesystem bridge is much more expensive than a guest-side Vec clone, so
-    // cache only these immutable packaged resources for the exact title.
+    // cache only these immutable packaged resources for the exact title. The
+    // tiny appinfo/envinfo/cert fallbacks are included too because each native
+    // filesystem bridge crossing costs about 100 ms on iOS and they are hit by
+    // menus/startup even though their payloads are tiny.
     resource_cache: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
 }
 
 impl KtfWIPICContext {
-    pub fn new(core: ArmCore, system: System, jvm: Jvm) -> Self {
+    pub fn new_resource_cache() -> KtfResourceCache {
+        Arc::new(Mutex::new(BTreeMap::new()))
+    }
+
+    pub fn with_resource_cache(
+        core: ArmCore,
+        system: System,
+        jvm: Jvm,
+        resource_cache: KtfResourceCache,
+    ) -> Self {
         Self {
             core,
             system,
             jvm,
-            resource_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            resource_cache,
         }
     }
 
@@ -49,6 +63,9 @@ impl KtfWIPICContext {
                     | "filetext.dat"
                     | "i_mapfeature.dat"
                     | "i_tile.dat"
+                    | "appinfo.dat"
+                    | "envinfo.dat"
+                    | "cert.c2s"
             )
     }
 

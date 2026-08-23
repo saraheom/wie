@@ -180,6 +180,41 @@ pub async fn load_native(
                 "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] byte guard mismatch at {INOTIA1_CASH_CMD0_HANDLER:#010x}: got={cash_cmd0:02x?}; patch suppressed"
             );
         }
+
+        // Phase 8.20 — command-1 offline-response validation bypass.
+        //
+        // Phase 8.19 proved that the client completely consumes our structurally
+        // correct command-1 response, then reaches the common network-error
+        // cleanup before issuing another request. Static analysis resolves the
+        // first post-parse guard at 0x00117418: after calling the title's legacy
+        // response validator at 0x0011d108, a conditional BNE advances to the
+        // normal command-1 processing path while validator==0 falls directly
+        // into error 2009. The historical carrier/server integrity context no
+        // longer exists, so for this exact binary only, make that conditional
+        // branch unconditional while preserving the validator call and all of
+        // its side effects. This does not alter inventory/save writes or any
+        // purchase result; later cash-shop commands are still captured before
+        // we synthesize them.
+        const INOTIA1_CMD1_VALID_BRANCH: u32 = 0x0011_7418;
+        const INOTIA1_CMD1_VALID_EXPECT: [u8; 2] = [0x00, 0xd1]; // bne +0 -> 0x11741c
+        const INOTIA1_CMD1_VALID_BYPASS: [u8; 2] = [0x00, 0xe0]; // b   +0 -> 0x11741c
+
+        let mut cmd1_valid_branch = [0u8; 2];
+        core.read_bytes(INOTIA1_CMD1_VALID_BRANCH, &mut cmd1_valid_branch)?;
+        if cmd1_valid_branch == INOTIA1_CMD1_VALID_EXPECT {
+            core.write_bytes(INOTIA1_CMD1_VALID_BRANCH, &INOTIA1_CMD1_VALID_BYPASS)?;
+            tracing::info!(
+                "[PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS] branch={INOTIA1_CMD1_VALID_BRANCH:#010x} legacy validator failure -> continue original command-1 success path"
+            );
+        } else if cmd1_valid_branch == INOTIA1_CMD1_VALID_BYPASS {
+            tracing::info!(
+                "[PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS] branch already patched at {INOTIA1_CMD1_VALID_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS] byte guard mismatch at {INOTIA1_CMD1_VALID_BRANCH:#010x}: got={cmd1_valid_branch:02x?}; patch suppressed"
+            );
+        }
     }
 
     // Patterns target instruction encodings, which the guest self-rebase at

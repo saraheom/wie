@@ -97,6 +97,21 @@ fn is_inotia1_offline_network(context: &mut dyn WIPICContext) -> bool {
     system.aid() == INOTIA1_AID && system.pid() == INOTIA1_PID
 }
 
+fn read_guest_u32(context: &mut dyn WIPICContext, address: WIPICWord) -> Option<u32> {
+    let mut bytes = [0u8; 4];
+    context.read_bytes(address, &mut bytes).ok()?;
+    Some(u32::from_le_bytes(bytes))
+}
+
+fn read_inotia1_got_u32(
+    context: &mut dyn WIPICContext,
+    r10: WIPICWord,
+    got_offset: WIPICWord,
+) -> Option<u32> {
+    let ptr = read_guest_u32(context, r10.wrapping_add(got_offset))?;
+    read_guest_u32(context, ptr)
+}
+
 fn trace_inotia1_cash_reject(context: &mut dyn WIPICContext, api: &str, fd: Option<i32>) {
     let state = *INOTIA1_CASH_RX_STATE.lock();
     if let Some(cpu) = context.debug_cpu_context() {
@@ -106,6 +121,18 @@ fn trace_inotia1_cash_reject(context: &mut dyn WIPICContext, api: &str, fd: Opti
         let mut code = [0u8; 16];
         let code_base = (lr & !1).saturating_sub(8);
         let code_ok = context.read_bytes(code_base, &mut code).is_ok();
+
+        // Phase 8.20 — the Inotia 1 network module keeps its current protocol
+        // status/error in the GOT slot at r10+0x46c. The generic error handler
+        // writes its r0 error code to this same global immediately before the
+        // socket-close sequence. Dereference it here so a later rejection can
+        // be attributed to the exact native error instead of only the common
+        // cleanup call site. 0x2ec is the module state (the error path writes 5).
+        let cash_code = read_inotia1_got_u32(context, r10, 0x46c);
+        let cash_state = read_inotia1_got_u32(context, r10, 0x2ec);
+        tracing::info!(
+            "[PHASE8_20_INOTIA1_CASH_STATE] api={api} cash_code={cash_code:?} cash_state={cash_state:?}"
+        );
         tracing::info!(
             "[PHASE8_19_INOTIA1_CASH_REJECT] api={api} fd={fd:?} phase={} offset={} pc={pc:#010x} lr={lr:#010x} r10={r10:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} code_base={code_base:#010x} code_ok={code_ok} code={code:02x?}",
             state.phase,

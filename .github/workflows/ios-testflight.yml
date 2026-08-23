@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.19 WIE WebAssembly core
+      - name: Force clean Phase 8.20 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -77,6 +77,10 @@ jobs:
           grep -n 'PHASE8_18_INOTIA1_CASH_INIT_RX' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_19_INOTIA1_CASH_REJECT' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_19_INOTIA2_RESOURCE_CACHE' wie_ktf/src/runtime/wipi_c/context.rs
+          grep -n 'PHASE8_20_INOTIA2_RESOURCE_CACHE_SHARED' wie_ktf/src/runtime/wipi_c.rs
+          grep -n 'KtfResourceCache' wie_ktf/src/runtime/wipi_c.rs
+          grep -n 'PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_20_INOTIA1_CASH_STATE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD1_SUCCESS: \[u8; 27\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_18_INOTIA2_EXEC_QUANTUM' wie_ktf/src/emulator.rs
           grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
@@ -106,7 +110,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.19 core source was selected
+      - name: Verify Phase 8.20 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -127,6 +131,10 @@ jobs:
           grep -n 'PHASE8_18_INOTIA1_CASH_INIT_RX' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_19_INOTIA1_CASH_REJECT' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_19_INOTIA2_RESOURCE_CACHE' wie_ktf/src/runtime/wipi_c/context.rs
+          grep -n 'PHASE8_20_INOTIA2_RESOURCE_CACHE_SHARED' wie_ktf/src/runtime/wipi_c.rs
+          grep -n 'KtfResourceCache' wie_ktf/src/runtime/wipi_c.rs
+          grep -n 'PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_20_INOTIA1_CASH_STATE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD1_SUCCESS: \[u8; 27\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_18_INOTIA2_EXEC_QUANTUM' wie_ktf/src/emulator.rs
           grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs

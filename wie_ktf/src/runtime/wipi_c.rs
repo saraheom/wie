@@ -13,7 +13,7 @@ mod context;
 pub mod interface;
 mod method_table;
 
-use context::KtfWIPICContext;
+use context::{KtfResourceCache, KtfWIPICContext};
 
 struct WIPICMethodResult {
     result: WIPICResult,
@@ -55,12 +55,24 @@ impl EmulatedFunction<(), WIPICMethodResult, ()> for CMethodProxy {
     }
 }
 
-async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm), id: SvcId) -> Result<()> {
+async fn handle_wipic_svc(
+    core: &mut ArmCore,
+    (system, jvm, resource_cache): &mut (System, Jvm, KtfResourceCache),
+    id: SvcId,
+) -> Result<()> {
     let table_id = WIPICTableId::try_from(id.0 >> 16)?;
     let function_id = id.0 as u16;
     let (_, lr) = core.read_pc_lr()?;
     if table_id == WIPICTableId::Kernel && function_id == WIPICKernelMethodId::Reserved1 as u16 {
-        return interface::get_wipic_interfaces(core, &mut KtfWIPICContext::new(core.clone(), system.clone(), jvm.clone()))
+        return interface::get_wipic_interfaces(
+            core,
+            &mut KtfWIPICContext::with_resource_cache(
+                core.clone(),
+                system.clone(),
+                jvm.clone(),
+                resource_cache.clone(),
+            ),
+        )
             .await?
             .write(core, lr);
     }
@@ -70,7 +82,12 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
 
     EmulatedFunction::call(
         &CMethodProxy {
-            context: KtfWIPICContext::new(core.clone(), system.clone(), jvm.clone()),
+            context: KtfWIPICContext::with_resource_cache(
+                core.clone(),
+                system.clone(),
+                jvm.clone(),
+                resource_cache.clone(),
+            ),
             body,
         },
         core,
@@ -81,5 +98,24 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
 }
 
 pub fn register_wipic_svc_handler(core: &mut ArmCore, system: &System, jvm: &Jvm) -> Result<()> {
-    core.register_svc_handler(SVC_CATEGORY_WIPIC, handle_wipic_svc, &(system.clone(), jvm.clone()))
+    // Phase 8.20 — one immutable-resource cache per KTF app launch.
+    //
+    // handle_wipic_svc constructs a short-lived WIPIC context for every SVC.
+    // Phase 8.19 accidentally allocated the cache inside that constructor, so
+    // every size/read pair got a fresh empty map and diagnostics showed LOAD
+    // repeatedly instead of HIT.  Keep the Arc in the registered SVC-handler
+    // state and clone that same Arc into every context, including interface
+    // callbacks and spawned timer contexts.
+    let resource_cache = KtfWIPICContext::new_resource_cache();
+    if system.aid() == "010100D5" && system.pid() == "PD007974" {
+        tracing::info!(
+            "[PHASE8_20_INOTIA2_RESOURCE_CACHE_SHARED] one cache Arc registered for this app launch"
+        );
+    }
+
+    core.register_svc_handler(
+        SVC_CATEGORY_WIPIC,
+        handle_wipic_svc,
+        &(system.clone(), jvm.clone(), resource_cache),
+    )
 }
