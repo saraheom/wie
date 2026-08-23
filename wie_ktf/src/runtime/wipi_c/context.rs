@@ -178,6 +178,25 @@ impl WIPICContext for KtfWIPICContext {
         ])
     }
 
+    fn host_blob_cache_get(&self, key: &str) -> Option<Vec<u8>> {
+        if !self.is_inotia2_ktf() {
+            return None;
+        }
+        self.resource_cache.lock().get(key).cloned()
+    }
+
+    fn host_blob_cache_put(&mut self, key: &str, data: Vec<u8>) {
+        if self.is_inotia2_ktf() {
+            self.resource_cache.lock().insert(String::from(key), data);
+        }
+    }
+
+    fn host_blob_cache_remove(&mut self, key: &str) {
+        if self.is_inotia2_ktf() {
+            self.resource_cache.lock().remove(key);
+        }
+    }
+
     async fn call_function(&mut self, address: WIPICWord, args: &[WIPICWord]) -> Result<WIPICWord> {
         self.core.run_function(address, args).await
     }

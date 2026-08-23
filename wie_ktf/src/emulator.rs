@@ -84,15 +84,23 @@ impl KtfEmulator {
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D5" && pid == "PD007974" {
-            // Phase 8.18: restore the known-working 4k cooperative slice.
-            // Phase 8.17's 16k experiment did not eliminate gameplay stutter
-            // and makes each async handoff coarser. The dominant startup cost
-            // is instead the title's static-resource rebuild/write amplification,
-            // addressed in the database layer below. Keep this title-specific.
-            core.set_run_slice_instructions(4_000);
+            // Phase 8.21: CPU-bound decode/render fast path for Inotia 2.
+            //
+            // The Phase 8.20 field log proves that the per-launch resource
+            // cache is now genuinely shared, yet the title still stutters in
+            // menu animation, skills and map transitions.  During startup the
+            // guest spends tens of millions of consecutive ARM instructions
+            // inside native decode/resource loops. At a 4k slice that means
+            // thousands of Rust/WASM cooperative yields for one operation.
+            // Raise only this exact title to 16k: still a sub-frame scheduling
+            // granularity on iOS, while cutting count-exhausted/yield traffic
+            // by 75%. Phase 8.17's memory-error regression is now known to have
+            // come from its separate installer-call bypass, not from this
+            // execution quantum. Other titles remain on the default 1k slice.
+            core.set_run_slice_instructions(16_000);
             core.set_thread_lifecycle_logging(false);
             tracing::info!(
-                "[PHASE8_18_INOTIA2_EXEC_QUANTUM] native run slice=4000 instructions; hot timer thread lifecycle logging=debug"
+                "[PHASE8_21_INOTIA2_EXEC_QUANTUM] native run slice=16000 instructions; title-scoped CPU/decode fast path"
             );
         }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });

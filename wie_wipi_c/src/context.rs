@@ -32,6 +32,17 @@ pub trait WIPICContext: ByteRead + ByteWrite + Send + Sync {
     fn debug_cpu_context(&self) -> Option<[WIPICWord; 17]> {
         None
     }
+
+    /// Optional per-app-launch host cache used by platform-specific backends
+    /// for immutable/static blobs. Generic WIPI contexts deliberately default
+    /// to no cache so title behavior is unchanged unless a platform opts in.
+    fn host_blob_cache_get(&self, _key: &str) -> Option<Vec<u8>> {
+        None
+    }
+
+    fn host_blob_cache_put(&mut self, _key: &str, _data: Vec<u8>) {}
+
+    fn host_blob_cache_remove(&mut self, _key: &str) {}
 }
 
 pub struct WIPICResult {

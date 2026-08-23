@@ -111,6 +111,10 @@ fn is_inotia2_static_install_resource(name: &str) -> bool {
     inotia2_canonical_installed_len(name).is_some()
 }
 
+fn inotia2_host_db_cache_key(name: &str) -> String {
+    format!("db:{name}")
+}
+
 async fn read_inotia2_prebuilt_cache(
     context: &mut dyn WIPICContext,
     name: &str,
@@ -171,6 +175,40 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         (system.pid().to_owned(), system.aid().to_owned())
     };
 
+    // Phase 8.21 — cache the *installed persistent* static records as well as
+    // the packaged p/ resources. Phase 8.20 fixed the shared packaged cache,
+    // but every normal DB reopen could still cross IndexedDB for exists/open/get
+    // before copying the same immutable i_pack/event/tile data into a guest
+    // handle. Keep this second namespace in the same per-launch KTF Arc.
+    // CREATE explicitly invalidates it; write/close paths repopulate it with
+    // the exact current record, including the legitimate +8 installed footer.
+    let inotia2_db_cache_key = if pid == "PD007974"
+        && aid == "010100D5"
+        && is_inotia2_static_install_resource(&name)
+    {
+        Some(inotia2_host_db_cache_key(&name))
+    } else {
+        None
+    };
+    if mode == 4 {
+        if let Some(key) = inotia2_db_cache_key.as_deref() {
+            context.host_blob_cache_remove(key);
+        }
+    }
+    let cached_installed = if mode != 4 {
+        inotia2_db_cache_key
+            .as_deref()
+            .and_then(|key| context.host_blob_cache_get(key))
+    } else {
+        None
+    };
+    if let Some(data) = cached_installed.as_ref() {
+        tracing::debug!(
+            "[PHASE8_21_INOTIA2_DB_CACHE] HIT name={name} len={} -> skip IndexedDB exists/open/get",
+            data.len()
+        );
+    }
+
     // Phase 8.17 — determine persistence before touching archive resources.
     // Phase 8.16 logs showed that PD007974 repeatedly reread the complete
     // 1.49 MiB p/i_pack.dat (and generated cache snapshots) even when the
@@ -178,7 +216,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // costs roughly 100ms per size/read operation on the iOS build and is hit
     // around map/menu transitions.  For a normal open of a verified-length
     // installed record, skip those redundant archive reads entirely.
-    let exists = {
+    let exists = if cached_installed.is_some() {
+        true
+    } else {
         let system = context.system();
         system.platform().database_repository().exists(&name, &pid).await
     };
@@ -197,7 +237,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     let mut inotia2_resource_fastpath = false;
     if pid == "PD007974" && aid == "010100D5" && mode != 4 && exists {
         if let Some(expected_len) = inotia2_canonical_installed_len(&name) {
-            let actual_len = {
+            let actual_len = if let Some(data) = cached_installed.as_ref() {
+                data.len()
+            } else {
                 let system = context.system();
                 let mut db = system.platform().database_repository().open(&name, &pid).await;
                 db.get(1).await.map(|data| data.len()).unwrap_or(0)
@@ -262,7 +304,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // before/after quest snapshots proved that doing so can leave bytes from
     // the previous save generation in the record.  Revert to strict CREATE:
     // delete record 1 first, then let subsequent writes rebuild it.
-    let initial: Vec<u8> = if exists {
+    let initial: Vec<u8> = if let Some(data) = cached_installed.clone() {
+        data
+    } else if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
         let inotia2_ipack_create =
             pid == "PD007974" && name == "i_pack.dat" && mode == 4;
@@ -399,6 +443,18 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         Vec::new()
     };
 
+    if mode != 4 {
+        if let Some(key) = inotia2_db_cache_key.as_deref() {
+            if !initial.is_empty() && inotia2_valid_installed_len(&name, initial.len()) {
+                context.host_blob_cache_put(key, initial.clone());
+                tracing::debug!(
+                    "[PHASE8_21_INOTIA2_DB_CACHE] STORE name={name} len={} source=normal-open",
+                    initial.len()
+                );
+            }
+        }
+    }
+
     // Phase 8.19 — keep Inotia 2's graphics settings user-controlled. Phase
     // 8.16 forced the low three envinfo bits off, which meant the UI could be
     // toggled on but the stored settings were silently rewritten. The newer
@@ -496,6 +552,8 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
         );
     }
 
+    let mut inotia2_cache_commit: Option<Vec<u8>> = None;
+
     // Phase 8.18 — Inotia 2's required startup rebuild is allowed to execute,
     // but its static mode-4 resources are write-back cached. Commit once here
     // instead of copying/flushing the entire growing record on every stream
@@ -534,6 +592,7 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
                 .open(&db_name, &pid)
                 .await;
             db.set(1, &commit).await;
+            inotia2_cache_commit = Some(commit.clone());
         }
 
         tracing::info!(
@@ -541,6 +600,29 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
             handle.buffer_len,
             commit.len()
         );
+    }
+
+    // Phase 8.21 — keep the installed static-record mirror coherent across
+    // repeated opens in this launch. CREATE uses the canonical commit selected
+    // above; normal handles cache their exact current buffer (including +8
+    // footers) at close. This avoids IndexedDB open/get on later map/skill use.
+    if pid == "PD007974" && aid == "010100D5" && is_inotia2_static_install_resource(&db_name) {
+        let cache_data = if let Some(commit) = inotia2_cache_commit.take() {
+            Some(commit)
+        } else if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
+            let mut snapshot = vec![0u8; handle.buffer_len as usize];
+            context.read_bytes(handle.buffer_ptr, &mut snapshot)?;
+            Some(snapshot)
+        } else {
+            None
+        };
+        if let Some(cache_data) = cache_data {
+            let key = inotia2_host_db_cache_key(&db_name);
+            context.host_blob_cache_put(&key, cache_data);
+            tracing::debug!(
+                "[PHASE8_21_INOTIA2_DB_CACHE] STORE name={db_name} source=close"
+            );
+        }
     }
 
     // Normal titles and non-static records remain write-through exactly as
@@ -1083,7 +1165,10 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
 
     let old_len = handle.buffer_len;
     let db_name = handle_name(&handle).to_owned();
-    let pid = context.system().pid().to_owned();
+    let (pid, aid) = {
+        let system = context.system();
+        (system.pid().to_owned(), system.aid().to_owned())
+    };
 
     if pid == "PD005362" {
         tracing::info!(
@@ -1195,6 +1280,15 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
 
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;
+    }
+
+    if pid == "PD007974" && aid == "010100D5" && is_inotia2_static_install_resource(&db_name) {
+        let key = inotia2_host_db_cache_key(&db_name);
+        context.host_blob_cache_put(&key, snapshot.clone());
+        tracing::debug!(
+            "[PHASE8_21_INOTIA2_DB_CACHE] STORE name={db_name} len={} source=write-through",
+            snapshot.len()
+        );
     }
 
     if pid == "PD007974" {

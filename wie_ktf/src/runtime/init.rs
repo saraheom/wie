@@ -215,6 +215,43 @@ pub async fn load_native(
                 "[PHASE8_20_INOTIA1_CASH_CMD1_VALIDATION_BYPASS] byte guard mismatch at {INOTIA1_CMD1_VALID_BRANCH:#010x}: got={cmd1_valid_branch:02x?}; patch suppressed"
             );
         }
+
+        // Phase 8.21 — second command-1 data/integrity gate.
+        //
+        // Phase 8.20 proved that bypassing the first legacy validator was not
+        // sufficient. The real client fully consumes the 27-byte local frame,
+        // then records cash error 2009/state 5 and closes the socket. Static
+        // analysis of the same command-1 handler resolves the next direct
+        // error-2009 branch at 0x001174fe: helper 0x0011d158 advances the
+        // packet cursor, runs the extinct carrier/session integrity check, and
+        // returns zero when that historical context is unavailable. Preserve
+        // the helper call and its cursor/state side effects, but suppress only
+        // the `beq error_2009` branch for this exact binary. The following
+        // original code builds the next protocol request, which our offline
+        // bridge will capture before any catalog/purchase response is invented.
+        const INOTIA1_CMD1_DATA_VALID_BRANCH: u32 = 0x0011_74fe;
+        const INOTIA1_CMD1_DATA_VALID_EXPECT: [u8; 2] = [0x35, 0xd0]; // beq 0x11756c
+        const INOTIA1_CMD1_DATA_VALID_BYPASS: [u8; 2] = [0xc0, 0x46]; // Thumb NOP
+
+        let mut cmd1_data_valid_branch = [0u8; 2];
+        core.read_bytes(INOTIA1_CMD1_DATA_VALID_BRANCH, &mut cmd1_data_valid_branch)?;
+        if cmd1_data_valid_branch == INOTIA1_CMD1_DATA_VALID_EXPECT {
+            core.write_bytes(
+                INOTIA1_CMD1_DATA_VALID_BRANCH,
+                &INOTIA1_CMD1_DATA_VALID_BYPASS,
+            )?;
+            tracing::info!(
+                "[PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS] branch={INOTIA1_CMD1_DATA_VALID_BRANCH:#010x} error-2009 data validator -> continue original request builder"
+            );
+        } else if cmd1_data_valid_branch == INOTIA1_CMD1_DATA_VALID_BYPASS {
+            tracing::info!(
+                "[PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS] branch already patched at {INOTIA1_CMD1_DATA_VALID_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS] byte guard mismatch at {INOTIA1_CMD1_DATA_VALID_BRANCH:#010x}: got={cmd1_data_valid_branch:02x?}; patch suppressed"
+            );
+        }
     }
 
     // Patterns target instruction encodings, which the guest self-rebase at
