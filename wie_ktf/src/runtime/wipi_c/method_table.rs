@@ -472,13 +472,11 @@ pub fn get_net_method_table() -> Vec<WIPICMethodBody> {
         // Phase 8.13: KTF Inotia 1 calls carrier-extension slot 30 at
         // interface offset 0x78 after converting the legacy endpoint address.
         net::socket_connect_ktf_legacy.into_body(),
-        // Slot 31 has not been observed yet. Allocate it so the legacy KTF
-        // extension table has the correct layout through the slot used next.
-        gen_stub(31, "KTF legacy network slot 31"),
-        // Phase 8.15: PD005362 dereferences interface offset 0x80 (slot 32)
-        // immediately after the slot-30 connect callback and calls it as
-        // (fd, buffer, length). Route it into the offline request capture.
+        // Phase 8.16: PD005362 uses +0x7c / slot 31 for SEND.
         net::socket_write_ktf_legacy.into_body(),
+        // Phase 8.16: PD005362 uses +0x80 / slot 32 for RECEIVE.  The offline
+        // bridge supplies a minimal server-first command-0 greeting here.
+        net::socket_read_ktf_legacy.into_body(),
     ]
 }
 

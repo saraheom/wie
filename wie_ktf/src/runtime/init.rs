@@ -130,6 +130,38 @@ pub async fn load_native(
                 "[PHASE8_13_INOTIA2_CERT_BYPASS] byte guard mismatch at {INOTIA2_CERT_VALIDATOR:#010x}: got={current:02x?}; patch suppressed"
             );
         }
+
+        // Phase 8.16 — skip the redundant first-run cache-install decision,
+        // but only *after* the title has called 0x00143a88 to open/parse the
+        // persistent i_pack.dat and initialize its process-local resource
+        // globals.  At 0x00144e6a the original code is `cmp r0,#0`; forcing
+        // the existing return-0 path makes the caller treat the already
+        // installed p/ cache set as ready instead of launching 0x00144f48's
+        // CREATE/rebuild/progress-bar pass on every process launch.
+        const INOTIA2_INSTALL_VERIFY_BRANCH: u32 = 0x0014_4e6a;
+        const INOTIA2_INSTALL_VERIFY_EXPECT: [u8; 2] = [0x00, 0x28];
+        // Thumb `b 0x00144ec8` from 0x00144e6a (PC=0x00144e6e).
+        const INOTIA2_INSTALL_VERIFY_BYPASS: [u8; 2] = [0x2d, 0xe0];
+
+        let mut install_branch = [0u8; 2];
+        core.read_bytes(INOTIA2_INSTALL_VERIFY_BRANCH, &mut install_branch)?;
+        if install_branch == INOTIA2_INSTALL_VERIFY_EXPECT {
+            core.write_bytes(
+                INOTIA2_INSTALL_VERIFY_BRANCH,
+                &INOTIA2_INSTALL_VERIFY_BYPASS,
+            )?;
+            tracing::info!(
+                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] branch={INOTIA2_INSTALL_VERIFY_BRANCH:#010x} -> reuse installed p/ caches without rebuild"
+            );
+        } else if install_branch == INOTIA2_INSTALL_VERIFY_BYPASS {
+            tracing::info!(
+                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] branch already patched at {INOTIA2_INSTALL_VERIFY_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] byte guard mismatch at {INOTIA2_INSTALL_VERIFY_BRANCH:#010x}: got={install_branch:02x?}; patch suppressed"
+            );
+        }
     }
 
     // Patterns target instruction encodings, which the guest self-rebase at

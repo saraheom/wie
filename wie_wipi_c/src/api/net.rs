@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, vec, vec::Vec};
 
+use spin::Mutex;
 use wipi_types::wipic::WIPICWord;
 
 use wie_util::{Result, WieError};
@@ -30,6 +31,20 @@ const INOTIA1_PID: &str = "PD005362";
 const INOTIA1_FAKE_SOCKET_FD: i32 = 0;
 const M_E_WOULDBLOCK: i32 = -19;
 
+// Phase 8.16 — the original KTF cash-shop protocol is server-first.  The
+// client waits for a two-byte big-endian packet length before it transmits
+// its own login/shop request.  A three-byte command-0 greeting is the
+// smallest valid frame: length=3, command=0, no payload.  The native command
+// dispatcher answers command 0 by constructing its normal command-1 request.
+// Keep this tiny local receive queue exact-title-only; no external connection
+// is made and no speculative catalog/purchase payload is fabricated.
+const INOTIA1_CASH_SERVER_HELLO: [u8; 3] = [0x00, 0x03, 0x00];
+static INOTIA1_CASH_RX_OFFSET: Mutex<usize> = Mutex::new(0);
+
+fn reset_inotia1_cash_rx() {
+    *INOTIA1_CASH_RX_OFFSET.lock() = 0;
+}
+
 fn is_inotia1_offline_network(context: &mut dyn WIPICContext) -> bool {
     let system = context.system();
     system.aid() == INOTIA1_AID && system.pid() == INOTIA1_PID
@@ -39,6 +54,7 @@ pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPIC
     let inotia1 = is_inotia1_offline_network(context);
 
     if inotia1 {
+        reset_inotia1_cash_rx();
         tracing::info!(
             "[PHASE8_12_INOTIA1_NET] MC_netConnect offline bridge cb={cb:#010x} param={param:#010x} -> callback success"
         );
@@ -76,6 +92,7 @@ pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPIC
 
 pub async fn close(context: &mut dyn WIPICContext) -> Result<()> {
     if is_inotia1_offline_network(context) {
+        reset_inotia1_cash_rx();
         tracing::info!("[INOTIA1_CASH_NET] MC_netClose offline bridge");
     } else {
         tracing::warn!("stub MC_netClose()");
@@ -230,7 +247,7 @@ pub async fn socket_write(
         return Ok(-1);
     }
 
-    let head_len = (len as usize).min(128);
+    let head_len = (len as usize).min(512);
     let mut head = vec![0u8; head_len];
     if head_len != 0 {
         context.read_bytes(ptr_buf, &mut head)?;
@@ -245,16 +262,17 @@ pub async fn socket_write(
     Ok(len)
 }
 
-// Phase 8.15 — KTF Inotia 1 uses another carrier-extension entry at
-// interface offset 0x80 (slot 32) immediately after the asynchronous slot-30
-// connect callback succeeds. Static analysis of PD005362 shows a three-word
-// call shape `(fd, buffer, length)` and the same return convention as a socket
-// write: positive byte count means progress and M_E_WOULDBLOCK is retryable.
+// Phase 8.16 — static disassembly plus the Phase 8.15 runtime trace resolves
+// the two carrier-extension slots that follow the async connect entry:
 //
-// Route only this legacy extension through the already-isolated offline
-// packet-capture writer. This keeps the old server unreachable while allowing
-// the original game to emit the request bytes needed to reconstruct the cash
-// shop protocol locally.
+//   interface + 0x7c (slot 31): SEND  (fd, source, remaining_length)
+//   interface + 0x80 (slot 32): RECV  (fd, destination, remaining_length)
+//
+// Phase 8.15 accidentally routed slot 32 into the writer.  The first call had
+// len=2 because the game was waiting for its server-first length header; after
+// WIE claimed those two zero bytes were sent, the guest decoded a zero length
+// and its next remaining count became -2.  Keep SEND as packet capture and
+// make RECV serve only the minimal local command-0 greeting above.
 pub async fn socket_write_ktf_legacy(
     context: &mut dyn WIPICContext,
     fd: i32,
@@ -263,14 +281,59 @@ pub async fn socket_write_ktf_legacy(
 ) -> Result<i32> {
     if !is_inotia1_offline_network(context) {
         return Err(WieError::Unimplemented(
-            "32: KTF legacy MC_netSocketWrite".into(),
+            "31: KTF legacy MC_netSocketWrite".into(),
         ));
     }
 
     tracing::info!(
-        "[PHASE8_15_INOTIA1_NET32] fd={fd} buf={ptr_buf:#010x} len={len} -> offline packet-capture writer"
+        "[PHASE8_16_INOTIA1_NET31_TX] fd={fd} buf={ptr_buf:#010x} len={len} -> offline packet capture"
     );
     socket_write(context, fd, ptr_buf, len).await
+}
+
+pub async fn socket_read_ktf_legacy(
+    context: &mut dyn WIPICContext,
+    fd: i32,
+    ptr_buf: WIPICWord,
+    len: i32,
+) -> Result<i32> {
+    if !is_inotia1_offline_network(context) {
+        return Err(WieError::Unimplemented(
+            "32: KTF legacy MC_netSocketRead".into(),
+        ));
+    }
+
+    if len < 0 {
+        tracing::warn!(
+            "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} invalid negative len={len}"
+        );
+        return Ok(-1);
+    }
+    if len == 0 {
+        return Ok(0);
+    }
+
+    let mut offset = INOTIA1_CASH_RX_OFFSET.lock();
+    if *offset >= INOTIA1_CASH_SERVER_HELLO.len() {
+        tracing::info!(
+            "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local greeting consumed -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
+        );
+        return Ok(M_E_WOULDBLOCK);
+    }
+
+    let remaining = INOTIA1_CASH_SERVER_HELLO.len() - *offset;
+    let count = remaining.min(len as usize);
+    let begin = *offset;
+    let end = begin + count;
+    let bytes = &INOTIA1_CASH_SERVER_HELLO[begin..end];
+    context.write_bytes(ptr_buf, bytes)?;
+    *offset = end;
+
+    tracing::info!(
+        "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} buf={ptr_buf:#010x} requested={len} returned={count} offset={end}/{} bytes={bytes:02x?}",
+        INOTIA1_CASH_SERVER_HELLO.len()
+    );
+    Ok(count as i32)
 }
 
 pub async fn socket_read(
@@ -291,6 +354,7 @@ pub async fn socket_read(
 
 pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32> {
     if is_inotia1_offline_network(context) {
+        reset_inotia1_cash_rx();
         tracing::info!("[INOTIA1_CASH_NET] MC_netSocketClose({fd}) -> 0");
         return Ok(0);
     }

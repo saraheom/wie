@@ -47,6 +47,7 @@ pub(crate) struct ArmCoreInner {
     svc_handlers: BTreeMap<u32, Arc<Box<dyn RegisteredFunction>>>,
     next_stub_address: u32,
     profile: Option<ProfileState>,
+    run_slice_instructions: u32,
 }
 
 impl Drop for ArmCoreInner {
@@ -101,6 +102,7 @@ impl ArmCore {
             svc_handlers: BTreeMap::new(),
             next_stub_address: FUNCTIONS_BASE,
             profile,
+            run_slice_instructions: 1000,
         };
 
         let result = Self {
@@ -115,6 +117,13 @@ impl ArmCore {
         }
 
         Ok(result)
+    }
+
+    /// Set the guest instruction budget executed before yielding back to the
+    /// async task scheduler.  Larger slices reduce scheduler/WebView overhead
+    /// for native-heavy games while still yielding regularly for timers/input.
+    pub fn set_run_slice_instructions(&mut self, instructions: u32) {
+        self.inner.lock().run_slice_instructions = instructions.max(1000);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -286,9 +295,13 @@ impl ArmCore {
         let mut consecutive_count_exhausted: u32 = 0;
 
         loop {
-            let result = {
+            let (result, run_slice_instructions) = {
                 let mut inner = self.inner.lock();
-                inner.engine.run(RUN_FUNCTION_LR, 1000)?
+                let run_slice_instructions = inner.run_slice_instructions;
+                (
+                    inner.engine.run(RUN_FUNCTION_LR, run_slice_instructions)?,
+                    run_slice_instructions,
+                )
             };
 
             self.sample_profile();
@@ -303,9 +316,15 @@ impl ArmCore {
                     // of console messages per minute and the WASM -> WebView log
                     // bridge itself became a material source of gameplay stutter.
                     // Preserve the deep-hang diagnostic only at the highest
-                    // threshold (~16.4M uninterrupted guest instructions).
+                    // chunk threshold. The configured instruction slice is
+                    // included in the diagnostic, so native-heavy titles with
+                    // larger slices log even less frequently.
                     if consecutive_count_exhausted == 16384 {
-                        self.trace_long_native_run(address, consecutive_count_exhausted);
+                        self.trace_long_native_run(
+                            address,
+                            consecutive_count_exhausted,
+                            run_slice_instructions,
+                        );
                     }
                     YieldFuture::new().await; // yield to allow other tasks to run
                 }
@@ -339,7 +358,7 @@ impl ArmCore {
         Ok(result)
     }
 
-    fn trace_long_native_run(&self, entry: u32, chunks: u32) {
+    fn trace_long_native_run(&self, entry: u32, chunks: u32, run_slice_instructions: u32) {
         let mut inner = self.inner.lock();
         let engine = &mut inner.engine;
 
@@ -363,7 +382,7 @@ impl ArmCore {
 
         tracing::warn!(
             "[NATIVE_LOOP] entry={entry:#x} chunks={chunks} approx_instructions={} pc={pc:#x} lr={lr:#x} sp={sp:#x} cpsr={cpsr:#x} r0={r0:#x} r1={r1:#x} r2={r2:#x} r3={r3:#x} r4={r4:#x} r5={r5:#x} r6={r6:#x} r7={r7:#x} r8={r8:#x} r9={r9:#x} r10={r10:#x} r11={r11:#x} r12={r12:#x}",
-            chunks.saturating_mul(1000)
+            chunks.saturating_mul(run_slice_instructions)
         );
 
         let code_base = (pc & !1).saturating_sub(16) & !3;

@@ -173,7 +173,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // before/after quest snapshots proved that doing so can leave bytes from
     // the previous save generation in the record.  Revert to strict CREATE:
     // delete record 1 first, then let subsequent writes rebuild it.
-    let initial: Vec<u8> = if exists {
+    let mut initial: Vec<u8> = if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
         let inotia2_ipack_create =
             pid == "PD007974" && name == "i_pack.dat" && mode == 4;
@@ -213,32 +213,11 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
 
             let mut data = data;
 
-            // Phase 8.15 — PD007974 is distributed with a complete preinstalled
-            // KTF database image under p/.  Older WIE runs left appinfo.dat in
-            // its installer-state form (the bundled installed snapshot has the
-            // final byte set to 1), so the title showed and executed its legacy
-            // installation pass again on every launch even though all expanded
-            // caches were already valid.  appinfo.dat is static installation
-            // metadata, not player progress.  For this exact title, prefer the
-            // bundled installed snapshot when an older persistent copy differs.
-            if pid == "PD007974" && aid == "010100D5" && name == "appinfo.dat" && mode != 4 {
-                if let Some(installed) = packaged.as_ref() {
-                    let installed_marker = installed.len() == 5 && installed[4] == 1;
-                    if installed_marker && data.as_slice() != installed.as_slice() {
-                        tracing::info!(
-                            "[PHASE8_15_INOTIA2_INSTALL_SKIP] stale appinfo persistent={:02x?} -> bundled installed metadata={:02x?}",
-                            data,
-                            installed
-                        );
-                        db.set(1, installed).await;
-                        data = installed.clone();
-                    } else if installed_marker {
-                        tracing::info!(
-                            "[PHASE8_15_INOTIA2_INSTALL_SKIP] appinfo already matches bundled installed metadata"
-                        );
-                    }
-                }
-            }
+            // Phase 8.16: do not overwrite appinfo.dat with the bundled copy.
+            // Phase 8.15 proved that appinfo is not the install/rebuild gate: the
+            // game still entered the rebuild path after the replacement.  The
+            // actual redundant verification branch is now patched after its
+            // i_pack loader has run (wie_ktf::runtime::init).
 
             // Repair records polluted by the pre-8.14 CREATE behavior without
             // requiring the user to erase all saved state.  Size is a safe
@@ -294,6 +273,29 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     } else {
         Vec::new()
     };
+
+    // Phase 8.16 — Inotia 2 performance profile.  The user's A/B test showed
+    // that disabling the three expensive in-game effects (shadow, weather,
+    // critical) removes most gameplay stutter.  The shipped envinfo byte 3 is
+    // 0x07 and those three toggles are its low three bits.  Clear only those
+    // bits for this exact title and leave every other preference untouched.
+    if pid == "PD007974" && aid == "010100D5" && name == "envinfo.dat" && initial.len() >= 4 {
+        let old = initial[3];
+        let new = old & !0x07;
+        if new != old {
+            initial[3] = new;
+            let mut db = context
+                .system()
+                .platform()
+                .database_repository()
+                .open(&name, &pid)
+                .await;
+            db.set(1, &initial).await;
+            tracing::info!(
+                "[PHASE8_16_INOTIA2_PERF_PROFILE] envinfo graphics byte {old:#04x}->{new:#04x}; shadow/weather/critical=off"
+            );
+        }
+    }
 
     let name_bytes = name.as_bytes();
 
@@ -993,6 +995,19 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
         context.read_bytes(handle.buffer_ptr, &mut snapshot)?;
     }
+
+    if pid == "PD007974" && db_name == "envinfo.dat" && snapshot.len() >= 4 {
+        let old = snapshot[3];
+        let new = old & !0x07;
+        if new != old {
+            snapshot[3] = new;
+            context.write_bytes(handle.buffer_ptr + 3, &[new])?;
+            tracing::info!(
+                "[PHASE8_16_INOTIA2_PERF_PROFILE] envinfo write graphics byte {old:#04x}->{new:#04x}; shadow/weather/critical=off"
+            );
+        }
+    }
+
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;
     }

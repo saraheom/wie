@@ -83,6 +83,17 @@ impl KtfEmulator {
         mut options: Options,
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
+        if aid == "010100D5" && pid == "PD007974" {
+            // Phase 8.16: Inotia 2 spends long stretches in native ARM code.
+            // The default 1000-instruction slice creates excessive async yield
+            // overhead on iOS/WASM, especially during dialogue and transitions.
+            // A conservative 4x slice remains responsive while reducing that
+            // scheduler boundary frequency substantially.
+            core.set_run_slice_instructions(4000);
+            tracing::info!(
+                "[PHASE8_16_INOTIA2_EXEC_QUANTUM] native run slice=4000 instructions"
+            );
+        }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });
 
         for (path, data) in files {
