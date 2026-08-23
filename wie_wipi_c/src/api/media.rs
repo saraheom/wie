@@ -165,8 +165,18 @@ pub async fn clip_get_volume(_context: &mut dyn WIPICContext, clip: WIPICWord) -
     Ok(0)
 }
 
-pub async fn clip_set_volume(_context: &mut dyn WIPICContext, clip: WIPICWord, volume: WIPICWord) -> Result<WIPICWord> {
-    tracing::warn!("stub MC_mdaClipSetVolume({clip:#x}, {volume:#x})");
+pub async fn clip_set_volume(context: &mut dyn WIPICContext, clip: WIPICWord, volume: WIPICWord) -> Result<WIPICWord> {
+    // Phase 8.17 — PD007974 calls this no-op volume setter repeatedly during
+    // ordinary animation/gameplay.  Emitting a WARN for every call crosses the
+    // WASM/WebView logging bridge and becomes measurable stutter.  Preserve the
+    // existing no-op ABI, but demote this known title's hot-path diagnostic.
+    if context.system().pid() == "PD007974" {
+        tracing::debug!(
+            "[PHASE8_17_INOTIA2_MEDIA_QUIET] MC_mdaClipSetVolume({clip:#x}, {volume:#x})"
+        );
+    } else {
+        tracing::warn!("stub MC_mdaClipSetVolume({clip:#x}, {volume:#x})");
+    }
 
     Ok(0)
 }

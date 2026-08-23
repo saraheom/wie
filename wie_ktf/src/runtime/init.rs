@@ -131,35 +131,79 @@ pub async fn load_native(
             );
         }
 
-        // Phase 8.16 — skip the redundant first-run cache-install decision,
-        // but only *after* the title has called 0x00143a88 to open/parse the
-        // persistent i_pack.dat and initialize its process-local resource
-        // globals.  At 0x00144e6a the original code is `cmp r0,#0`; forcing
-        // the existing return-0 path makes the caller treat the already
-        // installed p/ cache set as ready instead of launching 0x00144f48's
-        // CREATE/rebuild/progress-bar pass on every process launch.
-        const INOTIA2_INSTALL_VERIFY_BRANCH: u32 = 0x0014_4e6a;
-        const INOTIA2_INSTALL_VERIFY_EXPECT: [u8; 2] = [0x00, 0x28];
-        // Thumb `b 0x00144ec8` from 0x00144e6a (PC=0x00144e6e).
-        const INOTIA2_INSTALL_VERIFY_BYPASS: [u8; 2] = [0x2d, 0xe0];
+        // Phase 8.17 — skip the *actual* repeated installation call.
+        //
+        // Phase 8.16 patched a lower-level resource verifier at 0x00144e6a,
+        // and the marker proved that patch executed, but the caller still
+        // entered 0x00144f48 and rebuilt i_pack.dat plus all generated caches.
+        // Static analysis of this exact client.bin shows only one call site for
+        // that rebuild/progress routine.  At 0x001780e2 the original Thumb
+        // instruction is `bne 0x0017812e`; that branch is the sole edge into
+        // `bl 0x00144f48`.  NOP it so the normal fall-through marks the
+        // installation state as 2 and continues with the already-valid p/
+        // resources.  Guard both title identity and original bytes.
+        const INOTIA2_INSTALL_CALL_BRANCH: u32 = 0x0017_80e2;
+        const INOTIA2_INSTALL_CALL_EXPECT: [u8; 2] = [0x24, 0xd1];
+        // Thumb NOP (`mov r8,r8`).
+        const INOTIA2_INSTALL_CALL_BYPASS: [u8; 2] = [0xc0, 0x46];
 
-        let mut install_branch = [0u8; 2];
-        core.read_bytes(INOTIA2_INSTALL_VERIFY_BRANCH, &mut install_branch)?;
-        if install_branch == INOTIA2_INSTALL_VERIFY_EXPECT {
+        let mut install_call_branch = [0u8; 2];
+        core.read_bytes(INOTIA2_INSTALL_CALL_BRANCH, &mut install_call_branch)?;
+        if install_call_branch == INOTIA2_INSTALL_CALL_EXPECT {
             core.write_bytes(
-                INOTIA2_INSTALL_VERIFY_BRANCH,
-                &INOTIA2_INSTALL_VERIFY_BYPASS,
+                INOTIA2_INSTALL_CALL_BRANCH,
+                &INOTIA2_INSTALL_CALL_BYPASS,
             )?;
             tracing::info!(
-                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] branch={INOTIA2_INSTALL_VERIFY_BRANCH:#010x} -> reuse installed p/ caches without rebuild"
+                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] branch={INOTIA2_INSTALL_CALL_BRANCH:#010x} -> skip repeated cache rebuild/progress bar"
             );
-        } else if install_branch == INOTIA2_INSTALL_VERIFY_BYPASS {
+        } else if install_call_branch == INOTIA2_INSTALL_CALL_BYPASS {
             tracing::info!(
-                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] branch already patched at {INOTIA2_INSTALL_VERIFY_BRANCH:#010x}"
+                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] branch already patched at {INOTIA2_INSTALL_CALL_BRANCH:#010x}"
             );
         } else {
             tracing::warn!(
-                "[PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS] byte guard mismatch at {INOTIA2_INSTALL_VERIFY_BRANCH:#010x}: got={install_branch:02x?}; patch suppressed"
+                "[PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS] byte guard mismatch at {INOTIA2_INSTALL_CALL_BRANCH:#010x}: got={install_call_branch:02x?}; patch suppressed"
+            );
+        }
+    }
+
+    // Phase 8.17 — Inotia 1 offline cash-shop bootstrap.
+    //
+    // The Phase 8.16 server-first frame [00 03 00] is accepted and dispatches
+    // command 0, but the preserved client is in the wrong carrier-network
+    // state and takes its local "error occurred" branch before transmitting a
+    // request.  In the original command-0 handler, the state==1 branch at
+    // 0x00117234 calls the title's own request builder as `send(1, 0)`.
+    // Redirect only the command-0 entry to that existing branch so the client
+    // generates its authentic next protocol packet; the offline socket layer
+    // can then capture it without contacting the extinct service.
+    const INOTIA1_AID: &str = "010100D3";
+    const INOTIA1_PID: &str = "PD005362";
+    const INOTIA1_NATIVE_LEN: usize = 431_008;
+    const INOTIA1_CASH_CMD0_HANDLER: u32 = 0x0011_71e4;
+    const INOTIA1_CASH_CMD0_EXPECT: [u8; 2] = [0xc3, 0x19];
+    // Thumb `b 0x00117234` from 0x001171e4 (PC=0x001171e8).
+    const INOTIA1_CASH_CMD0_BOOTSTRAP: [u8; 2] = [0x26, 0xe0];
+
+    if system.aid() == INOTIA1_AID
+        && system.pid() == INOTIA1_PID
+        && data.len() == INOTIA1_NATIVE_LEN
+    {
+        let mut cash_cmd0 = [0u8; 2];
+        core.read_bytes(INOTIA1_CASH_CMD0_HANDLER, &mut cash_cmd0)?;
+        if cash_cmd0 == INOTIA1_CASH_CMD0_EXPECT {
+            core.write_bytes(INOTIA1_CASH_CMD0_HANDLER, &INOTIA1_CASH_CMD0_BOOTSTRAP)?;
+            tracing::info!(
+                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] handler={INOTIA1_CASH_CMD0_HANDLER:#010x} -> force original command-1 request builder"
+            );
+        } else if cash_cmd0 == INOTIA1_CASH_CMD0_BOOTSTRAP {
+            tracing::info!(
+                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] handler already patched at {INOTIA1_CASH_CMD0_HANDLER:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] byte guard mismatch at {INOTIA1_CASH_CMD0_HANDLER:#010x}: got={cash_cmd0:02x?}; patch suppressed"
             );
         }
     }

@@ -48,6 +48,7 @@ pub(crate) struct ArmCoreInner {
     next_stub_address: u32,
     profile: Option<ProfileState>,
     run_slice_instructions: u32,
+    log_thread_lifecycle: bool,
 }
 
 impl Drop for ArmCoreInner {
@@ -103,6 +104,7 @@ impl ArmCore {
             next_stub_address: FUNCTIONS_BASE,
             profile,
             run_slice_instructions: 1000,
+            log_thread_lifecycle: true,
         };
 
         let result = Self {
@@ -124,6 +126,12 @@ impl ArmCore {
     /// for native-heavy games while still yielding regularly for timers/input.
     pub fn set_run_slice_instructions(&mut self, instructions: u32) {
         self.inner.lock().run_slice_instructions = instructions.max(1000);
+    }
+
+    /// Keep thread lifecycle diagnostics available without forcing every
+    /// short-lived guest timer callback through INFO logging.
+    pub fn set_thread_lifecycle_logging(&mut self, enabled: bool) {
+        self.inner.lock().log_thread_lifecycle = enabled;
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -155,17 +163,21 @@ impl ArmCore {
     {
         let state = ThreadState::new(self.clone())?;
 
-        let thread_id = {
+        let (thread_id, log_thread_lifecycle) = {
             let mut inner = self.inner.lock();
 
             let thread_id = inner.last_thread_id + 1;
             inner.last_thread_id += 1;
             inner.threads.insert(thread_id, state);
 
-            thread_id
+            (thread_id, inner.log_thread_lifecycle)
         };
 
-        tracing::info!("Create thread: {thread_id}");
+        if log_thread_lifecycle {
+            tracing::info!("Create thread: {thread_id}");
+        } else {
+            tracing::debug!("Create thread: {thread_id}");
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -178,13 +190,18 @@ impl ArmCore {
     }
 
     pub fn delete_thread_context(&self, thread_id: ThreadId) {
-        tracing::info!("Terminate thread: {thread_id}");
-
         // we should exit inner lock first to run cleanup on thread state drop
-        let _thread_state = {
+        let (_thread_state, log_thread_lifecycle) = {
             let mut inner = self.inner.lock();
-            inner.threads.remove(&thread_id)
+            let log_thread_lifecycle = inner.log_thread_lifecycle;
+            (inner.threads.remove(&thread_id), log_thread_lifecycle)
         };
+
+        if log_thread_lifecycle {
+            tracing::info!("Terminate thread: {thread_id}");
+        } else {
+            tracing::debug!("Terminate thread: {thread_id}");
+        }
 
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(debug) = self.debug_inner() {

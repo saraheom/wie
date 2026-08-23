@@ -69,6 +69,23 @@ fn is_inotia2_generated_cache(name: &str) -> bool {
     )
 }
 
+// Phase 8.17 — canonical installed lengths from this exact PD007974 package.
+// If a persistent resource already has one of these lengths on a normal open,
+// there is no reason to reopen/read the large archive-backed p/ copy merely to
+// rediscover the same bytes.  This removes repeated 100ms-class filesystem
+// reads during map/menu transitions while retaining the Phase 8.14 repair path
+// whenever a record length is wrong.
+fn inotia2_canonical_installed_len(name: &str) -> Option<usize> {
+    match name {
+        "i_pack.dat" => Some(1_489_150),
+        "eventdata.dat" => Some(119_634),
+        "filetext.dat" => Some(301_682),
+        "i_mapfeature.dat" => Some(44_928),
+        "i_tile.dat" => Some(194_928),
+        _ => None,
+    }
+}
+
 async fn read_inotia2_prebuilt_cache(
     context: &mut dyn WIPICContext,
     name: &str,
@@ -129,8 +146,44 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         (system.pid().to_owned(), system.aid().to_owned())
     };
 
-    let packaged = read_packaged_database(context, &name).await?;
-    let inotia2_prebuilt_cache = if pid == "PD007974" && is_inotia2_generated_cache(&name) {
+    // Phase 8.17 — determine persistence before touching archive resources.
+    // Phase 8.16 logs showed that PD007974 repeatedly reread the complete
+    // 1.49 MiB p/i_pack.dat (and generated cache snapshots) even when the
+    // persistent database was already canonical.  The archive filesystem path
+    // costs roughly 100ms per size/read operation on the iOS build and is hit
+    // around map/menu transitions.  For a normal open of a verified-length
+    // installed record, skip those redundant archive reads entirely.
+    let exists = {
+        let system = context.system();
+        system.platform().database_repository().exists(&name, &pid).await
+    };
+
+    let mut inotia2_resource_fastpath = false;
+    if pid == "PD007974" && aid == "010100D5" && mode != 4 && exists {
+        if let Some(expected_len) = inotia2_canonical_installed_len(&name) {
+            let actual_len = {
+                let system = context.system();
+                let mut db = system.platform().database_repository().open(&name, &pid).await;
+                db.get(1).await.map(|data| data.len()).unwrap_or(0)
+            };
+            if actual_len == expected_len {
+                inotia2_resource_fastpath = true;
+                tracing::debug!(
+                    "[PHASE8_17_INOTIA2_RESOURCE_FASTPATH] name={name} len={actual_len} -> skip redundant archive resource read"
+                );
+            }
+        }
+    }
+
+    let packaged = if inotia2_resource_fastpath {
+        None
+    } else {
+        read_packaged_database(context, &name).await?
+    };
+    let inotia2_prebuilt_cache = if pid == "PD007974"
+        && is_inotia2_generated_cache(&name)
+        && !inotia2_resource_fastpath
+    {
         read_inotia2_prebuilt_cache(context, &name).await?
     } else {
         None
@@ -148,7 +201,6 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     if pid == "PD005362" {
         tracing::info!("[PHASE7_21] Inotia1 KTF record-length seek-return fix active");
     }
-    let exists = system.platform().database_repository().exists(&name, &pid).await;
 
     if pid == "PD007974" {
         tracing::debug!(
