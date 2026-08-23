@@ -1,9 +1,9 @@
 # WIE
 
 
-## Phase 8.22 Inotia compatibility/performance notes
+## Phase 8.24 Inotia compatibility/performance notes
 
-Phase 8.22 corrects Inotia 1's offline cash-shop response framing (including the common state/result byte the native dispatcher expects), hides only Inotia 2's obsolete installation progress renderer while preserving required initialization, and optimizes the ARM/WASM framebuffer hot paths used by animation, skills, and map transitions. See `FULL_REPO_PHASE8_22_README.md`.
+Phase 8.24 completes Inotia 1's empty command-2 transfer with the original command-4 finalization path and handles the observed command-123/command-30 cash-shop re-entry sequence. For Inotia 2, it removes the high-volume Phase 8.23 profiler from normal gameplay and applies a behavior-preserving ARM interpreter dispatch optimization while retaining the safe 4,000-instruction profile and hidden install progress UI. See `FULL_REPO_PHASE8_24_README.md`.
 
 ## Phase 8.13.1 local compatibility notes
 

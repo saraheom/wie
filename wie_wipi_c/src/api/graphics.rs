@@ -6,8 +6,6 @@ use core::mem::size_of;
 
 use alloc::{string::String, vec, vec::Vec};
 
-use spin::Mutex;
-
 use wie_backend::{
     Event,
     canvas::{Clip, Color, PixelType, Rgb8Pixel, Rgb565Pixel, TextAlignment, string_width},
@@ -23,11 +21,6 @@ use self::{framebuffer::FrameBuffer, grp_context::WIPICGraphicsContextIdx, image
 const FRAMEBUFFER_DEPTH: u32 = 16; // XXX hardcode to 16bpp as some game requires 16bpp framebuffer
 const SCREEN_FRAMEBUFFER_PTR: u32 = 0x7fff1000;
 
-// Phase 8.23 — diagnostic-only frame cadence probe for exact Inotia 2.
-// A mutex is used instead of target-dependent atomics so the wasm32 build does
-// not require WebAssembly threads/atomics. Large inter-session gaps are simply
-// ignored; the current timestamp still becomes the new baseline.
-static INOTIA2_LAST_FLUSH_MS: Mutex<u64> = Mutex::new(0);
 /// Read a WIPI-C string. `length == -1` means NUL-terminated; `length > 0`
 /// reads exactly that many bytes; `length == 0` and other negatives yield
 /// an empty string.
@@ -337,56 +330,17 @@ pub async fn flush_lcd(
 ) -> Result<()> {
     tracing::debug!("MC_grpFlushLcd({i:#x}, {:#x}, {x:#x}, {y:#x}, {w:#x}, {h:#x})", framebuffer.0);
 
-    let is_inotia2 = {
-        let system = context.system();
-        system.aid() == "010100D5" && system.pid() == "PD007974"
-    };
-
-    let flush_start_ms = context.system().platform().now().raw();
-    if is_inotia2 {
-        let mut last = INOTIA2_LAST_FLUSH_MS.lock();
-        let previous = *last;
-        *last = flush_start_ms;
-        if previous != 0 {
-            let gap_ms = flush_start_ms.saturating_sub(previous);
-            // Ignore multi-second periods where the game intentionally does
-            // not present frames (launch/background/dialog waits). Focus the
-            // diagnostic on animation/skill/map hitches visible to the user.
-            if (40..=2_000).contains(&gap_ms) {
-                if let Some(cpu) = context.debug_cpu_context() {
-                    tracing::info!(
-                        "[PHASE8_23_INOTIA2_FRAME_STALL] gap_ms={gap_ms} pc={:#010x} lr={:#010x} sp={:#010x} caller_r0={:#010x}",
-                        cpu[15], cpu[14], cpu[13], cpu[0]
-                    );
-                } else {
-                    tracing::info!(
-                        "[PHASE8_23_INOTIA2_FRAME_STALL] gap_ms={gap_ms} cpu_context=unavailable"
-                    );
-                }
-            }
-        }
-    }
-
+    // Phase 8.24 — Phase 8.23's one-session profiler established that the
+    // framebuffer image copy / platform paint path never crossed its 8 ms
+    // warning threshold. Remove the per-frame timestamp/mutex/INFO diagnostics
+    // from the hot path now that they have served their purpose. The Phase 8.22
+    // RGB565/Web canvas fast paths remain active underneath this call.
     let framebuffer = FrameBuffer(read_generic(context, context.data_ptr(framebuffer)?)?);
     let src_canvas = framebuffer.image(context)?;
-    let image_ready_ms = context.system().platform().now().raw();
 
-    {
-        let platform = context.system().platform();
-        let screen = platform.screen();
-        screen.paint(&*src_canvas);
-    }
-
-    if is_inotia2 {
-        let paint_done_ms = context.system().platform().now().raw();
-        let image_copy_ms = image_ready_ms.saturating_sub(flush_start_ms);
-        let paint_ms = paint_done_ms.saturating_sub(image_ready_ms);
-        if image_copy_ms >= 8 || paint_ms >= 8 {
-            tracing::info!(
-                "[PHASE8_23_INOTIA2_PRESENT_COST] image_copy_ms={image_copy_ms} paint_ms={paint_ms}"
-            );
-        }
-    }
+    let platform = context.system().platform();
+    let screen = platform.screen();
+    screen.paint(&*src_canvas);
 
     Ok(())
 }

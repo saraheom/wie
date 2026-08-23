@@ -94,16 +94,15 @@ impl KtfEmulator {
             // the default 1k budget.
             core.set_run_slice_instructions(4_000);
             core.set_thread_lifecycle_logging(false);
-            // Phase 8.23 diagnostic only: one NATIVE_LOOP snapshot after 1024
-            // uninterrupted 4k slices (~4.1M guest instructions) instead of
-            // waiting for the production 65.5M threshold. This should expose
-            // CPU-bound skill/map-transition stalls without changing execution.
-            core.set_native_loop_trace_chunks(1_024);
+            // Phase 8.24: return native-loop tracing to the production default.
+            // Phase 8.23 intentionally lowered the threshold to ~4.1M guest
+            // instructions and emitted hundreds of WebView console records so
+            // we could identify the remaining hot paths. The field log now
+            // proves the presentation bridge is cheap and the long hitches are
+            // guest-native work, so keep the established 4k latency profile but
+            // remove profiler-induced logging from normal gameplay.
             tracing::info!(
-                "[PHASE8_22_INOTIA2_EXEC_QUANTUM] native run slice=4000 instructions; latency-first gameplay profile"
-            );
-            tracing::info!(
-                "[PHASE8_23_INOTIA2_NATIVE_STALL_PROBE] native-loop trace threshold=1024 chunks (~4.1M guest instructions); logging-only"
+                "[PHASE8_24_INOTIA2_QUIET_PERF] native run slice=4000; stall profiler disabled; production native-loop threshold restored"
             );
         }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });

@@ -86,10 +86,40 @@ const INOTIA1_CASH_CMD5_STAGE2_EMPTY: [u8; 6] = [
     0x00, 0x00, // command-2 data length = 0
 ];
 
+// Phase 8.24 — complete the zero-byte transfer instead of leaving the native
+// cash-shop state machine halfway through command 2. Static analysis of the
+// command-4 finalizer (guest 0x00117744) shows that, after the common success
+// byte, it consumes one type byte, a one-byte string length (zero is valid),
+// then one final flag byte. With no trailing bytes the parser cleanly reaches
+// its original transfer-finalization path. This still represents an *empty*
+// catalog; it does not create items or modify save/inventory data.
+const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
+    0x00, 0x07, 0x04, // length=7, server command=4
+    0x01, // common result/state = success
+    0x00, // transfer/catalog type
+    0x00, // zero-length string
+    0x00, // final flag
+];
+
+// Phase 8.24 — retry/re-entry probe. After the user leaves the first cash-shop
+// attempt, the original title sends command 123 (one-way reset/cancel) followed
+// by command 30 carrying the handset identifier. Command 30 has a dedicated
+// receive handler. Its success path begins by consuming three one-byte fields;
+// a zero-count third field avoids the variable-length record loop while still
+// allowing the title to execute its original completion/UI state transition.
+// This is deliberately metadata-only: no item or purchase record is fabricated.
+const INOTIA1_CASH_CMD30_REENTRY_EMPTY: [u8; 7] = [
+    0x00, 0x07, 0x1e, // length=7, server command=30
+    0x01, // common result/state = success
+    0x00, 0x00, 0x00, // three command-30 fixed fields; record count = 0
+];
+
 const CASH_RX_HELLO: u8 = 0;
 const CASH_RX_WAIT: u8 = 1;
 const CASH_RX_CMD1: u8 = 2;
 const CASH_RX_CMD5_STAGE2: u8 = 3;
+const CASH_RX_CMD5_STAGE4: u8 = 4;
+const CASH_RX_CMD30_REENTRY: u8 = 5;
 
 #[derive(Copy, Clone)]
 struct Inotia1CashRxState {
@@ -119,6 +149,20 @@ fn queue_inotia1_cash_cmd1_success() {
 fn queue_inotia1_cash_cmd5_stage2() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD5_STAGE2,
+        offset: 0,
+    };
+}
+
+fn reset_inotia1_cash_session_wait() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_WAIT,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cash_cmd30_reentry() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD30_REENTRY,
         offset: 0,
     };
 }
@@ -416,13 +460,26 @@ pub async fn socket_write(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
     } else if head.len() >= 3 && head[2] == 0x05 {
-        // Phase 8.23: command 5 is now known to be the authentic next request,
-        // not another authentication failure. Feed only the structurally-safe
-        // empty command-2 transfer start. Do not fabricate catalog/purchase
-        // records until the title reveals the continuation contract.
+        // Phase 8.24: command 5 requests the catalog transfer. Queue the empty
+        // command-2 start; the reader automatically follows it with command 4
+        // finalization so the original UI is not left in a half-transfer state.
         queue_inotia1_cash_cmd5_stage2();
         tracing::info!(
-            "[PHASE8_23_INOTIA1_CASH_CMD5_STAGE2] outbound command=5 len={len} -> queued command-2 empty transfer-start response"
+            "[PHASE8_24_INOTIA1_CASH_TRANSFER_SEQUENCE] outbound command=5 len={len} -> queued command-2 empty start + command-4 empty finalize"
+        );
+    } else if head.len() >= 3 && head[2] == 0x7b {
+        // The observed 00 04 7b 00 packet is emitted when leaving/re-entering
+        // the shop and has no matching receive-dispatch handler. Treat it as
+        // the client's one-way session reset/cancel marker and clear only our
+        // pending local-response state.
+        reset_inotia1_cash_session_wait();
+        tracing::info!(
+            "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=123 len={len} -> local session queue reset; no response"
+        );
+    } else if head.len() >= 3 && head[2] == 0x1e {
+        queue_inotia1_cash_cmd30_reentry();
+        tracing::info!(
+            "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=30 len={len} -> queued minimal command-30 success/zero-record response"
         );
     } else if head.len() >= 3 {
         tracing::info!(
@@ -499,26 +556,47 @@ pub async fn socket_read_ktf_legacy(
     }
 
     let mut state = INOTIA1_CASH_RX_STATE.lock();
-    let frame: &[u8] = match state.phase {
-        CASH_RX_HELLO => &INOTIA1_CASH_SERVER_HELLO,
-        CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
-        CASH_RX_CMD5_STAGE2 => &INOTIA1_CASH_CMD5_STAGE2_EMPTY,
-        _ => {
-            tracing::info!(
-                "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
-            );
-            return Ok(M_E_WOULDBLOCK);
-        }
-    };
 
-    if state.offset >= frame.len() {
+    // Phase 8.24: a zero-byte catalog transfer is a two-frame server sequence.
+    // When command 2 has been completely consumed, advance directly to command
+    // 4 on the next guest read instead of reporting WOULD_BLOCK in between.
+    // This mirrors a continuous TCP stream while preserving the existing
+    // callback/read behavior for all other phases.
+    let frame: &[u8] = loop {
+        let candidate: &[u8] = match state.phase {
+            CASH_RX_HELLO => &INOTIA1_CASH_SERVER_HELLO,
+            CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
+            CASH_RX_CMD5_STAGE2 => &INOTIA1_CASH_CMD5_STAGE2_EMPTY,
+            CASH_RX_CMD5_STAGE4 => &INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY,
+            CASH_RX_CMD30_REENTRY => &INOTIA1_CASH_CMD30_REENTRY_EMPTY,
+            _ => {
+                tracing::info!(
+                    "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
+                );
+                return Ok(M_E_WOULDBLOCK);
+            }
+        };
+
+        if state.offset < candidate.len() {
+            break candidate;
+        }
+
+        if state.phase == CASH_RX_CMD5_STAGE2 {
+            state.phase = CASH_RX_CMD5_STAGE4;
+            state.offset = 0;
+            tracing::info!(
+                "[PHASE8_24_INOTIA1_CASH_TRANSFER_SEQUENCE] command-2 frame consumed -> command-4 empty finalize ready"
+            );
+            continue;
+        }
+
         state.phase = CASH_RX_WAIT;
         state.offset = 0;
         tracing::info!(
             "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local frame consumed -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
         );
         return Ok(M_E_WOULDBLOCK);
-    }
+    };
 
     let remaining = frame.len() - state.offset;
     let count = remaining.min(len as usize);

@@ -19,10 +19,6 @@ impl Arm32CpuEngine {
         }
     }
 
-    fn is_svc_exception(&self) -> bool {
-        self.cpu.reg_get(Mode::User, reg::PC) == 0x08 && (self.cpu.reg_get(Mode::User, reg::CPSR) & 0x1f) == 0x13
-    }
-
     fn read_svc_result(&mut self) -> Result<EngineRunResult> {
         let lr = self.cpu.reg_get(Mode::Supervisor, reg::LR);
         let spsr = self.cpu.reg_get(Mode::Supervisor, reg::SPSR);
@@ -46,9 +42,15 @@ impl Arm32CpuEngine {
 impl ArmEngine for Arm32CpuEngine {
     fn run(&mut self, end: u32, mut count: u32) -> Result<EngineRunResult> {
         loop {
+            // Phase 8.24 — interpreter dispatch hot path. The old loop read PC
+            // once here and then again inside is_svc_exception() for *every*
+            // guest instruction. Inotia 2's graphics loops execute millions of
+            // Thumb instructions between presents, so that redundant register
+            // lookup is measurable interpreter overhead. Reuse the already-read
+            // PC and only touch CPSR on the exceptional vector address itself.
             let pc = self.cpu.reg_get(Mode::User, reg::PC);
 
-            if self.is_svc_exception() {
+            if pc == 0x08 && (self.cpu.reg_get(Mode::User, reg::CPSR) & 0x1f) == 0x13 {
                 return self.read_svc_result();
             }
 
