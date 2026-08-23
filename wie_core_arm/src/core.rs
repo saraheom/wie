@@ -49,6 +49,11 @@ pub(crate) struct ArmCoreInner {
     profile: Option<ProfileState>,
     run_slice_instructions: u32,
     log_thread_lifecycle: bool,
+    // Number of consecutive CountExhausted slices before emitting one
+    // NATIVE_LOOP diagnostic for a run_function invocation. Default remains
+    // the quiet 16,384-chunk production value; exact-title diagnostics may
+    // lower it temporarily without changing execution semantics.
+    native_loop_trace_chunks: u32,
 }
 
 impl Drop for ArmCoreInner {
@@ -105,6 +110,7 @@ impl ArmCore {
             profile,
             run_slice_instructions: 1000,
             log_thread_lifecycle: true,
+            native_loop_trace_chunks: 16_384,
         };
 
         let result = Self {
@@ -132,6 +138,13 @@ impl ArmCore {
     /// short-lived guest timer callback through INFO logging.
     pub fn set_thread_lifecycle_logging(&mut self, enabled: bool) {
         self.inner.lock().log_thread_lifecycle = enabled;
+    }
+
+    /// Configure the one-shot consecutive native-loop diagnostic threshold.
+    /// This changes logging only; it does not alter instruction execution,
+    /// scheduling, or guest-visible timing APIs.
+    pub fn set_native_loop_trace_chunks(&mut self, chunks: u32) {
+        self.inner.lock().native_loop_trace_chunks = chunks.max(1);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -312,12 +325,14 @@ impl ArmCore {
         let mut consecutive_count_exhausted: u32 = 0;
 
         loop {
-            let (result, run_slice_instructions) = {
+            let (result, run_slice_instructions, native_loop_trace_chunks) = {
                 let mut inner = self.inner.lock();
                 let run_slice_instructions = inner.run_slice_instructions;
+                let native_loop_trace_chunks = inner.native_loop_trace_chunks;
                 (
                     inner.engine.run(RUN_FUNCTION_LR, run_slice_instructions)?,
                     run_slice_instructions,
+                    native_loop_trace_chunks,
                 )
             };
 
@@ -336,7 +351,7 @@ impl ArmCore {
                     // chunk threshold. The configured instruction slice is
                     // included in the diagnostic, so native-heavy titles with
                     // larger slices log even less frequently.
-                    if consecutive_count_exhausted == 16384 {
+                    if consecutive_count_exhausted == native_loop_trace_chunks {
                         self.trace_long_native_run(
                             address,
                             consecutive_count_exhausted,

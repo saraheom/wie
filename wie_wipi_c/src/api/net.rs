@@ -67,9 +67,29 @@ const INOTIA1_CASH_CMD1_SUCCESS: [u8; 28] = [
     0x00, 0x00, 0x00, 0x00, // status=success
 ];
 
+// Phase 8.23 — first response stage after the authentic command-5 request.
+//
+// Phase 8.22 is the first build that gets through the original command-0 and
+// command-1 handshake far enough for the title to emit:
+//   00 0c 05 00 00 00 00 00 00 00 01 01
+// The native receive switch does not have a command-5 response parser. Static
+// analysis resolves the next server-to-client stage as command 2. Its handler
+// first requires common result/state=1, then reads a big-endian u16 byte-count
+// and copies exactly that many bytes from the frame. Keep this first probe
+// deliberately empty (count=0) so the original state machine can advance
+// without inventing catalog records or touching char/save inventory data.
+// A later command-3/4 continuation will only be synthesized after the next
+// field log reveals which stage the client requests/awaits after this frame.
+const INOTIA1_CASH_CMD5_STAGE2_EMPTY: [u8; 6] = [
+    0x00, 0x06, 0x02, // length=6, server command=2
+    0x01, // common result/state = success
+    0x00, 0x00, // command-2 data length = 0
+];
+
 const CASH_RX_HELLO: u8 = 0;
 const CASH_RX_WAIT: u8 = 1;
 const CASH_RX_CMD1: u8 = 2;
+const CASH_RX_CMD5_STAGE2: u8 = 3;
 
 #[derive(Copy, Clone)]
 struct Inotia1CashRxState {
@@ -92,6 +112,13 @@ fn reset_inotia1_cash_rx() {
 fn queue_inotia1_cash_cmd1_success() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD1,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cash_cmd5_stage2() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD5_STAGE2,
         offset: 0,
     };
 }
@@ -388,6 +415,15 @@ pub async fn socket_write(
         tracing::info!(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
+    } else if head.len() >= 3 && head[2] == 0x05 {
+        // Phase 8.23: command 5 is now known to be the authentic next request,
+        // not another authentication failure. Feed only the structurally-safe
+        // empty command-2 transfer start. Do not fabricate catalog/purchase
+        // records until the title reveals the continuation contract.
+        queue_inotia1_cash_cmd5_stage2();
+        tracing::info!(
+            "[PHASE8_23_INOTIA1_CASH_CMD5_STAGE2] outbound command=5 len={len} -> queued command-2 empty transfer-start response"
+        );
     } else if head.len() >= 3 {
         tracing::info!(
             "[PHASE8_18_INOTIA1_CASH_PROTOCOL] outbound command={} len={len}; no synthetic response yet",
@@ -466,6 +502,7 @@ pub async fn socket_read_ktf_legacy(
     let frame: &[u8] = match state.phase {
         CASH_RX_HELLO => &INOTIA1_CASH_SERVER_HELLO,
         CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
+        CASH_RX_CMD5_STAGE2 => &INOTIA1_CASH_CMD5_STAGE2_EMPTY,
         _ => {
             tracing::info!(
                 "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"

@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.22 WIE WebAssembly core
+      - name: Force clean Phase 8.23 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -101,8 +101,14 @@ jobs:
           grep -n 'PHASE8_22_ARM_MEMORY_FASTPATH' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'PHASE8_22_RGB565_RAW_IMAGE' wie_wipi_c/src/api/graphics/framebuffer.rs
           grep -n 'PHASE8_22_WEB_RGB565_FASTPAINT' wie_web/src/rust/window.rs
+          grep -n 'PHASE8_23_INOTIA1_CASH_CMD5_STAGE2' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD5_STAGE2_EMPTY: \[u8; 6\]' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_23_INOTIA2_NATIVE_STALL_PROBE' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_23_INOTIA2_FRAME_STALL' wie_wipi_c/src/api/graphics.rs
+          grep -n 'PHASE8_23_INOTIA2_PRESENT_COST' wie_wipi_c/src/api/graphics.rs
+          grep -n 'set_native_loop_trace_chunks(1_024)' wie_ktf/src/emulator.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
-          grep -n 'consecutive_count_exhausted == 16384' wie_core_arm/src/core.rs
+          grep -n 'native_loop_trace_chunks: 16_384' wie_core_arm/src/core.rs
           grep -n 'util::inet_addr_int.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'ByteRead, ByteWrite' wie_ktf/src/runtime/init.rs
           if grep -q 'PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS' wie_ktf/src/runtime/init.rs; then
@@ -127,7 +133,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.22 core source was selected
+      - name: Verify Phase 8.23 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -172,8 +178,14 @@ jobs:
           grep -n 'PHASE8_22_ARM_MEMORY_FASTPATH' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'PHASE8_22_RGB565_RAW_IMAGE' wie_wipi_c/src/api/graphics/framebuffer.rs
           grep -n 'PHASE8_22_WEB_RGB565_FASTPAINT' wie_web/src/rust/window.rs
+          grep -n 'PHASE8_23_INOTIA1_CASH_CMD5_STAGE2' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD5_STAGE2_EMPTY: \[u8; 6\]' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_23_INOTIA2_NATIVE_STALL_PROBE' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_23_INOTIA2_FRAME_STALL' wie_wipi_c/src/api/graphics.rs
+          grep -n 'PHASE8_23_INOTIA2_PRESENT_COST' wie_wipi_c/src/api/graphics.rs
+          grep -n 'set_native_loop_trace_chunks(1_024)' wie_ktf/src/emulator.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
-          grep -n 'consecutive_count_exhausted == 16384' wie_core_arm/src/core.rs
+          grep -n 'native_loop_trace_chunks: 16_384' wie_core_arm/src/core.rs
           grep -n 'util::inet_addr_int.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'ByteRead, ByteWrite' wie_ktf/src/runtime/init.rs
           if grep -q 'PHASE8_17_INOTIA2_INSTALL_CALL_BYPASS' wie_ktf/src/runtime/init.rs; then
