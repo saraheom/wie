@@ -91,6 +91,22 @@ fn inotia2_canonical_installed_len(name: &str) -> Option<usize> {
     }
 }
 
+// Phase 8.19 — the four generated caches acquire an eight-byte runtime footer
+// immediately after the install builder closes them. Phase 8.18's trace proved
+// this is deterministic: e.g. filetext.dat closes at 301,682, then the title
+// appends two four-byte values and leaves a valid 301,690-byte record. The old
+// Phase 8.14 repair logic treated that legitimate footer as corruption and
+// stripped it back to the packaged p/ length. That both adds transition I/O and
+// is a strong candidate for why the native installer believes it must run on
+// every launch. Accept only the exact base or base+8 forms; multi-copy growth
+// (the original 2.8 MiB corruption) is still rejected and repaired.
+fn inotia2_valid_installed_len(name: &str, len: usize) -> bool {
+    let Some(base) = inotia2_canonical_installed_len(name) else {
+        return false;
+    };
+    len == base || (is_inotia2_generated_cache(name) && len == base.saturating_add(8))
+}
+
 fn is_inotia2_static_install_resource(name: &str) -> bool {
     inotia2_canonical_installed_len(name).is_some()
 }
@@ -186,10 +202,10 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                 let mut db = system.platform().database_repository().open(&name, &pid).await;
                 db.get(1).await.map(|data| data.len()).unwrap_or(0)
             };
-            if actual_len == expected_len {
+            if inotia2_valid_installed_len(&name, actual_len) {
                 inotia2_resource_fastpath = true;
                 tracing::debug!(
-                    "[PHASE8_17_INOTIA2_RESOURCE_FASTPATH] name={name} len={actual_len} -> skip redundant archive resource read"
+                    "[PHASE8_19_INOTIA2_INSTALLED_FASTPATH] name={name} len={actual_len} base={expected_len} -> preserve valid installed record and skip redundant archive read"
                 );
             }
         }
@@ -246,7 +262,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // before/after quest snapshots proved that doing so can leave bytes from
     // the previous save generation in the record.  Revert to strict CREATE:
     // delete record 1 first, then let subsequent writes rebuild it.
-    let mut initial: Vec<u8> = if exists {
+    let initial: Vec<u8> = if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
         let inotia2_ipack_create =
             pid == "PD007974" && name == "i_pack.dat" && mode == 4;
@@ -308,7 +324,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
             // while the canonical expanded copy is shipped in p/ by the title.
             if pid == "PD007974" && mode != 4 {
                 if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
-                    if data.len() != prebuilt.len() {
+                    if !inotia2_valid_installed_len(&name, data.len()) {
                         tracing::info!(
                             "[PHASE8_14_INOTIA2_CACHE_RESTORE] name={name} persistent_len={} canonical_len={} -> restore p/ snapshot",
                             data.len(),
@@ -317,6 +333,12 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
                         db.set(1, prebuilt).await;
                         prebuilt.clone()
                     } else {
+                        if data.len() == prebuilt.len().saturating_add(8) {
+                            tracing::debug!(
+                                "[PHASE8_19_INOTIA2_INSTALL_FOOTER] name={name} len={} -> preserve valid +8 runtime footer",
+                                data.len()
+                            );
+                        }
                         data
                     }
                 } else {
@@ -377,28 +399,11 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         Vec::new()
     };
 
-    // Phase 8.16 — Inotia 2 performance profile.  The user's A/B test showed
-    // that disabling the three expensive in-game effects (shadow, weather,
-    // critical) removes most gameplay stutter.  The shipped envinfo byte 3 is
-    // 0x07 and those three toggles are its low three bits.  Clear only those
-    // bits for this exact title and leave every other preference untouched.
-    if pid == "PD007974" && aid == "010100D5" && name == "envinfo.dat" && initial.len() >= 4 {
-        let old = initial[3];
-        let new = old & !0x07;
-        if new != old {
-            initial[3] = new;
-            let mut db = context
-                .system()
-                .platform()
-                .database_repository()
-                .open(&name, &pid)
-                .await;
-            db.set(1, &initial).await;
-            tracing::info!(
-                "[PHASE8_16_INOTIA2_PERF_PROFILE] envinfo graphics byte {old:#04x}->{new:#04x}; shadow/weather/critical=off"
-            );
-        }
-    }
+    // Phase 8.19 — keep Inotia 2's graphics settings user-controlled. Phase
+    // 8.16 forced the low three envinfo bits off, which meant the UI could be
+    // toggled on but the stored settings were silently rewritten. The newer
+    // writeback/resource optimizations provide the performance baseline, so do
+    // not mutate envinfo here.
 
     let name_bytes = name.as_bytes();
 
@@ -1185,17 +1190,8 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
         context.read_bytes(handle.buffer_ptr, &mut snapshot)?;
     }
 
-    if pid == "PD007974" && db_name == "envinfo.dat" && snapshot.len() >= 4 {
-        let old = snapshot[3];
-        let new = old & !0x07;
-        if new != old {
-            snapshot[3] = new;
-            context.write_bytes(handle.buffer_ptr + 3, &[new])?;
-            tracing::info!(
-                "[PHASE8_16_INOTIA2_PERF_PROFILE] envinfo write graphics byte {old:#04x}->{new:#04x}; shadow/weather/critical=off"
-            );
-        }
-    }
+    // Phase 8.19 — persist envinfo exactly as the game writes it. Shadow,
+    // weather, and critical effects are no longer forcibly disabled.
 
     if let Some(mut db) = open_db_for_handle(context, &handle).await {
         db.set(1, &snapshot).await;

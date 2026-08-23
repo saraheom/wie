@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.18 WIE WebAssembly core
+      - name: Force clean Phase 8.19 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -71,12 +71,15 @@ jobs:
           grep -n 'PHASE8_14_INOTIA2_CACHE_RESTORE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA1_INETADDR' wie_wipi_c/src/api/util.rs
           grep -n 'PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_16_INOTIA2_PERF_PROFILE' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALL_FOOTER' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_18_INOTIA2_INSTALL_WRITEBACK' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_18_INOTIA1_CASH_INIT_RX' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_19_INOTIA1_CASH_REJECT' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_19_INOTIA2_RESOURCE_CACHE' wie_ktf/src/runtime/wipi_c/context.rs
           grep -n 'INOTIA1_CASH_CMD1_SUCCESS: \[u8; 27\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_18_INOTIA2_EXEC_QUANTUM' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_17_INOTIA2_RESOURCE_FASTPATH' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_17_INOTIA2_MEDIA_QUIET' wie_wipi_c/src/api/media.rs
           grep -n 'PHASE8_16_INOTIA1_NET31_TX' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_16_INOTIA1_NET32_RX' wie_wipi_c/src/api/net.rs
@@ -93,13 +96,17 @@ jobs:
             echo 'Unsafe Phase 8.17 Inotia2 install-call bypass is still present' >&2
             exit 1
           fi
+          if grep -q 'PHASE8_16_INOTIA2_PERF_PROFILE' wie_wipi_c/src/api/database.rs; then
+            echo 'Obsolete forced Inotia2 graphics-off profile is still present' >&2
+            exit 1
+          fi
           grep -n 'get_access_level_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'get_exec_names_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
 
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.18 core source was selected
+      - name: Verify Phase 8.19 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -114,12 +121,15 @@ jobs:
           grep -n 'PHASE8_14_INOTIA2_CACHE_RESTORE' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_14_INOTIA1_INETADDR' wie_wipi_c/src/api/util.rs
           grep -n 'PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_16_INOTIA2_PERF_PROFILE' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALL_FOOTER' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_18_INOTIA2_INSTALL_WRITEBACK' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_18_INOTIA1_CASH_INIT_RX' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_19_INOTIA1_CASH_REJECT' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_19_INOTIA2_RESOURCE_CACHE' wie_ktf/src/runtime/wipi_c/context.rs
           grep -n 'INOTIA1_CASH_CMD1_SUCCESS: \[u8; 27\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_18_INOTIA2_EXEC_QUANTUM' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_17_INOTIA2_RESOURCE_FASTPATH' wie_wipi_c/src/api/database.rs
+          grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_17_INOTIA2_MEDIA_QUIET' wie_wipi_c/src/api/media.rs
           grep -n 'PHASE8_16_INOTIA1_NET31_TX' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_16_INOTIA1_NET32_RX' wie_wipi_c/src/api/net.rs
@@ -136,6 +146,10 @@ jobs:
             echo 'Unsafe Phase 8.17 Inotia2 install-call bypass is still present' >&2
             exit 1
           fi
+          if grep -q 'PHASE8_16_INOTIA2_PERF_PROFILE' wie_wipi_c/src/api/database.rs; then
+            echo 'Obsolete forced Inotia2 graphics-off profile is still present' >&2
+            exit 1
+          fi
           grep -n 'net::socket_connect.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'net::set_read_cb.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'net::socket_connect_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -146,7 +160,7 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.18 clean WASM build completed.'
+          echo 'Phase 8.19 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash

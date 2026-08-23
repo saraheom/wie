@@ -97,6 +97,33 @@ fn is_inotia1_offline_network(context: &mut dyn WIPICContext) -> bool {
     system.aid() == INOTIA1_AID && system.pid() == INOTIA1_PID
 }
 
+fn trace_inotia1_cash_reject(context: &mut dyn WIPICContext, api: &str, fd: Option<i32>) {
+    let state = *INOTIA1_CASH_RX_STATE.lock();
+    if let Some(cpu) = context.debug_cpu_context() {
+        let lr = cpu[14];
+        let pc = cpu[15];
+        let r10 = cpu[10];
+        let mut code = [0u8; 16];
+        let code_base = (lr & !1).saturating_sub(8);
+        let code_ok = context.read_bytes(code_base, &mut code).is_ok();
+        tracing::info!(
+            "[PHASE8_19_INOTIA1_CASH_REJECT] api={api} fd={fd:?} phase={} offset={} pc={pc:#010x} lr={lr:#010x} r10={r10:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} code_base={code_base:#010x} code_ok={code_ok} code={code:02x?}",
+            state.phase,
+            state.offset,
+            cpu[0],
+            cpu[1],
+            cpu[2],
+            cpu[3],
+        );
+    } else {
+        tracing::info!(
+            "[PHASE8_19_INOTIA1_CASH_REJECT] api={api} fd={fd:?} phase={} offset={} cpu_context=unavailable",
+            state.phase,
+            state.offset
+        );
+    }
+}
+
 pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPICWord) -> Result<i32> {
     let inotia1 = is_inotia1_offline_network(context);
 
@@ -139,6 +166,7 @@ pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPIC
 
 pub async fn close(context: &mut dyn WIPICContext) -> Result<()> {
     if is_inotia1_offline_network(context) {
+        trace_inotia1_cash_reject(context, "MC_netClose", None);
         reset_inotia1_cash_rx();
         tracing::info!("[INOTIA1_CASH_NET] MC_netClose offline bridge");
     } else {
@@ -431,6 +459,12 @@ pub async fn socket_read(
 
 pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32> {
     if is_inotia1_offline_network(context) {
+        // Phase 8.19 — Phase 8.18's 27-byte frame is structurally consumed but
+        // the native client rejects one of its semantics before issuing the
+        // next shop request.  Record the exact guest call site *before* reset
+        // so the next field test tells us which native error branch closed the
+        // socket.  This is diagnostic only and does not weaken save handling.
+        trace_inotia1_cash_reject(context, "MC_netSocketClose", Some(fd));
         reset_inotia1_cash_rx();
         tracing::info!("[INOTIA1_CASH_NET] MC_netSocketClose({fd}) -> 0");
         return Ok(0);

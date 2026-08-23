@@ -1,36 +1,18 @@
-WIPI Player Phase 8.13.1 Full Repository Manifest
-Generated: 2026-08-22 (America/New_York)
+WIPI Player Phase 8.19 Full Repository Manifest
+Generated: 2026-08-23 (America/New_York)
 
 Reconstructed phase chain:
-Phase 7.17 FullRepo baseline
-Phase 7.18
-Phase 7.19
-Phase 7.20
-Phase 7.21
-Phase 8.0
-Phase 8.1
-Phase 8.1.1
-Phase 8.1.2
-Phase 8.2
-Phase 8.3
-Phase 8.3.1
-Phase 8.4
-Phase 8.5
-Phase 8.6
-Phase 8.7
-Phase 8.8
-Phase 8.9
-Phase 8.9.1 Rust lifetime compile fix + TestFlight clean-build restoration
-Phase 8.10 Inotia 2 access-mask validation fix
-Phase 8.11 Inotia 2 KTF GetExecNames compatibility
-Phase 8.12 dual Inotia compatibility bridge
-Phase 8.13 Inotia 2 legacy certificate-validator bypass + Inotia 1 KTF net slot 30
+Phase 7.17 FullRepo baseline through Phase 8.18
+Phase 8.19 Inotia 2 installed-footer/resource-cache/user-graphics + Inotia 1 cash-response rejection trace
 
 Key SHA-256:
-8a000d92f7c77725e83ef5c861fbe3e17c26fc28ab9c392b760aaa9bd83d8b14  wie_ktf/src/runtime/init.rs
-74cca9f504dc5876d539284313483355b58249e9b5e38e7d0a75705f79925c96  wie_ktf/src/runtime/wipi_c/method_table.rs
-0c263dee19b79038f2102fc445599830b926279751a47e38f189c18d159df2a2  wie_wipi_c/src/api/net.rs
-b36815b33052b3e15cc2f658c43dff83982f27af751ba4a0a4cd37d657924832  wie_wipi_c/src/api/database.rs
-9c041d6fd649dfb3e9c75823210a0a352bd16f5c2e0b68e7d1281da6fa380008  .github/workflows/ios-testflight.yml
+0cdc6efe97574affa5e092c21a07408de3b00ff1bf5325f0264d9efc5ef255fa  wie_ktf/src/runtime/init.rs
+2f9d0656021c2e868078adf149f4b0e34a23aef5026cf4dd1dce7be178fc1e32  wie_ktf/src/runtime/wipi_c/method_table.rs
+566253f945462c424ff2c85400feadc34d099019a0a3ebbcd05c04e5b2e0d2c6  wie_ktf/src/runtime/wipi_c/context.rs
+51bf4601dbc347ae8cc3e971614e0e26c08bdfd365a88bd6a1bb5ff3cfc50057  wie_ktf/src/emulator.rs
+e8d3ab917f2f5c1e03ad4e507b70df295df854f9ad9798525077031db6b1fc0b  wie_wipi_c/src/api/net.rs
+73549452c8a9801badbca612801e3d9cd9ffbddf48d90d751d66ee1bb0ec645e  wie_wipi_c/src/api/database.rs
+20c3dd99afd96ef818aa8cfdb5a4120a061fd6616939bfa5210448875f29a199  wie_wipi_c/src/api/media.rs
+8846258eb1bd032475e794275277f95951bd50f11d9363d68000f24629ad382a  .github/workflows/ios-testflight.yml
 aaa37ae749fa67fc70cac89fd9879872c0ee21eaef41d9c48ba7db8ec3599ee5  Cargo.lock
 50f5134c0a42a8da90f86b3356ec22d4bf454b298c9cf2d40591d906accc0bc8  package-lock.json

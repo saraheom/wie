@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc, vec, vec::Vec};
 
 use jvm::{
     Jvm,
     runtime::{JavaIoInputStream, JavaLangClassLoader},
 };
+use spin::Mutex;
 use wipi_types::wipic::{WIPICIndirectPtr, WIPICWord};
 
 use wie_backend::{AsyncCallable, Event, Instant, System};
@@ -17,11 +18,99 @@ pub struct KtfWIPICContext {
     core: ArmCore,
     system: System,
     jvm: Jvm, // We need jvm to access resource in jvm. TODO is there better way to do this?
+    // Phase 8.19 — shared across cloned KTF contexts for one app launch.
+    // Inotia 2 repeatedly asks the packaged filesystem for the same multi-MB
+    // canonical install resources during map/skill transitions.  The backend
+    // filesystem bridge is much more expensive than a guest-side Vec clone, so
+    // cache only these immutable packaged resources for the exact title.
+    resource_cache: Arc<Mutex<BTreeMap<String, Vec<u8>>>>,
 }
 
 impl KtfWIPICContext {
     pub fn new(core: ArmCore, system: System, jvm: Jvm) -> Self {
-        Self { core, system, jvm }
+        Self {
+            core,
+            system,
+            jvm,
+            resource_cache: Arc::new(Mutex::new(BTreeMap::new())),
+        }
+    }
+
+    fn is_inotia2_ktf(&self) -> bool {
+        self.system.aid() == "010100D5" && self.system.pid() == "PD007974"
+    }
+
+    fn is_inotia2_hot_resource(&self, name: &str) -> bool {
+        self.is_inotia2_ktf()
+            && matches!(
+                name,
+                "i_pack.dat"
+                    | "eventdata.dat"
+                    | "filetext.dat"
+                    | "i_mapfeature.dat"
+                    | "i_tile.dat"
+            )
+    }
+
+    fn inotia2_hot_resource_cached_len(&self, name: &str) -> Option<usize> {
+        self.resource_cache.lock().get(name).map(Vec::len)
+    }
+
+    async fn read_inotia2_hot_resource_cached(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        if !self.is_inotia2_hot_resource(name) {
+            return Ok(None);
+        }
+
+        // Clone while holding the tiny spin lock, then release it before any
+        // async work.  This cache is shared by timer/spawn context clones.
+        if let Some(data) = self.resource_cache.lock().get(name).cloned() {
+            tracing::debug!(
+                "[PHASE8_19_INOTIA2_RESOURCE_CACHE] HIT name={name} size={}",
+                data.len()
+            );
+            return Ok(Some(data));
+        }
+
+        // The known KTF package carries the canonical expanded files under p/.
+        // Keep the historical resolution order for robustness, but only this
+        // exact title/resource set reaches the fast path.
+        let candidates = [
+            String::from(name),
+            alloc::format!("P/{name}"),
+            alloc::format!("p/{name}"),
+        ];
+
+        for path in candidates {
+            let Some(size) = self.system.filesystem().size(&path).await else {
+                continue;
+            };
+
+            let mut data = vec![0; size];
+            let read = self
+                .system
+                .filesystem()
+                .read(&path, 0, size, &mut data)
+                .await
+                .unwrap_or(0);
+            data.truncate(read);
+
+            if read == size {
+                self.resource_cache
+                    .lock()
+                    .insert(String::from(name), data.clone());
+                tracing::info!(
+                    "[PHASE8_19_INOTIA2_RESOURCE_CACHE] LOAD name={name} path={path} size={size}"
+                );
+            } else {
+                tracing::warn!(
+                    "[PHASE8_19_INOTIA2_RESOURCE_CACHE] short read name={name} path={path} expected={size} read={read}; not cached"
+                );
+            }
+
+            return Ok(Some(data));
+        }
+
+        Ok(None)
     }
 }
 
@@ -101,6 +190,21 @@ impl WIPICContext for KtfWIPICContext {
     }
 
     async fn get_resource_size(&self, name: &str) -> Result<Option<usize>> {
+        // Phase 8.19 — for Inotia 2's immutable packaged install resources,
+        // load/cache before entering the JVM class-loader fallback.  This turns
+        // repeated size+read archive crossings during map/skill transitions
+        // into in-memory lookups for the remainder of the launch.
+        if self.is_inotia2_hot_resource(name) {
+            // Do not clone a multi-megabyte cached Vec merely to answer a size
+            // query. The common map/skill path asks size before read.
+            if let Some(size) = self.inotia2_hot_resource_cached_len(name) {
+                return Ok(Some(size));
+            }
+            if let Some(data) = self.read_inotia2_hot_resource_cached(name).await? {
+                return Ok(Some(data.len()));
+            }
+        }
+
         let class_loader = JavaLangClassLoader::get_system_class_loader(&self.jvm)
             .await
             .map_err(|err| WieError::FatalError(alloc::format!("Failed to get class loader for resource {name:?}: {err:?}")))?;
@@ -167,6 +271,12 @@ impl WIPICContext for KtfWIPICContext {
     }
 
     async fn read_resource(&self, name: &str) -> Result<Vec<u8>> {
+        if self.is_inotia2_hot_resource(name) {
+            if let Some(data) = self.read_inotia2_hot_resource_cached(name).await? {
+                return Ok(data);
+            }
+        }
+
         let class_loader = JavaLangClassLoader::get_system_class_loader(&self.jvm)
             .await
             .map_err(|err| WieError::FatalError(alloc::format!("Failed to get class loader for resource {name:?}: {err:?}")))?;
