@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, vec, vec::Vec};
 use core::ops::{Deref, DerefMut};
 
 use bytemuck::pod_collect_to_vec;
@@ -21,6 +21,58 @@ fn buffer_size(width: u32, height: u32, bytes_per_pixel: u32) -> Result<(u32, u3
     }
 
     Ok((size, bpl))
+}
+
+
+// [PHASE8_22_RGB565_RAW_IMAGE] zero-repack RGB565 presentation image.
+//
+// MC_grpFlushLcd only needs an Image view over the guest framebuffer. The old
+// path converted the copied framebuffer bytes into Vec<u16>, then the web
+// backend expanded that again into Vec<Color> and finally another RGBA Vec on
+// every frame. Keep the 16-bit pixels in their original byte representation so
+// the web backend can expand RGB565 -> RGBA in one pass. Drawing canvases keep
+// using VecImageBuffer below, so guest graphics semantics are unchanged.
+pub struct RawRgb565Image {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
+
+impl RawRgb565Image {
+    fn new(width: u32, height: u32, data: Vec<u8>) -> Self {
+        Self { width, height, data }
+    }
+}
+
+impl Image for RawRgb565Image {
+    fn width(&self) -> u32 {
+        self.width
+    }
+
+    fn height(&self) -> u32 {
+        self.height
+    }
+
+    fn bytes_per_pixel(&self) -> u32 {
+        2
+    }
+
+    fn get_pixel(&self, x: i32, y: i32) -> Color {
+        let index = ((y as u32 * self.width + x as u32) * 2) as usize;
+        let raw = u16::from_le_bytes([self.data[index], self.data[index + 1]]);
+        Rgb565Pixel::to_color(raw)
+    }
+
+    fn raw(&self) -> Cow<'_, [u8]> {
+        Cow::Borrowed(&self.data)
+    }
+
+    fn colors(&self) -> Vec<Color> {
+        self.data
+            .chunks_exact(2)
+            .map(|pixel| Rgb565Pixel::to_color(u16::from_le_bytes([pixel[0], pixel[1]])))
+            .collect()
+    }
 }
 
 pub struct FrameBuffer(pub WIPICFramebuffer);
@@ -78,10 +130,10 @@ impl FrameBuffer {
         let data = self.data(context)?;
 
         Ok(match self.0.bpp {
-            16 => Box::new(VecImageBuffer::<Rgb565Pixel>::from_raw(
+            16 => Box::new(RawRgb565Image::new(
                 self.0.width as _,
                 self.0.height as _,
-                pod_collect_to_vec(&data),
+                data,
             )),
             32 => Box::new(VecImageBuffer::<ArgbPixel>::from_raw(
                 self.0.width as _,

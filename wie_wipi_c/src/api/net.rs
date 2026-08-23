@@ -31,27 +31,31 @@ const INOTIA1_PID: &str = "PD005362";
 const INOTIA1_FAKE_SOCKET_FD: i32 = 0;
 const M_E_WOULDBLOCK: i32 = -19;
 
-// Phase 8.16 — the original KTF cash-shop protocol is server-first.  The
-// client waits for a two-byte big-endian packet length before it transmits
-// its own login/shop request.  A three-byte command-0 greeting is the
-// smallest valid frame: length=3, command=0, no payload.  The native command
-// dispatcher answers command 0 by constructing its normal command-1 request.
-// Keep this tiny local receive queue exact-title-only; no external connection
-// is made and no speculative catalog/purchase payload is fabricated.
-const INOTIA1_CASH_SERVER_HELLO: [u8; 3] = [0x00, 0x03, 0x00];
+// Phase 8.22 — corrected server-first framing for the original KTF cash shop.
+//
+// Static Thumb disassembly of the packet dispatcher at guest 0x00117194 shows
+// that *every* received frame first consumes one common one-byte result/state
+// field and stores it through the GOT slot at r10+0x470 before dispatching on
+// the command byte. Command 0 only builds the authentic command-1 request when
+// that field is 1. Earlier phases sent a three-byte command-0 frame with no
+// payload, leaving the field at 0 and then forced the request-builder branch.
+// Feed the byte the original state machine expects instead: length=4,
+// command=0, common result/state=1. No live carrier server is contacted.
+const INOTIA1_CASH_SERVER_HELLO: [u8; 4] = [0x00, 0x04, 0x00, 0x01];
 
-// Phase 8.18 — first authentic client request recovered from Phase 8.17:
+// First authentic client request recovered from the title:
 //   00 14 01 0b "01012349876" 01 00 00 00 64
 //
-// Command 1's native response parser consumes:
+// The same common one-byte field precedes command 1's command-specific parser.
+// After that byte, the native command-1 parser consumes exactly 24 more bytes:
 //   u32, u32, u8, u8, u32, u32, string8, string8, u32 status
-// (24 payload bytes with empty strings).  Zero is outside the three explicit
-// legacy error status codes (1003/1004/1009), so queue a minimal success frame
-// after the real command-1 request. This is an offline preservation shim: no
-// live billing service is contacted and later commands remain capture-only
-// until their original packet contracts are observed.
-const INOTIA1_CASH_CMD1_SUCCESS: [u8; 27] = [
-    0x00, 0x1b, 0x01, // length=27, command=1
+// with empty strings in this minimal offline response. Therefore the correct
+// frame is 28 bytes, not the 27-byte Phase 8.18 experiment. The leading result
+// field is 1 so the original command-1 handler enters its real parser instead
+// of its early error-2009/state-5 branch at guest 0x00117258.
+const INOTIA1_CASH_CMD1_SUCCESS: [u8; 28] = [
+    0x00, 0x1c, 0x01, // length=28, command=1
+    0x01, // common result/state field consumed before command dispatch
     0x00, 0x00, 0x00, 0x00, // field 1
     0x00, 0x00, 0x00, 0x00, // field 2
     0x00, // field 3
@@ -110,6 +114,22 @@ fn read_inotia1_got_u32(
 ) -> Option<u32> {
     let ptr = read_guest_u32(context, r10.wrapping_add(got_offset))?;
     read_guest_u32(context, ptr)
+}
+
+// Phase 8.22 — diagnostic for the common one-byte response state/result field.
+// The native packet dispatcher stores this field through the pointer held at
+// r10+0x470 before entering each command-specific handler. Reading it here lets
+// the next field test prove that the corrected command-0/command-1 frames are
+// actually driving the title's original state machine with value 1.
+fn trace_inotia1_cash_protocol_state(context: &mut dyn WIPICContext, label: &str) {
+    const RESPONSE_STATE_GOT_OFFSET: WIPICWord = 0x470;
+    if let Some(cpu) = context.debug_cpu_context() {
+        let r10 = cpu[10];
+        let value = read_inotia1_got_u32(context, r10, RESPONSE_STATE_GOT_OFFSET);
+        tracing::info!(
+            "[PHASE8_22_INOTIA1_CASH_RESPONSE_STATE] label={label} r10={r10:#010x} value={value:?}"
+        );
+    }
 }
 
 fn trace_inotia1_cash_reject(context: &mut dyn WIPICContext, api: &str, fd: Option<i32>) {
@@ -366,7 +386,7 @@ pub async fn socket_write(
     if head.len() >= 3 && head[0] == 0x00 && head[1] == 0x14 && head[2] == 0x01 {
         queue_inotia1_cash_cmd1_success();
         tracing::info!(
-            "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 27-byte local success response"
+            "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
     } else if head.len() >= 3 {
         tracing::info!(
@@ -431,6 +451,17 @@ pub async fn socket_read_ktf_legacy(
         return Ok(0);
     }
 
+    // Capture the guest's real protocol state at the command-1 receive
+    // boundary. Read the local queue state in a short scope before taking the
+    // mutable lock used to copy bytes.
+    let trace_cmd1_state = {
+        let rx = INOTIA1_CASH_RX_STATE.lock();
+        rx.phase == CASH_RX_CMD1 && rx.offset == 0
+    };
+    if trace_cmd1_state {
+        trace_inotia1_cash_protocol_state(context, "before-command1-response");
+    }
+
     let mut state = INOTIA1_CASH_RX_STATE.lock();
     let frame: &[u8] = match state.phase {
         CASH_RX_HELLO => &INOTIA1_CASH_SERVER_HELLO,
@@ -486,7 +517,7 @@ pub async fn socket_read(
 
 pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32> {
     if is_inotia1_offline_network(context) {
-        // Phase 8.19 — Phase 8.18's 27-byte frame is structurally consumed but
+        // Phase 8.19 — the earlier 27-byte experimental frame was structurally consumed but
         // the native client rejects one of its semantics before issuing the
         // next shop request.  Record the exact guest call site *before* reset
         // so the next field test tells us which native error branch closed the

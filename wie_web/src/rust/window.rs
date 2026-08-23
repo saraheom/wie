@@ -1,5 +1,5 @@
 use alloc::{sync::Arc, vec::Vec};
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{cell::RefCell, sync::atomic::{AtomicBool, Ordering}};
 
 use wasm_bindgen::{Clamped, JsCast};
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData};
@@ -9,6 +9,11 @@ use wie_util::Result;
 
 pub struct WindowImpl {
     canvas: HtmlCanvasElement,
+    context: CanvasRenderingContext2d,
+    // Reuse one RGBA staging buffer across frames. WindowImpl is wasm-only and
+    // already explicitly marked Send/Sync below because the runtime is single
+    // threaded, so RefCell is appropriate here and avoids a per-frame Vec alloc.
+    rgba_buffer: RefCell<Vec<u8>>,
     should_redraw: Arc<AtomicBool>,
 }
 
@@ -17,7 +22,15 @@ unsafe impl Sync for WindowImpl {}
 
 impl WindowImpl {
     pub fn new(canvas: HtmlCanvasElement, should_redraw: Arc<AtomicBool>) -> Self {
-        Self { canvas, should_redraw }
+        // Phase 8.22: obtain the JS 2D context once instead of crossing the
+        // wasm-bindgen getContext/dyn_into path for every emulated frame.
+        let context = canvas
+            .get_context("2d")
+            .unwrap()
+            .unwrap()
+            .dyn_into::<CanvasRenderingContext2d>()
+            .unwrap();
+        Self { canvas, context, rgba_buffer: RefCell::new(Vec::new()), should_redraw }
     }
 }
 
@@ -35,18 +48,58 @@ impl Screen for WindowImpl {
     }
 
     fn paint(&self, image: &dyn Image) {
-        let context = self
-            .canvas
-            .get_context("2d")
-            .unwrap()
-            .unwrap()
-            .dyn_into::<CanvasRenderingContext2d>()
-            .unwrap();
+        // [PHASE8_22_WEB_RGB565_FASTPAINT] presentation hot path. WIPI games normally present a
+        // 16-bit RGB565 framebuffer. Avoid allocating Vec<Color> and then a
+        // second RGBA Vec. Expand the raw little-endian pixels directly into a
+        // reusable RGBA staging buffer in one pass. 32-bit ARGB gets the same
+        // treatment. Other image types retain the generic color fallback.
+        let mut rgba = self.rgba_buffer.borrow_mut();
+        match image.bytes_per_pixel() {
+            2 => {
+                let raw = image.raw();
+                let required = raw.len().saturating_mul(2);
+                rgba.resize(required, 0);
+                for (pixel, out) in raw.chunks_exact(2).zip(rgba.chunks_exact_mut(4)) {
+                    let value = u16::from_le_bytes([pixel[0], pixel[1]]);
+                    let r5 = ((value >> 11) & 0x1f) as u32;
+                    let g6 = ((value >> 5) & 0x3f) as u32;
+                    let b5 = (value & 0x1f) as u32;
+                    out[0] = ((r5 * 255 + 15) / 31) as u8;
+                    out[1] = ((g6 * 255 + 31) / 63) as u8;
+                    out[2] = ((b5 * 255 + 15) / 31) as u8;
+                    out[3] = 0xff;
+                }
+            }
+            4 => {
+                let raw = image.raw();
+                rgba.resize(raw.len(), 0);
+                // ArgbPixel stores 0xAARRGGBB in a native u32. wasm32 is
+                // little-endian, so raw bytes arrive as BB GG RR AA.
+                for (pixel, out) in raw.chunks_exact(4).zip(rgba.chunks_exact_mut(4)) {
+                    out[0] = pixel[2];
+                    out[1] = pixel[1];
+                    out[2] = pixel[0];
+                    out[3] = pixel[3];
+                }
+            }
+            _ => {
+                rgba.clear();
+                rgba.extend(
+                    image
+                        .colors()
+                        .into_iter()
+                        .flat_map(|x| [x.r, x.g, x.b, x.a]),
+                );
+            }
+        }
+        let data = ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(rgba.as_slice()),
+            image.width(),
+            image.height(),
+        )
+        .unwrap();
 
-        let image_data = image.colors().into_iter().flat_map(|x| [x.r, x.g, x.b, x.a]).collect::<Vec<_>>();
-        let data = ImageData::new_with_u8_clamped_array_and_sh(Clamped(&image_data), self.width(), self.height()).unwrap();
-
-        context.put_image_data(&data, 0.0, 0.0).unwrap();
+        self.context.put_image_data(&data, 0.0, 0.0).unwrap();
     }
 
     fn width(&self) -> u32 {

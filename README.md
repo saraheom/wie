@@ -1,6 +1,10 @@
 # WIE
 
 
+## Phase 8.22 Inotia compatibility/performance notes
+
+Phase 8.22 corrects Inotia 1's offline cash-shop response framing (including the common state/result byte the native dispatcher expects), hides only Inotia 2's obsolete installation progress renderer while preserving required initialization, and optimizes the ARM/WASM framebuffer hot paths used by animation, skills, and map transitions. See `FULL_REPO_PHASE8_22_README.md`.
+
 ## Phase 8.13.1 local compatibility notes
 
 This snapshot includes the Phase 8.13 dual Inotia compatibility work plus the

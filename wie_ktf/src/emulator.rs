@@ -84,23 +84,18 @@ impl KtfEmulator {
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D5" && pid == "PD007974" {
-            // Phase 8.21: CPU-bound decode/render fast path for Inotia 2.
+            // Phase 8.22 — latency-first Inotia 2 execution profile.
             //
-            // The Phase 8.20 field log proves that the per-launch resource
-            // cache is now genuinely shared, yet the title still stutters in
-            // menu animation, skills and map transitions.  During startup the
-            // guest spends tens of millions of consecutive ARM instructions
-            // inside native decode/resource loops. At a 4k slice that means
-            // thousands of Rust/WASM cooperative yields for one operation.
-            // Raise only this exact title to 16k: still a sub-frame scheduling
-            // granularity on iOS, while cutting count-exhausted/yield traffic
-            // by 75%. Phase 8.17's memory-error regression is now known to have
-            // come from its separate installer-call bypass, not from this
-            // execution quantum. Other titles remain on the default 1k slice.
-            core.set_run_slice_instructions(16_000);
+            // Phase 8.21 raised this title from 4k to 16k guest instructions
+            // per cooperative slice, but field testing showed no visible
+            // improvement in menu animation, skills, or map transitions.
+            // Restore the better-observed 4k balance while the interpreter
+            // memory hot path is optimized separately. Other titles remain on
+            // the default 1k budget.
+            core.set_run_slice_instructions(4_000);
             core.set_thread_lifecycle_logging(false);
             tracing::info!(
-                "[PHASE8_21_INOTIA2_EXEC_QUANTUM] native run slice=16000 instructions; title-scoped CPU/decode fast path"
+                "[PHASE8_22_INOTIA2_EXEC_QUANTUM] native run slice=4000 instructions; latency-first gameplay profile"
             );
         }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });

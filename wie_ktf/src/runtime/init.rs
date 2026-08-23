@@ -140,47 +140,61 @@ pub async fn load_native(
         // original control flow intact. The database layer now makes this
         // required pass cheap and non-destructive by buffering static install
         // records and committing each only once at close.
+
+        // Phase 8.22 — suppress only the obsolete install/progress renderer.
+        //
+        // The required initializer at 0x00144f48 must still execute. Static
+        // disassembly of this exact client separates its two calls to the
+        // progress-window renderer (0x001449a0) from the resource/decompression
+        // work. NOP only those two BL call sites. This removes the visible
+        // "installation" bar while preserving every database open, cache
+        // expansion, pointer-table update, and completion check that the title
+        // needs to reach the main menu.
+        const INOTIA2_PROGRESS_NOP: [u8; 4] = [0xc0, 0x46, 0xc0, 0x46];
+        const INOTIA2_PROGRESS_CALLS: [(u32, [u8; 4], &str); 2] = [
+            (0x0014_4f86, [0xff, 0xf7, 0x0b, 0xfd], "initial"),
+            (0x0014_4fda, [0xff, 0xf7, 0xe1, 0xfc], "update"),
+        ];
+        for (address, expected, label) in INOTIA2_PROGRESS_CALLS {
+            let mut current = [0u8; 4];
+            core.read_bytes(address, &mut current)?;
+            if current == expected {
+                core.write_bytes(address, &INOTIA2_PROGRESS_NOP)?;
+                tracing::info!(
+                    "[PHASE8_22_INOTIA2_INSTALL_UI_SUPPRESS] site={label} address={address:#010x} progress renderer disabled"
+                );
+            } else if current == INOTIA2_PROGRESS_NOP {
+                tracing::info!(
+                    "[PHASE8_22_INOTIA2_INSTALL_UI_SUPPRESS] site={label} address={address:#010x} already patched"
+                );
+            } else {
+                tracing::warn!(
+                    "[PHASE8_22_INOTIA2_INSTALL_UI_SUPPRESS] site={label} address={address:#010x} guard mismatch got={current:02x?}; patch suppressed"
+                );
+            }
+        }
     }
 
-    // Phase 8.17 — Inotia 1 offline cash-shop bootstrap.
+    // Phase 8.22 — Inotia 1 cash-shop response-state correction.
     //
-    // The Phase 8.16 server-first frame [00 03 00] is accepted and dispatches
-    // command 0, but the preserved client is in the wrong carrier-network
-    // state and takes its local "error occurred" branch before transmitting a
-    // request.  In the original command-0 handler, the state==1 branch at
-    // 0x00117234 calls the title's own request builder as `send(1, 0)`.
-    // Redirect only the command-0 entry to that existing branch so the client
-    // generates its authentic next protocol packet; the offline socket layer
-    // can then capture it without contacting the extinct service.
+    // The earlier Phase 8.17 experiment patched command 0 at 0x001171e4 to
+    // jump straight to the command-1 request builder. Thumb disassembly now
+    // shows why error 2009 survived every later parser bypass: the common packet
+    // dispatcher itself consumes one response-state byte from every frame and
+    // stores it through r10+0x470 before entering a command handler. Our old
+    // command-0 frame omitted that byte and our old command-1 frame supplied 0,
+    // so command 1 deterministically hit its early state==0 error-2009 branch at
+    // 0x00117258, before 0x00117418/0x001174fe could matter. Do not patch command
+    // 0 here anymore. The offline transport now supplies the original state==1
+    // field in both frames and lets the title follow its own dispatcher paths.
     const INOTIA1_AID: &str = "010100D3";
     const INOTIA1_PID: &str = "PD005362";
     const INOTIA1_NATIVE_LEN: usize = 431_008;
-    const INOTIA1_CASH_CMD0_HANDLER: u32 = 0x0011_71e4;
-    const INOTIA1_CASH_CMD0_EXPECT: [u8; 2] = [0xc3, 0x19];
-    // Thumb `b 0x00117234` from 0x001171e4 (PC=0x001171e8).
-    const INOTIA1_CASH_CMD0_BOOTSTRAP: [u8; 2] = [0x26, 0xe0];
 
     if system.aid() == INOTIA1_AID
         && system.pid() == INOTIA1_PID
         && data.len() == INOTIA1_NATIVE_LEN
     {
-        let mut cash_cmd0 = [0u8; 2];
-        core.read_bytes(INOTIA1_CASH_CMD0_HANDLER, &mut cash_cmd0)?;
-        if cash_cmd0 == INOTIA1_CASH_CMD0_EXPECT {
-            core.write_bytes(INOTIA1_CASH_CMD0_HANDLER, &INOTIA1_CASH_CMD0_BOOTSTRAP)?;
-            tracing::info!(
-                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] handler={INOTIA1_CASH_CMD0_HANDLER:#010x} -> force original command-1 request builder"
-            );
-        } else if cash_cmd0 == INOTIA1_CASH_CMD0_BOOTSTRAP {
-            tracing::info!(
-                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] handler already patched at {INOTIA1_CASH_CMD0_HANDLER:#010x}"
-            );
-        } else {
-            tracing::warn!(
-                "[PHASE8_17_INOTIA1_CASH_CMD0_BOOTSTRAP] byte guard mismatch at {INOTIA1_CASH_CMD0_HANDLER:#010x}: got={cash_cmd0:02x?}; patch suppressed"
-            );
-        }
-
         // Phase 8.20 — command-1 offline-response validation bypass.
         //
         // Phase 8.19 proved that the client completely consumes our structurally

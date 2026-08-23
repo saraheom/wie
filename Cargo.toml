@@ -28,6 +28,7 @@ opt-level = 1
 
 [profile.release]
 lto = true
+codegen-units = 1
 
 [workspace.package]
 version = "0.0.1"

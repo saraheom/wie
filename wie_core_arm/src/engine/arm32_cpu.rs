@@ -1,5 +1,4 @@
 use alloc::{boxed::Box, format, vec};
-use core::cell::RefCell;
 
 use arm32_cpu::{Cpu, Memory, Mode, reg};
 
@@ -226,117 +225,124 @@ impl EmulatedMemory {
 
 struct Arm32CpuMemory<'a> {
     emulated_memory: &'a mut EmulatedMemory,
-    memory_error: RefCell<Option<u32>>,
+    // [PHASE8_22_ARM_MEMORY_FASTPATH] Memory callbacks already receive &mut self, so interior
+    // mutability is unnecessary. Keeping the error slot as a plain Option
+    // removes RefCell borrow checks from every guest memory access.
+    memory_error: Option<u32>,
 }
 
 impl<'a> Arm32CpuMemory<'a> {
     fn new(emulated_memory: &'a mut EmulatedMemory) -> Self {
         Self {
             emulated_memory,
-            memory_error: RefCell::new(None),
+            memory_error: None,
         }
     }
 
+    #[inline(always)]
     fn memory_error(&self) -> Option<u32> {
-        *self.memory_error.borrow()
+        self.memory_error
     }
 
+    #[inline(always)]
     fn get_page(&mut self, addr: u32) -> Option<&mut [u8; PAGE_SIZE]> {
-        let page_address = addr & !PAGE_MASK;
-        let page_data = self.emulated_memory.pages[page_address as usize / PAGE_SIZE].as_mut();
+        // `addr` is u32 and PAGE_SIZE is 64 KiB, so this index is always in
+        // 0..65536, exactly matching the fixed page table. Avoid a redundant
+        // bounds check in the hottest interpreter path.
+        let page_index = (addr >> 16) as usize;
+        let page_data = unsafe { self.emulated_memory.pages.get_unchecked_mut(page_index) }.as_mut();
 
         if let Some(x) = page_data {
             Some(x)
         } else {
-            *self.memory_error.borrow_mut() = Some(addr);
+            self.memory_error = Some(addr);
             None
         }
     }
 }
 
 impl Memory for Arm32CpuMemory<'_> {
+    #[inline(always)]
     fn r8(&mut self, addr: u32) -> u8 {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
-            return 0;
+        let offset = (addr & PAGE_MASK) as usize;
+        match self.get_page(addr) {
+            Some(data) => data[offset],
+            None => 0,
         }
-
-        let data = page.unwrap();
-
-        data[offset as usize]
     }
 
+    #[inline(always)]
     fn r16(&mut self, addr: u32) -> u16 {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
-            return 0;
+        let offset = (addr & PAGE_MASK) as usize;
+        if offset <= PAGE_SIZE - 2 {
+            let Some(data) = self.get_page(addr) else { return 0; };
+            // Guest memory is little-endian; unaligned halfword access is
+            // permitted by the emulator and maps efficiently to WASM loads.
+            let raw = unsafe { core::ptr::read_unaligned(data.as_ptr().add(offset).cast::<u16>()) };
+            return u16::from_le(raw);
         }
 
-        let data = page.unwrap();
-
-        (data[offset as usize] as u16) | ((data[offset as usize + 1] as u16) << 8)
+        // Rare page-crossing access: preserve exact old semantics without
+        // indexing past the 64 KiB page.
+        let b0 = self.r8(addr) as u16;
+        let b1 = self.r8(addr.wrapping_add(1)) as u16;
+        b0 | (b1 << 8)
     }
 
+    #[inline(always)]
     fn r32(&mut self, addr: u32) -> u32 {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
-            return 0;
+        let offset = (addr & PAGE_MASK) as usize;
+        if offset <= PAGE_SIZE - 4 {
+            let Some(data) = self.get_page(addr) else { return 0; };
+            let raw = unsafe { core::ptr::read_unaligned(data.as_ptr().add(offset).cast::<u32>()) };
+            return u32::from_le(raw);
         }
 
-        let data = page.unwrap();
-        (data[offset as usize] as u32)
-            | ((data[offset as usize + 1] as u32) << 8)
-            | ((data[offset as usize + 2] as u32) << 16)
-            | ((data[offset as usize + 3] as u32) << 24)
+        let b0 = self.r8(addr) as u32;
+        let b1 = self.r8(addr.wrapping_add(1)) as u32;
+        let b2 = self.r8(addr.wrapping_add(2)) as u32;
+        let b3 = self.r8(addr.wrapping_add(3)) as u32;
+        b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
     }
 
+    #[inline(always)]
     fn w8(&mut self, addr: u32, val: u8) {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
-            return;
+        let offset = (addr & PAGE_MASK) as usize;
+        if let Some(data) = self.get_page(addr) {
+            data[offset] = val;
         }
-
-        let data = page.unwrap();
-
-        data[offset as usize] = val;
     }
 
+    #[inline(always)]
     fn w16(&mut self, addr: u32, val: u16) {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
+        let offset = (addr & PAGE_MASK) as usize;
+        if offset <= PAGE_SIZE - 2 {
+            let Some(data) = self.get_page(addr) else { return; };
+            unsafe {
+                core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u16>(), val.to_le());
+            }
             return;
         }
 
-        let data = page.unwrap();
-
-        data[offset as usize] = val as u8;
-        data[offset as usize + 1] = (val >> 8) as u8;
+        self.w8(addr, val as u8);
+        self.w8(addr.wrapping_add(1), (val >> 8) as u8);
     }
 
+    #[inline(always)]
     fn w32(&mut self, addr: u32, val: u32) {
-        let offset = addr & PAGE_MASK;
-
-        let page = self.get_page(addr);
-        if page.is_none() {
+        let offset = (addr & PAGE_MASK) as usize;
+        if offset <= PAGE_SIZE - 4 {
+            let Some(data) = self.get_page(addr) else { return; };
+            unsafe {
+                core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u32>(), val.to_le());
+            }
             return;
         }
 
-        let data = page.unwrap();
-
-        data[offset as usize] = val as u8;
-        data[offset as usize + 1] = (val >> 8) as u8;
-        data[offset as usize + 2] = (val >> 16) as u8;
-        data[offset as usize + 3] = (val >> 24) as u8;
+        self.w8(addr, val as u8);
+        self.w8(addr.wrapping_add(1), (val >> 8) as u8);
+        self.w8(addr.wrapping_add(2), (val >> 16) as u8);
+        self.w8(addr.wrapping_add(3), (val >> 24) as u8);
     }
 }
 
@@ -395,6 +401,19 @@ mod tests {
         arm32cpu_memory.w32(0x10000, 0x12345678);
         let r32 = arm32cpu_memory.r32(0x10000);
         assert_eq!(r32, 0x12345678);
+    }
+
+    #[test]
+    fn test_memory_cross_page_word_access() {
+        let mut memory = EmulatedMemory::new();
+        memory.map(0x10000, 0x20000);
+
+        let mut arm32cpu_memory = memory.as_arm32cpu_memory();
+        arm32cpu_memory.w16(0x1ffff, 0x1234);
+        assert_eq!(arm32cpu_memory.r16(0x1ffff), 0x1234);
+
+        arm32cpu_memory.w32(0x1fffe, 0x89abcdef);
+        assert_eq!(arm32cpu_memory.r32(0x1fffe), 0x89abcdef);
     }
 
     #[test]
