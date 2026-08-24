@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.27 WIE WebAssembly core
+      - name: Force clean Phase 8.29 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -106,11 +106,16 @@ jobs:
           grep -n 'PHASE8_24_INOTIA1_CASH_REENTRY' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_25_INOTIA1_CASH_READ_CALLBACK' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_25_INOTIA1_CASH_READ_WAKE' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_25_INOTIA2_RGB565_FASTPATH' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_HOOK_ADDR: u32 = 0x0012_3f2a' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_27_INOTIA1_CASH_CATALOG' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_27_INOTIA1_FIRST_OPEN' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_29_INOTIA1_CASH_CATALOG_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_29_INOTIA1_FIRST_OPEN_SAFE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_NETWORK_ITEM_USE_BRANCH: u32 = 0x0015_032e' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
+          grep -n 'INOTIA2_RGB565_EFFECT_EPILOGUE_PC: u32 = 0x0012_3d4b' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_27_INOTIA1_CASH_PURCHASE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD31_PURCHASE_SUCCESS: \[u8; 8\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_27_INOTIA2_LZMA_FASTPATH' wie_ktf/src/runtime/init.rs
@@ -121,7 +126,8 @@ jobs:
           grep -n 'lzma-rs = { version = "0.3"' wie_ktf/Cargo.toml
           grep -n 'extern crate std' wie_ktf/src/lib.rs
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_FREE: \[u8; 248\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 207\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -160,13 +166,17 @@ jobs:
             echo 'Obsolete forced Inotia2 graphics-off profile is still present' >&2
             exit 1
           fi
+          if grep -q 'PHASE8_25_INOTIA2_RGB565_FASTPATH' wie_ktf/src/runtime/init.rs; then
+            echo 'Obsolete Phase 8.25 one-row RGB565 handler is still present' >&2
+            exit 1
+          fi
           grep -n 'get_access_level_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'get_exec_names_compat_impl.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
 
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.27 core source was selected
+      - name: Verify Phase 8.29 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -216,11 +226,16 @@ jobs:
           grep -n 'PHASE8_24_INOTIA1_CASH_REENTRY' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_25_INOTIA1_CASH_READ_CALLBACK' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_25_INOTIA1_CASH_READ_WAKE' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_25_INOTIA2_RGB565_FASTPATH' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_HOOK_ADDR: u32 = 0x0012_3f2a' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_27_INOTIA1_CASH_CATALOG' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_27_INOTIA1_FIRST_OPEN' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_29_INOTIA1_CASH_CATALOG_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_29_INOTIA1_FIRST_OPEN_SAFE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_NETWORK_ITEM_USE_BRANCH: u32 = 0x0015_032e' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
+          grep -n 'INOTIA2_RGB565_EFFECT_EPILOGUE_PC: u32 = 0x0012_3d4b' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_27_INOTIA1_CASH_PURCHASE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD31_PURCHASE_SUCCESS: \[u8; 8\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_27_INOTIA2_LZMA_FASTPATH' wie_ktf/src/runtime/init.rs
@@ -231,7 +246,8 @@ jobs:
           grep -n 'lzma-rs = { version = "0.3"' wie_ktf/Cargo.toml
           grep -n 'extern crate std' wie_ktf/src/lib.rs
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_FREE: \[u8; 248\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 207\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -270,6 +286,10 @@ jobs:
             echo 'Obsolete forced Inotia2 graphics-off profile is still present' >&2
             exit 1
           fi
+          if grep -q 'PHASE8_25_INOTIA2_RGB565_FASTPATH' wie_ktf/src/runtime/init.rs; then
+            echo 'Obsolete Phase 8.25 one-row RGB565 handler is still present' >&2
+            exit 1
+          fi
           grep -n 'net::socket_connect.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'net::set_read_cb.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'net::socket_connect_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -280,7 +300,7 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.27 clean WASM build completed.'
+          echo 'Phase 8.29 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash

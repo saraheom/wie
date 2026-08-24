@@ -101,23 +101,34 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.27 — client-authentic offline special-item catalog.
+// Phase 8.28 — expanded client-authentic offline catalog.
 //
-// The Phase 8.26 one-record probe proved the complete command-30 -> command-31
-// path end to end: the title resolved the EUC-KR name through its own item
-// database, displayed the original icon/details, and its original purchase
-// completion code added the item to inventory.  The historical server-side
-// catalog/order is not embedded in the surviving client, so do not invent
-// unavailable server metadata.  Instead expose the title's locally defined
-// special/cash-capable utility items using their exact EUC-KR names.  Every
-// record remains free (value=0), while the guest remains responsible for item
-// lookup, icon/description, inventory insertion, and save serialization.
+// Phase 8.27 validated the complete zero-cost purchase path using the title's
+// own EUC-KR item names and original inventory/save logic. Add the four
+// high-confidence network-only equipment definitions that sit at the end of
+// the original client's network-item block: 흑기사의 투구, 레게 스타일,
+// 번개 스타일, and 스텔스 가면. Their names are unique in work.bar, so the
+// guest resolves the authentic icon/stats/restrictions exactly as it does for
+// every other catalog entry. No item structures are synthesized by WIE.
 //
 // Response layout recovered from guest 0x00117f3a:
 //   u8 fixed0, u8 fixed1, u8 record_count,
 //   repeated { u8 name_len, name_bytes, u8 field, u32 value }.
-const INOTIA1_CASH_CMD30_CATALOG_FREE: [u8; 248] = [
-    0x00, 0xf8, 0x1e, 0x01, 0x00, 0x00, 0x0e, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+// All 18 entries remain free (value=0).
+// Phase 8.29 — safe paginated offline catalog.
+//
+// Field testing with the Phase 8.28 18-record single frame exposed a critical
+// client-side fixed-array limit: records 13 and 14 overwrote the adjacent
+// in-memory character-name slots, which is why the scenario screen temporarily
+// displayed catalog item names as character names. The original cash-shop UI
+// is page-based and its command-30 request carries a final page byte. Keep each
+// response at <=12 records and publish 18 entries as two pages (12 + 6).
+//
+// Response layout: length, command=30, result=1, page_index, total_pages,
+// record_count, repeated { name_len, EUC-KR name, field=1, value=0 }.
+// This prevents the fixed-array overwrite while preserving every catalog item.
+const INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: [u8; 207] = [
+    0x00, 0xcf, 0x1e, 0x01, 0x00, 0x02, 0x0c, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -134,10 +145,20 @@ const INOTIA1_CASH_CMD30_CATALOG_FREE: [u8; 248] = [
     0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31, 0x36, 0xc4, 0xad,
     0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd,
     0xba, 0xc5, 0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8, 0xad, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x0b, 0xc0, 0xda, 0xbf, 0xf8, 0x20, 0xb1, 0xb3, 0xc8,
-    0xaf, 0xb1, 0xc7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x12, 0xc3, 0xca, 0xba,
-    0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0,
-    0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00,
+];
+
+const INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: [u8; 118] = [
+    0x00, 0x76, 0x1e, 0x01, 0x01, 0x02, 0x06, 0x0b, 0xc0, 0xda, 0xbf, 0xf8,
+    0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7,
+    0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x0d, 0xc8, 0xe6, 0xb1, 0xe2, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc5, 0xf5,
+    0xb1, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xb7, 0xb9, 0xb0, 0xd4,
+    0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x0b, 0xb9, 0xf8, 0xb0, 0xb3, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xda, 0xbd, 0xba,
+    0x20, 0xb0, 0xa1, 0xb8, 0xe9, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Phase 8.26 — command-31 is the title's authentic BUY request. The exact
@@ -169,6 +190,15 @@ static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1Cash
     phase: CASH_RX_HELLO,
     offset: 0,
 });
+
+static INOTIA1_CASH_CATALOG_PAGE: Mutex<u8> = Mutex::new(0);
+
+fn inotia1_cash_catalog_frame(page: u8) -> &'static [u8] {
+    match page {
+        1 => &INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE,
+        _ => &INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE,
+    }
+}
 
 // Phase 8.25 — persist the legacy read-callback registration.
 //
@@ -211,7 +241,7 @@ fn inotia1_cash_response_pending() -> bool {
         CASH_RX_CMD1 => INOTIA1_CASH_CMD1_SUCCESS.len(),
         CASH_RX_CMD5_STAGE2 => INOTIA1_CASH_CMD5_STAGE2_EMPTY.len(),
         CASH_RX_CMD5_STAGE4 => INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY.len(),
-        CASH_RX_CMD30_REENTRY => INOTIA1_CASH_CMD30_CATALOG_FREE.len(),
+        CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(*INOTIA1_CASH_CATALOG_PAGE.lock()).len(),
         CASH_RX_CMD31_PURCHASE => INOTIA1_CASH_CMD31_PURCHASE_SUCCESS.len(),
         _ => 0,
     };
@@ -323,7 +353,8 @@ fn reset_inotia1_cash_session_wait() {
     };
 }
 
-fn queue_inotia1_cash_cmd30_reentry() {
+fn queue_inotia1_cash_cmd30_page(page: u8) {
+    *INOTIA1_CASH_CATALOG_PAGE.lock() = if page == 1 { 1 } else { 0 };
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD30_REENTRY,
         offset: 0,
@@ -652,10 +683,13 @@ pub async fn socket_write(
             "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=123 len={len} -> local session queue reset; no response"
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
-        queue_inotia1_cash_cmd30_reentry();
+        let requested_page = head.last().copied().unwrap_or(0);
+        let page = if requested_page == 1 { 1 } else { 0 };
+        queue_inotia1_cash_cmd30_page(page);
         queued_reason = Some("command30-catalog");
+        let records = if page == 0 { 12 } else { 6 };
         tracing::info!(
-            "[PHASE8_27_INOTIA1_CASH_CATALOG] outbound command=30 len={len} -> queued client-authentic offline special catalog records=14 all price=0"
+            "[PHASE8_29_INOTIA1_CASH_CATALOG_PAGE] outbound command=30 len={len} requested_page={requested_page} -> page={page} total_pages=2 records={records} all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -748,6 +782,7 @@ pub async fn socket_read_ktf_legacy(
         trace_inotia1_cash_protocol_state(context, "before-command1-response");
     }
 
+    let catalog_page = *INOTIA1_CASH_CATALOG_PAGE.lock();
     let mut state = INOTIA1_CASH_RX_STATE.lock();
 
     // Phase 8.24: a zero-byte catalog transfer is a two-frame server sequence.
@@ -761,7 +796,7 @@ pub async fn socket_read_ktf_legacy(
             CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
             CASH_RX_CMD5_STAGE2 => &INOTIA1_CASH_CMD5_STAGE2_EMPTY,
             CASH_RX_CMD5_STAGE4 => &INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY,
-            CASH_RX_CMD30_REENTRY => &INOTIA1_CASH_CMD30_CATALOG_FREE,
+            CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(catalog_page),
             CASH_RX_CMD31_PURCHASE => &INOTIA1_CASH_CMD31_PURCHASE_SUCCESS,
             _ => {
                 tracing::info!(
@@ -814,10 +849,11 @@ pub async fn socket_read_ktf_legacy(
     // normal command-30 refresh, socket_write simply queues the same catalog
     // again. No UI state or save memory is patched directly.
     if phase == CASH_RX_CMD5_STAGE4 && end == frame_len {
+        *INOTIA1_CASH_CATALOG_PAGE.lock() = 0;
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         tracing::info!(
-            "[PHASE8_27_INOTIA1_FIRST_OPEN] command-4 finalize consumed -> catalog immediately pending for first entry"
+            "[PHASE8_29_INOTIA1_FIRST_OPEN_SAFE_PAGE] command-4 finalize consumed -> page=0 catalog immediately pending (12-record fixed-array safe limit)"
         );
     }
 

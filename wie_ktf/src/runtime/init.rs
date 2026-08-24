@@ -1,4 +1,4 @@
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, sync::Arc, vec, vec::Vec};
 use core::mem::size_of;
 use jvm::Jvm;
 
@@ -45,26 +45,45 @@ async fn handle_init_svc(core: &mut ArmCore, jvm: &mut Jvm, id: SvcId) -> Result
     }
 }
 
-// Phase 8.25 — exact-title host acceleration for Inotia 2's dominant RGB565
-// software effect row. Phase 8.23 profiling tied the largest 300-664 ms frame
-// gaps to the tight guest loop at 0x00123f2a..0x00123f82. The loop unpacks one
-// RGB565 pixel, applies the same 32x32 byte lookup table independently to R/G/B,
-// repacks the pixel, and repeats for every pixel in a clipped row. Interpreting
-// that sequence millions of times is unnecessary: replace only the loop entry
-// with a private SVC and reproduce one complete row in Rust using two bulk guest
-// memory transfers.
+// Phase 8.28 — batched exact-title host acceleration for Inotia 2's RGB565
+// software effects.
 //
-// The hook is installed only for exact AID/PID/native length + original bytes.
-// At runtime it additionally verifies the title's active pixel masks are exactly
-// RGB565 (F800/07E0/001F). If that invariant ever fails, the original instruction
-// is restored and execution resumes at the unmodified guest loop for the rest of
-// the launch.
+// Phase 8.25 proved that replacing the inner RGB565 lookup/blend loop makes
+// normal gameplay substantially smoother. The Phase 8.27 field test also
+// showed why enabling all three graphics options can still regress: the old
+// hook accelerated only *one row per SVC*. With weather/shadow/critical effects
+// enabled, the title invokes this path for many more rows and therefore pays
+// repeated SVC dispatch, mask lookup, 1 KiB LUT copy, and Vec allocation costs.
+//
+// The original guest outer loop is fully known at 0x00123f84..0x00123f98:
+// sp+0x30 is the current row counter, sp+0x38 is total rows, and sp+0x10 is the
+// byte stride. Process every remaining clipped row in one host call, cache the
+// immutable 32x32 transform LUT for the launch, reuse one host pixel buffer,
+// update the exact guest loop state, and resume at the original function
+// epilogue. This preserves the game's effects while removing almost all
+// per-row interpreter/SVC overhead.
+//
+// Exact AID/PID/native-size + original-byte install guards remain. Runtime
+// RGB565 mask, dimensions, stride, and memory guards fall back to the original
+// guest loop before modifying pixels if any invariant is unexpected.
 const SVC_CATEGORY_INOTIA2_RGB565_EFFECT: u32 = 0x81;
 const INOTIA2_RGB565_EFFECT_HOOK_ADDR: u32 = 0x0012_3f2a;
 const INOTIA2_RGB565_EFFECT_HOOK_PC: u32 = 0x0012_3f2b;
-const INOTIA2_RGB565_EFFECT_EXIT_PC: u32 = 0x0012_3f85;
+const INOTIA2_RGB565_EFFECT_EPILOGUE_PC: u32 = 0x0012_3d4b;
 const INOTIA2_RGB565_EFFECT_ORIGINAL: [u8; 2] = [0x02, 0x99]; // ldr r1,[sp,#8]
 const INOTIA2_RGB565_EFFECT_SVC: [u8; 2] = [0x81, 0xdf];
+const INOTIA2_RGB565_MAX_DIMENSION: u32 = 4096;
+const INOTIA2_RGB565_MAX_BATCH_BYTES: usize = 32 * 1024 * 1024;
+
+struct Inotia2Rgb565EffectState {
+    lut_ptr: u32,
+    lut_valid: bool,
+    lut: [u8; 32 * 32],
+    pixels: Vec<u8>,
+    logged_first_batch: bool,
+}
+
+type Inotia2Rgb565EffectSharedState = Arc<spin::Mutex<Inotia2Rgb565EffectState>>;
 
 fn disable_inotia2_rgb565_effect_fastpath(core: &mut ArmCore, reason: &str) -> Result<JumpTo> {
     core.write_bytes(
@@ -72,14 +91,14 @@ fn disable_inotia2_rgb565_effect_fastpath(core: &mut ArmCore, reason: &str) -> R
         &INOTIA2_RGB565_EFFECT_ORIGINAL,
     )?;
     tracing::warn!(
-        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] runtime gate failed ({reason}); original guest loop restored"
+        "[PHASE8_28_INOTIA2_RGB565_BATCH] runtime gate failed ({reason}); original guest loop restored"
     );
     Ok(JumpTo(INOTIA2_RGB565_EFFECT_HOOK_PC))
 }
 
-async fn handle_inotia2_rgb565_effect_svc(
+fn handle_inotia2_rgb565_effect_batch(
     core: &mut ArmCore,
-    _: &mut (),
+    shared: &Inotia2Rgb565EffectSharedState,
 ) -> Result<JumpTo> {
     let mut regs = core.save_context();
     let got = regs.r7;
@@ -87,15 +106,40 @@ async fn handle_inotia2_rgb565_effect_svc(
     let row_ptr = regs.r6;
     let width = regs.r8;
 
-    // The loop is only valid for a positive clipped width. Keep a conservative
-    // sanity cap so an unexpected call state can never request a huge host
-    // allocation; fallback restores the original code instead.
-    if width == 0 || width > 4096 {
+    if width == 0 || width > INOTIA2_RGB565_MAX_DIMENSION {
         return disable_inotia2_rgb565_effect_fastpath(core, "invalid clipped width");
     }
 
+    let current_row: u32 = match read_generic(core, sp.wrapping_add(0x30)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "row counter unavailable"),
+    };
+    let total_rows: u32 = match read_generic(core, sp.wrapping_add(0x38)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "row total unavailable"),
+    };
+    let stride: u32 = match read_generic(core, sp.wrapping_add(0x10)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "row stride unavailable"),
+    };
+    if total_rows == 0
+        || total_rows > INOTIA2_RGB565_MAX_DIMENSION
+        || current_row >= total_rows
+    {
+        return disable_inotia2_rgb565_effect_fastpath(core, "invalid row range");
+    }
+
+    let byte_len = (width as usize) * 2;
+    if stride < byte_len as u32 {
+        return disable_inotia2_rgb565_effect_fastpath(core, "stride smaller than row width");
+    }
+    let rows_remaining = (total_rows - current_row) as usize;
+    let batch_bytes = match rows_remaining.checked_mul(byte_len) {
+        Some(value) if value <= INOTIA2_RGB565_MAX_BATCH_BYTES => value,
+        _ => return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 batch exceeds host guard"),
+    };
+
     // Pixel-format masks are initialized by the game's own graphics setup.
-    // GOT entries 0x10e4/0x10e0/0x10e8 point to the active R/G/B mask cells.
     let red_mask_ptr: u32 = match read_generic(core, got.wrapping_add(0x10e4)) {
         Ok(value) => value,
         Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "red-mask pointer unreadable"),
@@ -124,19 +168,11 @@ async fn handle_inotia2_rgb565_effect_svc(
         return disable_inotia2_rgb565_effect_fastpath(core, "pixel format is not RGB565");
     }
 
-    // The hot loop loads the 32x32 transform table directly from GOT+0x113c.
     let lut_ptr: u32 = match read_generic(core, got.wrapping_add(0x113c)) {
         Ok(value) if value != 0 => value,
         _ => return disable_inotia2_rgb565_effect_fastpath(core, "lookup-table pointer unavailable"),
     };
-    let mut lut = [0u8; 32 * 32];
-    if core.read_bytes(lut_ptr, &mut lut).is_err() {
-        return disable_inotia2_rgb565_effect_fastpath(core, "lookup table unreadable");
-    }
 
-    // The row's reference color was unpacked once immediately before entering
-    // the loop into sp+0x58 (R), sp+0x54 (G), sp+0x50 (B). Only the top five
-    // bits are used as LUT indices, exactly matching the original ASRS #3.
     let ref_r: u32 = match read_generic(core, sp.wrapping_add(0x58)) {
         Ok(value) => value,
         Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "reference red unavailable"),
@@ -153,19 +189,51 @@ async fn handle_inotia2_rgb565_effect_svc(
     let ref_g_index = ((ref_g >> 3) & 31) as usize;
     let ref_b_index = ((ref_b >> 3) & 31) as usize;
 
-    let byte_len = (width as usize) * 2;
-    let mut row = vec![0u8; byte_len];
-    if core.read_bytes(row_ptr, &mut row).is_err() {
-        return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 row unreadable");
+    let last_offset = match ((rows_remaining - 1) as u32).checked_mul(stride) {
+        Some(value) => value,
+        None => return disable_inotia2_rgb565_effect_fastpath(core, "row offset overflow"),
+    };
+    let last_row_ptr = match row_ptr.checked_add(last_offset) {
+        Some(value) => value,
+        None => return disable_inotia2_rgb565_effect_fastpath(core, "row pointer overflow"),
+    };
+    let last_row_end = match last_row_ptr.checked_add(byte_len as u32) {
+        Some(value) => value,
+        None => return disable_inotia2_rgb565_effect_fastpath(core, "final row end overflow"),
+    };
+
+    let mut state = shared.lock();
+    if !state.lut_valid || state.lut_ptr != lut_ptr {
+        if core.read_bytes(lut_ptr, &mut state.lut).is_err() {
+            drop(state);
+            return disable_inotia2_rgb565_effect_fastpath(core, "lookup table unreadable");
+        }
+        state.lut_ptr = lut_ptr;
+        state.lut_valid = true;
+        tracing::debug!(
+            "[PHASE8_28_INOTIA2_RGB565_BATCH] cached LUT ptr={lut_ptr:#010x} bytes=1024"
+        );
     }
 
-    let mut last_packed = regs.r0;
-    for pixel_bytes in row.chunks_exact_mut(2) {
-        let pixel = u16::from_le_bytes([pixel_bytes[0], pixel_bytes[1]]);
+    state.pixels.resize(batch_bytes, 0);
+    for row_index in 0..rows_remaining {
+        let offset = (row_index as u32) * stride; // guarded by last_offset above
+        let address = row_ptr + offset;
+        let begin = row_index * byte_len;
+        let end = begin + byte_len;
+        if core.read_bytes(address, &mut state.pixels[begin..end]).is_err() {
+            drop(state);
+            return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 row unreadable");
+        }
+    }
 
-        // RGB565 unpack -> the same 5-bit LUT indices produced by the title's
-        // specialized unpacker followed by ASRS #3. Green has six source bits,
-        // so its lower bit is intentionally discarded by the >>1.
+    // One 1-KiB host-side copy per complete rectangle is deliberately cheap
+    // and keeps the borrow structure simple; the expensive guest-memory LUT
+    // read is still performed only when the pointer changes.
+    let lut = state.lut.clone();
+    let mut last_packed = regs.r0;
+    for pixel_bytes in state.pixels[..batch_bytes].chunks_exact_mut(2) {
+        let pixel = u16::from_le_bytes([pixel_bytes[0], pixel_bytes[1]]);
         let r_index = ((pixel >> 11) & 0x1f) as usize;
         let g_index = (((pixel >> 5) & 0x3f) >> 1) as usize;
         let b_index = (pixel & 0x1f) as usize;
@@ -173,9 +241,6 @@ async fn handle_inotia2_rgb565_effect_svc(
         let r = lut[r_index * 32 + ref_r_index];
         let g = lut[g_index * 32 + ref_g_index];
         let b = lut[b_index * 32 + ref_b_index];
-
-        // Exact RGB565 packing convention used by the title's specialized
-        // packer: high 5 R bits, high 6 G bits, high 5 B bits.
         let packed = (((r as u16) & 0xf8) << 8)
             | (((g as u16) & 0xfc) << 3)
             | ((b as u16) >> 3);
@@ -183,21 +248,43 @@ async fn handle_inotia2_rgb565_effect_svc(
         last_packed = packed as u32;
     }
 
-    if core.write_bytes(row_ptr, &row).is_err() {
-        return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 row unwritable");
+    // Guest rows can be padded, so write only the transformed clipped width.
+    // A read failure above occurs before any writes; a write failure here is a
+    // genuine mapped-memory violation and should propagate rather than replay
+    // already-transformed rows through the guest fallback loop.
+    for row_index in 0..rows_remaining {
+        let address = row_ptr + (row_index as u32) * stride;
+        let begin = row_index * byte_len;
+        let end = begin + byte_len;
+        core.write_bytes(address, &state.pixels[begin..end])?;
     }
 
-    // Reproduce the register state at the natural exit of the guest loop. The
-    // following instruction at 0x00123f84 begins the row/height bookkeeping.
+    if !state.logged_first_batch {
+        state.logged_first_batch = true;
+        tracing::info!(
+            "[PHASE8_28_INOTIA2_RGB565_BATCH] first batch accelerated width={width} rows={rows_remaining} stride={stride} bytes={batch_bytes}"
+        );
+    }
+    drop(state);
+
+    // Emulate the natural state after the final inner+outer iteration. The
+    // original final-row path increments sp+0x30 to total_rows and branches
+    // directly to 0x00123d4a without advancing r10 past the final row.
+    write_generic(core, sp.wrapping_add(0x30), total_rows)?;
     regs.r0 = last_packed;
     regs.r5 = width;
-    regs.r6 = row_ptr.wrapping_add(width.wrapping_mul(2));
+    regs.r6 = last_row_end;
+    regs.sl = last_row_ptr; // guest r10 at the final row
     core.restore_context(&regs);
 
-    tracing::trace!(
-        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] row={row_ptr:#010x} width={width} accelerated"
-    );
-    Ok(JumpTo(INOTIA2_RGB565_EFFECT_EXIT_PC))
+    Ok(JumpTo(INOTIA2_RGB565_EFFECT_EPILOGUE_PC))
+}
+
+async fn handle_inotia2_rgb565_effect_svc(
+    core: &mut ArmCore,
+    shared: &mut Inotia2Rgb565EffectSharedState,
+) -> Result<JumpTo> {
+    handle_inotia2_rgb565_effect_batch(core, shared)
 }
 
 fn install_inotia2_rgb565_effect_fastpath(core: &mut ArmCore) -> Result<()> {
@@ -205,24 +292,29 @@ fn install_inotia2_rgb565_effect_fastpath(core: &mut ArmCore) -> Result<()> {
     core.read_bytes(INOTIA2_RGB565_EFFECT_HOOK_ADDR, &mut current)?;
     if current != INOTIA2_RGB565_EFFECT_ORIGINAL {
         tracing::warn!(
-            "[PHASE8_25_INOTIA2_RGB565_FASTPATH] install guard mismatch at {INOTIA2_RGB565_EFFECT_HOOK_ADDR:#010x}: got={current:02x?}; acceleration suppressed"
+            "[PHASE8_28_INOTIA2_RGB565_BATCH] install guard mismatch at {INOTIA2_RGB565_EFFECT_HOOK_ADDR:#010x}: got={current:02x?}; acceleration suppressed"
         );
         return Ok(());
     }
 
-    // Register before writing the SVC opcode. No guest thread is running yet,
-    // but this order also makes the install atomic from the emulator's view.
+    let shared = Arc::new(spin::Mutex::new(Inotia2Rgb565EffectState {
+        lut_ptr: 0,
+        lut_valid: false,
+        lut: [0u8; 32 * 32],
+        pixels: Vec::new(),
+        logged_first_batch: false,
+    }));
     core.register_svc_handler(
         SVC_CATEGORY_INOTIA2_RGB565_EFFECT,
         handle_inotia2_rgb565_effect_svc,
-        &(),
+        &shared,
     )?;
     core.write_bytes(
         INOTIA2_RGB565_EFFECT_HOOK_ADDR,
         &INOTIA2_RGB565_EFFECT_SVC,
     )?;
     tracing::info!(
-        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] installed hook={INOTIA2_RGB565_EFFECT_HOOK_PC:#010x} exit={INOTIA2_RGB565_EFFECT_EXIT_PC:#010x}; runtime RGB565 mask guard enabled"
+        "[PHASE8_28_INOTIA2_RGB565_BATCH] installed hook={INOTIA2_RGB565_EFFECT_HOOK_PC:#010x}; all-rows RGB565 batch + LUT/buffer reuse enabled"
     );
     Ok(())
 }
@@ -617,6 +709,83 @@ pub async fn load_native(
         } else {
             tracing::warn!(
                 "[PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS] byte guard mismatch at {INOTIA1_CMD1_DATA_VALID_BRANCH:#010x}: got={cmd1_data_valid_branch:02x?}; patch suppressed"
+            );
+        }
+
+
+        // Phase 8.28 — restore the client's network-only item-use path offline.
+        //
+        // Static analysis of this exact 431,008-byte client resolves guest
+        // 0x0015032e as the network-state gate for special action/type 13. The
+        // original code requires global network state == 2; otherwise it stores
+        // the client's sole literal cash/network error 2001 and returns through
+        // the generic failure UI. This is the path hit by 자원 교환권, whose
+        // original description says it exchanges for 10 network resources but
+        // whose original restriction string says it is usable only while
+        // connected to the network.
+        //
+        // Do not fake network mode globally. For this exact title only, change
+        // the one BEQ to an unconditional branch to the *existing* valid-use
+        // continuation. The original item-consumption/resource-grant code then
+        // remains responsible for inventory and save state. The same 2001 gate
+        // is also the strongest candidate for the residual first-entry cash-shop
+        // error seen after the catalog already arrived, so this may remove that
+        // popup without patching UI state directly.
+        const INOTIA1_NETWORK_ITEM_USE_BRANCH: u32 = 0x0015_032e;
+        const INOTIA1_NETWORK_ITEM_USE_EXPECT: [u8; 2] = [0x06, 0xd0]; // beq 0x15033e
+        const INOTIA1_NETWORK_ITEM_USE_BYPASS: [u8; 2] = [0x06, 0xe0]; // b   0x15033e
+
+        let mut network_item_use_branch = [0u8; 2];
+        core.read_bytes(INOTIA1_NETWORK_ITEM_USE_BRANCH, &mut network_item_use_branch)?;
+        if network_item_use_branch == INOTIA1_NETWORK_ITEM_USE_EXPECT {
+            core.write_bytes(
+                INOTIA1_NETWORK_ITEM_USE_BRANCH,
+                &INOTIA1_NETWORK_ITEM_USE_BYPASS,
+            )?;
+            tracing::info!(
+                "[PHASE8_28_INOTIA1_NETWORK_USE_GATE] branch={INOTIA1_NETWORK_ITEM_USE_BRANCH:#010x} network-state==2 requirement bypassed; original item-use continuation preserved"
+            );
+        } else if network_item_use_branch == INOTIA1_NETWORK_ITEM_USE_BYPASS {
+            tracing::info!(
+                "[PHASE8_28_INOTIA1_NETWORK_USE_GATE] branch already patched at {INOTIA1_NETWORK_ITEM_USE_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_28_INOTIA1_NETWORK_USE_GATE] byte guard mismatch at {INOTIA1_NETWORK_ITEM_USE_BRANCH:#010x}: got={network_item_use_branch:02x?}; patch suppressed"
+            );
+        }
+
+
+        // Phase 8.29 — enable the second network-only consumable gate.
+        //
+        // The Phase 8.28 state==2 bypass reaches the original valid-use block,
+        // but that block contains a second BLS back to the same sole error-2001
+        // handler for the contiguous network-special item-ID range 0xF4..0xFE.
+        // 축복받은 용사의 인장 and the other network-only consumables are in
+        // this range, so single-player still showed the original "network mode
+        // only" message. Preserve all original item-use/grant logic and NOP only
+        // this exact title-specific rejection branch.
+        const INOTIA1_NETWORK_SPECIAL_ID_BRANCH: u32 = 0x0015_034a;
+        const INOTIA1_NETWORK_SPECIAL_ID_EXPECT: [u8; 2] = [0xf1, 0xd9]; // bls 0x150330 (error 2001)
+        const INOTIA1_NETWORK_SPECIAL_ID_BYPASS: [u8; 2] = [0xc0, 0x46]; // Thumb NOP -> original use path
+
+        let mut network_special_id_branch = [0u8; 2];
+        core.read_bytes(INOTIA1_NETWORK_SPECIAL_ID_BRANCH, &mut network_special_id_branch)?;
+        if network_special_id_branch == INOTIA1_NETWORK_SPECIAL_ID_EXPECT {
+            core.write_bytes(
+                INOTIA1_NETWORK_SPECIAL_ID_BRANCH,
+                &INOTIA1_NETWORK_SPECIAL_ID_BYPASS,
+            )?;
+            tracing::info!(
+                "[PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE] branch={INOTIA1_NETWORK_SPECIAL_ID_BRANCH:#010x} network-special ID rejection removed; original single-player use continuation preserved"
+            );
+        } else if network_special_id_branch == INOTIA1_NETWORK_SPECIAL_ID_BYPASS {
+            tracing::info!(
+                "[PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE] branch already patched at {INOTIA1_NETWORK_SPECIAL_ID_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE] byte guard mismatch at {INOTIA1_NETWORK_SPECIAL_ID_BRANCH:#010x}: got={network_special_id_branch:02x?}; patch suppressed"
             );
         }
     }
