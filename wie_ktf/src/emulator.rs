@@ -83,6 +83,11 @@ impl KtfEmulator {
         mut options: Options,
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
+        if aid == "010100D3" && pid == "PD005362" {
+            tracing::info!(
+                "[PHASE8_35_RUNTIME_SENTINEL] WIPI Player Phase 8.35 active; single-page-9 catalog; main-name-only recovery"
+            );
+        }
         if aid == "010100D5" && pid == "PD007974" {
             // Phase 8.22 — latency-first Inotia 2 execution profile.
             //

@@ -330,6 +330,72 @@ fn phase8_32_try_repair_inotia1_character_names(core: &mut ArmCore) {
     }
 }
 
+// Phase 8.34 — runtime name-string diagnostic at the exact Inotia 1 RVCT
+// strcpy/strlen hooks. Phase 8.33 found no persistent small-heap copies at
+// cash-shop open, so the corrupt scenario labels may exist only transiently
+// while the character screen formats them. Log exact base/display matches with
+// LR. A complete "name(class)" match is unambiguous and safe to repair in
+// place; base-name matches are diagnostic only because cash items can legally
+// use those same labels.
+const INOTIA1_CORRUPT_NAME0_DISPLAY_P834: [u8; 18] = [
+    0xc0, 0xda, 0xbf, 0xf8, 0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x28,
+    0xb5, 0xb5, 0xc0, 0xfb, 0x29, 0x00,
+];
+const INOTIA1_CORRECT_NAME0_DISPLAY_P834: [u8; 18] = [
+    0xc0, 0xcc, 0xb3, 0xeb, 0xc6, 0xbc, 0xbe, 0xc6, 0x28, 0xb5, 0xb5, 0xc0,
+    0xfb, 0x29, 0x00, 0x00, 0x00, 0x00,
+];
+const INOTIA1_CORRUPT_NAME1_DISPLAY_P834: [u8; 25] = [
+    0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0,
+    0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x28, 0xb1, 0xe2, 0xbb, 0xe7, 0x29,
+    0x00,
+];
+const INOTIA1_CORRECT_NAME1_DISPLAY_P834: [u8; 25] = [
+    0xb1, 0xe2, 0xbb, 0xe7, 0x28, 0xb1, 0xe2, 0xbb, 0xe7, 0x29, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00,
+];
+
+fn phase8_34_trace_inotia1_name_string(core: &mut ArmCore, kind: &str, ptr: u32, lr: u32) {
+    let mut bytes = [0u8; 25];
+    if core.read_bytes(ptr, &mut bytes).is_err() {
+        return;
+    }
+
+    if &bytes[..INOTIA1_CORRUPT_NAME0_DISPLAY_P834.len()] == &INOTIA1_CORRUPT_NAME0_DISPLAY_P834 {
+        tracing::info!(
+            "[PHASE8_34_INOTIA1_NAME_STRING_CALL] kind={kind} form=display0 ptr={ptr:#010x} lr={lr:#010x}"
+        );
+        if core.write_bytes(ptr, &INOTIA1_CORRECT_NAME0_DISPLAY_P834).is_ok() {
+            tracing::info!(
+                "[PHASE8_34_INOTIA1_DISPLAY_NAME_REPAIR] slot=0 ptr={ptr:#010x} lr={lr:#010x} 자원 교환권(도적) -> 이노티아(도적)"
+            );
+        }
+        return;
+    }
+    if &bytes[..INOTIA1_CORRUPT_NAME1_DISPLAY_P834.len()] == &INOTIA1_CORRUPT_NAME1_DISPLAY_P834 {
+        tracing::info!(
+            "[PHASE8_34_INOTIA1_NAME_STRING_CALL] kind={kind} form=display1 ptr={ptr:#010x} lr={lr:#010x}"
+        );
+        if core.write_bytes(ptr, &INOTIA1_CORRECT_NAME1_DISPLAY_P834).is_ok() {
+            tracing::info!(
+                "[PHASE8_34_INOTIA1_DISPLAY_NAME_REPAIR] slot=1 ptr={ptr:#010x} lr={lr:#010x} 초보용 용사의 인장(기사) -> 기사(기사)"
+            );
+        }
+        return;
+    }
+
+    if &bytes[..INOTIA1_CORRUPT_NAME0.len()] == &INOTIA1_CORRUPT_NAME0 {
+        tracing::info!(
+            "[PHASE8_34_INOTIA1_NAME_STRING_CALL] kind={kind} form=base0 ptr={ptr:#010x} lr={lr:#010x}; diagnostic-only"
+        );
+    } else if &bytes[..INOTIA1_CORRUPT_NAME1.len()] == &INOTIA1_CORRUPT_NAME1 {
+        tracing::info!(
+            "[PHASE8_34_INOTIA1_NAME_STRING_CALL] kind={kind} form=base1 ptr={ptr:#010x} lr={lr:#010x}; diagnostic-only"
+        );
+    }
+}
+
 async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) -> Result<JumpTo> {
     let (pc, lr) = core.read_pc_lr()?;
     // PC on entry is the address right after the patched 2-byte SVC. Drop any
@@ -380,12 +446,18 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
                 let inner = core.inner.lock();
                 (inner.engine.reg_read(ArmRegister::R0), inner.engine.reg_read(ArmRegister::R1))
             };
+            if hook_pc == 0x0015_42f1 {
+                phase8_34_trace_inotia1_name_string(core, "strcpy-src", src, lr);
+            }
             tracing::trace!("hook strcpy(ptr_dst={dst:#x}, ptr_src={src:#x})");
             stdlib::strcpy(core, &mut (), dst, src).await?;
             Ok(JumpTo(lr))
         }
         HookKind::Strlen => {
             let s = core.inner.lock().engine.reg_read(ArmRegister::R0);
+            if hook_pc == 0x0015_433d {
+                phase8_34_trace_inotia1_name_string(core, "strlen", s, lr);
+            }
             let len = stdlib::strlen(core, &mut (), s).await?;
             tracing::trace!("hook strlen(ptr_str={s:#x}) -> {len:#x}");
             core.inner.lock().engine.reg_write(ArmRegister::R0, len);

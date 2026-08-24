@@ -1,3 +1,5 @@
+> **Phase 8.35 (Inotia1 safe single-page + main-name recovery):** uses one 9-item offline cash-shop page within the client's fixed 12-entry capacity, excludes/rejects the server-only resource-exchange ticket, focuses recovery on the main character name `자원 교환권` → `이노티아` while leaving the secondary hero untouched, and embeds a Phase 8.35 runtime sentinel verified in both the built WASM and final IPA. TestFlight app version is `0.1.35`.
+
 # WIE
 
 ## Phase 8.33.1 TestFlight workflow correction

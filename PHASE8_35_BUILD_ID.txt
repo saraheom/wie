@@ -1,0 +1,6 @@
+WIPI Player Phase 8.35
+TestFlight app version: 0.1.35
+Runtime marker: PHASE8_35_RUNTIME_SENTINEL
+Catalog: one page, 9 records, fixed client capacity 12
+Main name target: 자원 교환권 -> 이노티아
+Secondary hero name: intentionally untouched

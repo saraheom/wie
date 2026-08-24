@@ -32,21 +32,22 @@ const INOTIA1_FAKE_SOCKET_FD: i32 = 0;
 const M_E_WOULDBLOCK: i32 = -19;
 
 
-// Phase 8.33 — persisted Inotia 1 character-name recovery probe/repair.
+// Phase 8.34 — bounded persisted-character-name recovery.
 //
-// The Phase 8.28 18-record catalog overflow replaced the two scenario names
-// with the 13th and 14th catalog labels. Phase 8.32 correctly identified the
-// source overflow slots, but field testing proves that after save/relaunch the
-// corrupted names are reconstructed into fresh heap strings rather than
-// remaining at catalog_array+12/+13. Probe the WIE small-object allocator at
-// the first authentic cash-shop transfer request, before any Phase 8.33
-// catalog strings are copied into guest memory.
+// Phase 8.33 proved that the two corrupt scenario names are not resident in
+// the 16/32-byte bucket allocations at cash-shop open.  Do not guess another
+// fixed pointer.  Instead, before any synthetic catalog strings are injected,
+// inspect only three bounded title-owned sources:
+//   * the exact mapped Inotia 1 native image/data/BSS range;
+//   * WIE allocations that are currently marked in-use; and
+//   * structures reachable from the title's live r10/GOT static base.
 //
-// We inspect only the allocator classes that can contain the known short
-// EUC-KR strings (16- and 32-byte buckets), and repair only when both corrupt
-// names form a unique exact pair. We also recognize the fully rendered
-// "name(class)" forms in case this title stores the class suffix in the same
-// allocation. No native/static memory and no save0 ciphertext are modified.
+// The native image on disk contains neither corrupt Korean label, so a unique
+// exact pair appearing in the mapped native data/BSS is runtime state and can
+// be repaired safely in place.  Heap/GOT matches are diagnostic only because
+// a legitimately owned cash item can carry the same base label.  Fully
+// rendered "name(class)" strings are handled separately by the exact RVCT
+// string-helper diagnostic in wie_core_arm.
 const INOTIA1_CORRUPT_NAME0_BASE: [u8; 12] = [
     0xc0, 0xda, 0xbf, 0xf8, 0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x00,
 ];
@@ -62,133 +63,262 @@ const INOTIA1_CORRECT_NAME1_BASE_PADDED: [u8; 19] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 ];
 
-// 자원 교환권(도적) -> 이노티아(도적)
-const INOTIA1_CORRUPT_NAME0_DISPLAY: [u8; 18] = [
-    0xc0, 0xda, 0xbf, 0xf8, 0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x28,
-    0xb5, 0xb5, 0xc0, 0xfb, 0x29, 0x00,
-];
-const INOTIA1_CORRECT_NAME0_DISPLAY_PADDED: [u8; 18] = [
-    0xc0, 0xcc, 0xb3, 0xeb, 0xc6, 0xbc, 0xbe, 0xc6, 0x28, 0xb5, 0xb5, 0xc0,
-    0xfb, 0x29, 0x00, 0x00, 0x00, 0x00,
-];
+const INOTIA1_NATIVE_BASE: WIPICWord = 0x0010_0000;
+const INOTIA1_NATIVE_MAPPED_END: WIPICWord = 0x0018_b0c4;
+const INOTIA1_LIST_HEAP_BASE: WIPICWord = 0x4000_0000;
+const INOTIA1_LIST_HEAP_END: WIPICWord = 0x4800_0000;
+const INOTIA1_GOT_SCAN_MAX_OFFSET: WIPICWord = 0x0800;
+const INOTIA1_GOT_TARGET_SCAN_LEN: usize = 0x0400;
 
-// 초보용 용사의 인장(기사) -> 기사(기사)
-const INOTIA1_CORRUPT_NAME1_DISPLAY: [u8; 25] = [
-    0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0,
-    0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x28, 0xb1, 0xe2, 0xbb, 0xe7, 0x29,
-    0x00,
-];
-const INOTIA1_CORRECT_NAME1_DISPLAY_PADDED: [u8; 25] = [
-    0xb1, 0xe2, 0xbb, 0xe7, 0x28, 0xb1, 0xe2, 0xbb, 0xe7, 0x29, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00,
-];
+fn phase8_34_push_unique(hits: &mut Vec<WIPICWord>, address: WIPICWord) {
+    if !hits.iter().any(|&existing| existing == address) {
+        hits.push(address);
+    }
+}
 
-fn phase8_33_find_allocated_bucket_matches(
+fn phase8_34_find_matches_in_bytes(
+    base: WIPICWord,
+    data: &[u8],
+    needle: &[u8],
+    hits: &mut Vec<WIPICWord>,
+) {
+    if needle.is_empty() || needle.len() > data.len() {
+        return;
+    }
+    for off in 0..=data.len() - needle.len() {
+        if &data[off..off + needle.len()] == needle {
+            phase8_34_push_unique(hits, base.wrapping_add(off as WIPICWord));
+        }
+    }
+}
+
+fn phase8_34_find_native_matches(
+    context: &mut dyn WIPICContext,
+    needle: &[u8],
+) -> Vec<WIPICWord> {
+    let len = INOTIA1_NATIVE_MAPPED_END.wrapping_sub(INOTIA1_NATIVE_BASE) as usize;
+    let mut data = vec![0u8; len];
+    if context.read_bytes(INOTIA1_NATIVE_BASE, &mut data).is_err() {
+        return Vec::new();
+    }
+    let mut hits = Vec::new();
+    phase8_34_find_matches_in_bytes(INOTIA1_NATIVE_BASE, &data, needle, &mut hits);
+    hits
+}
+
+// Phase 8.35 — early main-name repair used by the first few Inotia 1 repaint
+// calls. This deliberately scans only the mapped native data/BSS range, where
+// the original on-disk image contains no `자원 교환권` bytes. A unique runtime
+// match is therefore safe to replace without touching item-database strings.
+pub(crate) fn phase8_35_try_repair_main_name_native(
+    context: &mut dyn WIPICContext,
+) -> Result<bool> {
+    let native0 = phase8_34_find_native_matches(context, &INOTIA1_CORRUPT_NAME0_BASE);
+    if native0.len() != 1 {
+        return Ok(false);
+    }
+    context.write_bytes(native0[0], &INOTIA1_CORRECT_NAME0_BASE_PADDED)?;
+    tracing::info!(
+        "[PHASE8_35_INOTIA1_MAIN_NAME_EARLY_REPAIR] ptr={:#010x} 자원 교환권 -> 이노티아; native runtime exact unique match",
+        native0[0]
+    );
+    Ok(true)
+}
+
+fn phase8_34_find_allocated_bucket_matches(
     context: &mut dyn WIPICContext,
     header_address: WIPICWord,
     header_len: usize,
     slot_size: usize,
     slot_count: usize,
     needle: &[u8],
-) -> Vec<WIPICWord> {
+    hits: &mut Vec<WIPICWord>,
+) {
+    if needle.len() > slot_size {
+        return;
+    }
     let mut header = vec![0u8; header_len];
     if context.read_bytes(header_address, &mut header).is_err() {
-        return Vec::new();
+        return;
     }
     let payload = header_address.wrapping_add(header_len as WIPICWord);
-    let mut hits = Vec::new();
     for slot in 0..slot_count {
         let byte = header[slot / 8];
         let bit = 1u8 << (slot & 7);
-        // WIE BucketAllocator bit semantics: 0 = allocated, 1 = free.
+        // BucketAllocator uses 0=allocated, 1=free.
         if byte & bit != 0 {
             continue;
         }
         let address = payload.wrapping_add((slot * slot_size) as WIPICWord);
         let mut data = vec![0u8; slot_size];
-        if context.read_bytes(address, &mut data).is_err() || needle.len() > data.len() {
+        if context.read_bytes(address, &mut data).is_err() {
             continue;
         }
-        for off in 0..=data.len() - needle.len() {
-            if &data[off..off + needle.len()] == needle {
-                hits.push(address.wrapping_add(off as WIPICWord));
+        phase8_34_find_matches_in_bytes(address, &data, needle, hits);
+    }
+}
+
+fn phase8_34_find_list_heap_matches(
+    context: &mut dyn WIPICContext,
+    needle: &[u8],
+    hits: &mut Vec<WIPICWord>,
+) {
+    let mut cursor = INOTIA1_LIST_HEAP_BASE;
+    let mut blocks = 0usize;
+    while cursor < INOTIA1_LIST_HEAP_END && blocks < 0x20_000 {
+        let Some(raw) = read_guest_u32(context, cursor) else {
+            break;
+        };
+        let size = (raw & 0x7fff_ffff) as usize;
+        let in_use = raw & 0x8000_0000 != 0;
+        if size < 8 || size & 3 != 0 {
+            break;
+        }
+        let Some(next) = cursor.checked_add(size as WIPICWord) else {
+            break;
+        };
+        if next > INOTIA1_LIST_HEAP_END || next <= cursor {
+            break;
+        }
+
+        // Layout is 4-byte header + payload/padding + 4-byte canary.  Avoid a
+        // pathological allocation from turning this diagnostic into a large
+        // copy; character/save structures are far smaller than 2 MiB.
+        if in_use {
+            let payload_len = size.saturating_sub(8);
+            if payload_len >= needle.len() && payload_len <= 0x20_0000 {
+                let address = cursor.wrapping_add(4);
+                let mut data = vec![0u8; payload_len];
+                if context.read_bytes(address, &mut data).is_ok() {
+                    phase8_34_find_matches_in_bytes(address, &data, needle, hits);
+                }
+            }
+        }
+        cursor = next;
+        blocks += 1;
+    }
+}
+
+fn phase8_34_find_allocated_heap_matches(
+    context: &mut dyn WIPICContext,
+    needle: &[u8],
+) -> Vec<WIPICWord> {
+    let mut hits = Vec::new();
+    // Bucket allocator occupies 0x48000000.. and uses the layout defined in
+    // wie_core_arm::allocator::bucket. Scan only in-use slots large enough to
+    // contain the complete NUL-terminated string.
+    let buckets: [(WIPICWord, usize, usize, usize); 6] = [
+        (0x4883_0000, 0x1_0000usize, 16usize, 0x8_0000usize),
+        (0x4904_0000, 0x8000usize, 32usize, 0x4_0000usize),
+        (0x4984_8000, 0x8000usize, 64usize, 0x4_0000usize),
+        (0x4a85_0000, 0x4000usize, 128usize, 0x2_0000usize),
+        (0x4b85_4000, 0x4000usize, 256usize, 0x2_0000usize),
+        (0x4d85_8000, 0x2000usize, 512usize, 0x1_0000usize),
+    ];
+    for (header, header_len, slot_size, slot_count) in buckets {
+        phase8_34_find_allocated_bucket_matches(
+            context,
+            header,
+            header_len,
+            slot_size,
+            slot_count,
+            needle,
+            &mut hits,
+        );
+    }
+    phase8_34_find_list_heap_matches(context, needle, &mut hits);
+    hits
+}
+
+fn phase8_34_plausible_guest_pointer(value: WIPICWord) -> bool {
+    (INOTIA1_NATIVE_BASE..INOTIA1_NATIVE_MAPPED_END).contains(&value)
+        || (0x4000_0000..0x5000_0000).contains(&value)
+}
+
+fn phase8_34_scan_pointer_target(
+    context: &mut dyn WIPICContext,
+    pointer: WIPICWord,
+    needle: &[u8],
+    hits: &mut Vec<WIPICWord>,
+) {
+    if !phase8_34_plausible_guest_pointer(pointer) {
+        return;
+    }
+    let mut data = vec![0u8; INOTIA1_GOT_TARGET_SCAN_LEN];
+    if context.read_bytes(pointer, &mut data).is_ok() {
+        phase8_34_find_matches_in_bytes(pointer, &data, needle, hits);
+    }
+}
+
+fn phase8_34_find_got_reachable_matches(
+    context: &mut dyn WIPICContext,
+    r10: WIPICWord,
+    needle: &[u8],
+) -> Vec<WIPICWord> {
+    let mut hits = Vec::new();
+    let mut scanned = Vec::new();
+    for offset in (0u32..=INOTIA1_GOT_SCAN_MAX_OFFSET).step_by(4) {
+        let Some(pointer) = read_guest_u32(context, r10.wrapping_add(offset)) else {
+            continue;
+        };
+        if phase8_34_plausible_guest_pointer(pointer)
+            && !scanned.iter().any(|&existing| existing == pointer)
+        {
+            scanned.push(pointer);
+            phase8_34_scan_pointer_target(context, pointer, needle, &mut hits);
+
+            // Many GOT entries point to a global pointer rather than directly
+            // to the object. Follow one additional level, never recursively.
+            if let Some(nested) = read_guest_u32(context, pointer) {
+                if phase8_34_plausible_guest_pointer(nested)
+                    && !scanned.iter().any(|&existing| existing == nested)
+                {
+                    scanned.push(nested);
+                    phase8_34_scan_pointer_target(context, nested, needle, &mut hits);
+                }
             }
         }
     }
     hits
 }
 
-fn phase8_33_find_small_heap_matches(
-    context: &mut dyn WIPICContext,
-    needle: &[u8],
-) -> Vec<WIPICWord> {
-    let mut hits = Vec::new();
-    // 16-byte bucket: header 0x48830000..0x4883ffff, payload 0x48840000.
-    if needle.len() <= 16 {
-        hits.extend(phase8_33_find_allocated_bucket_matches(
-            context,
-            0x4883_0000,
-            0x1_0000,
-            16,
-            0x8_0000,
-            needle,
-        ));
-    }
-    // 32-byte bucket: header 0x49040000..0x49047fff, payload 0x49048000.
-    if needle.len() <= 32 {
-        hits.extend(phase8_33_find_allocated_bucket_matches(
-            context,
-            0x4904_0000,
-            0x8000,
-            32,
-            0x4_0000,
-            needle,
-        ));
-    }
-    hits
-}
+fn phase8_34_probe_and_repair_inotia1_names(context: &mut dyn WIPICContext) -> Result<()> {
+    let r10 = context.debug_cpu_context().map(|cpu| cpu[10]).unwrap_or(0);
 
-fn phase8_33_probe_and_repair_inotia1_names(context: &mut dyn WIPICContext) -> Result<()> {
-    let name0_base = phase8_33_find_small_heap_matches(context, &INOTIA1_CORRUPT_NAME0_BASE);
-    let name1_base = phase8_33_find_small_heap_matches(context, &INOTIA1_CORRUPT_NAME1_BASE);
-    let name0_display = phase8_33_find_small_heap_matches(context, &INOTIA1_CORRUPT_NAME0_DISPLAY);
-    let name1_display = phase8_33_find_small_heap_matches(context, &INOTIA1_CORRUPT_NAME1_DISPLAY);
+    let native0 = phase8_34_find_native_matches(context, &INOTIA1_CORRUPT_NAME0_BASE);
+    let native1 = phase8_34_find_native_matches(context, &INOTIA1_CORRUPT_NAME1_BASE);
+    let heap0 = phase8_34_find_allocated_heap_matches(context, &INOTIA1_CORRUPT_NAME0_BASE);
+    let heap1 = phase8_34_find_allocated_heap_matches(context, &INOTIA1_CORRUPT_NAME1_BASE);
+    let got0 = if r10 != 0 {
+        phase8_34_find_got_reachable_matches(context, r10, &INOTIA1_CORRUPT_NAME0_BASE)
+    } else {
+        Vec::new()
+    };
+    let got1 = if r10 != 0 {
+        phase8_34_find_got_reachable_matches(context, r10, &INOTIA1_CORRUPT_NAME1_BASE)
+    } else {
+        Vec::new()
+    };
 
     tracing::info!(
-        "[PHASE8_33_INOTIA1_NAME_HEAP_PROBE] base0={name0_base:?} base1={name1_base:?} display0={name0_display:?} display1={name1_display:?}"
+        "[PHASE8_35_INOTIA1_NAME_BOUNDED_PROBE] r10={r10:#010x} native0={native0:?} native1={native1:?} heap0={heap0:?} heap1={heap1:?} got0={got0:?} got1={got1:?}"
     );
 
-    let mut repaired = false;
-    // Strongest case: both fully rendered scenario strings are unique.
-    if name0_display.len() == 1 && name1_display.len() == 1 {
-        context.write_bytes(name0_display[0], &INOTIA1_CORRECT_NAME0_DISPLAY_PADDED)?;
-        context.write_bytes(name1_display[0], &INOTIA1_CORRECT_NAME1_DISPLAY_PADDED)?;
+    // Phase 8.35 focuses on the persisted main-character name only. The
+    // unmodified native image contains no "자원 교환권" label, so one exact
+    // runtime copy in mapped data/BSS is sufficient evidence; do not require
+    // the secondary hero slot to be corrupt as well. This lets a newly recruited
+    // replacement hero remain entirely under the game's control.
+    if native0.len() == 1 {
+        context.write_bytes(native0[0], &INOTIA1_CORRECT_NAME0_BASE_PADDED)?;
         tracing::info!(
-            "[PHASE8_33_INOTIA1_CHARACTER_NAME_REPAIR] mode=display name0_ptr={:#010x} name1_ptr={:#010x} exact unique pair repaired",
-            name0_display[0],
-            name1_display[0]
+            "[PHASE8_35_INOTIA1_MAIN_NAME_REPAIR] mode=native-runtime name0_ptr={:#010x} 자원 교환권 -> 이노티아; secondary hero untouched",
+            native0[0]
         );
-        repaired = true;
-    }
-
-    // The original game is more likely to store just the base character name
-    // and append the class label while drawing. Repair the base pair only when
-    // *both* corrupt strings are unique across the two expected heap classes.
-    if name0_base.len() == 1 && name1_base.len() == 1 {
-        context.write_bytes(name0_base[0], &INOTIA1_CORRECT_NAME0_BASE_PADDED)?;
-        context.write_bytes(name1_base[0], &INOTIA1_CORRECT_NAME1_BASE_PADDED)?;
+    } else {
         tracing::info!(
-            "[PHASE8_33_INOTIA1_CHARACTER_NAME_REPAIR] mode=base name0_ptr={:#010x} name1_ptr={:#010x} exact unique pair repaired",
-            name0_base[0],
-            name1_base[0]
-        );
-        repaired = true;
-    }
-
-    if !repaired {
-        tracing::info!(
-            "[PHASE8_33_INOTIA1_CHARACTER_NAME_REPAIR] no write: candidate pair was not unique; probe addresses retained for next phase"
+            "[PHASE8_35_INOTIA1_MAIN_NAME_REPAIR] no write: native main-name candidate count={}; heap/GOT candidates remain diagnostic-only",
+            native0.len()
         );
     }
     Ok(())
@@ -264,22 +394,25 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.33 — two-page compatibility catalog.
+// Phase 8.35 — conservative one-page offline catalog.
 //
-// Field testing on 8.31/8.32 shows that Inotia 1's right-page control never
-// emits a command-30 request, while the working left control reliably moves
-// from page 0 to page 1 and then repeatedly re-requests page 1. A three-page
-// catalog therefore leaves page 2 reachable only as a side effect of opening
-// and backing out of an item detail. Keep every response below the proven
-// 12-record fixed-array ceiling, but collapse the 18 items to two 9-record
-// pages. Nine records is safe, and all catalog items are reachable with the
-// one page transition the guest reliably performs. The byte after page_index
-// is the highest valid page index, so advertise max_page_index=1.
+// The original Inotia 1 client has fixed storage for 12 catalog records. The
+// Phase 8.28 18-record experiment wrote records 13/14 into the adjacent
+// character-name pointer slots and is the source of the persisted name
+// corruption we are repairing. Do not use paging as a workaround and do not
+// ever exceed that fixed storage again. This final-compatible layout uses one
+// page with only nine high-value offline items, leaving three slots of safety
+// margin. No arrow/page transition is required.
 //
-// Response layout: length, command=30, result=1, page_index, max_page_index=1,
-// record_count=9, repeated { name_len, EUC-KR name, field=1, value=0 }.
-const INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: [u8; 160] = [
-    0x00, 0xa0, 0x1e, 0x01, 0x00, 0x01, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+// Included: skill book, revive scroll, blessed revive scroll, chest key, hero
+// seal, blessed hero seal, 16-slot bag, skill reset, beginner hero seal. The
+// server-account-only resource exchange ticket and cosmetic/redundant bag
+// variants are intentionally omitted.
+//
+// Response fields: command=30, result=1, page_count=1, current_page=0,
+// record_count=9, then repeated { name_len, EUC-KR name, field=1, value=0 }.
+const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 174] = [
+    0x00, 0xae, 0x1e, 0x01, 0x01, 0x00, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -288,28 +421,12 @@ const INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: [u8; 160] = [
     0x00, 0x00, 0x00, 0x0b, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0,
     0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x14, 0xc3, 0xe0, 0xba,
     0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7,
-    0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x33,
-    0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00,
-    0x08, 0x36, 0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00,
-    0x00, 0x00, 0x08, 0x39, 0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01,
-    0x00, 0x00, 0x00, 0x00,
-];
-
-const INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: [u8; 165] = [
-    0x00, 0xa5, 0x1e, 0x01, 0x01, 0x01, 0x09, 0x09, 0x31, 0x32, 0xc4, 0xad,
-    0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31,
+    0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31,
     0x36, 0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8,
-    0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xc0, 0xda, 0xbf, 0xf8, 0x20,
-    0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x01, 0x00, 0x00, 0x00, 0x00, 0x12,
-    0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0,
-    0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0d,
-    0xc8, 0xe6, 0xb1, 0xe2, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc5, 0xf5, 0xb1,
-    0xb8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xb7, 0xb9, 0xb0, 0xd4, 0x20,
-    0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b,
-    0xb9, 0xf8, 0xb0, 0xb3, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf, 0x01,
-    0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xda, 0xbd, 0xba, 0x20,
-    0xb0, 0xa1, 0xb8, 0xe9, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf,
+    0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0,
+    0xe5, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Phase 8.26 — command-31 is the title's authentic BUY request. The exact
@@ -323,18 +440,24 @@ const INOTIA1_CASH_CMD31_PURCHASE_SUCCESS: [u8; 8] = [
     0x00, 0x00, 0x00, 0x00, // post-purchase value/balance = 0
 ];
 
-// Phase 8.30 — 자원 교환권 (resource exchange ticket) authentic server reply.
-//
-// Phase 8.29 field capture recovered the exact outbound packet:
-//   00 07 59 00 02 00 0a
-// and the client timed out with error 2014 only because command 89 had no
-// offline response. Static dispatch analysis resolves server command 89 at
-// guest 0x00119294. Its receive handler consumes only the common result/state
-// byte; on state=1 it executes the title's original resource/inventory update
-// path and does not read any command-specific payload. Therefore the minimal
-// faithful local success frame is exactly four bytes.
-const INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: [u8; 4] = [
-    0x00, 0x04, 0x59, 0x01, // length=4, command=89, common result/state=success
+// Phase 8.34 — 자원 교환권 is a server/account resource exchange, not a
+// normal single-player inventory grant. Field testing with the Phase 8.30
+// synthetic success showed the client displaying "10 resources" and saving,
+// but no inventory/resource became usable offline. Do not acknowledge success
+// and potentially consume a ticket for a balance that cannot exist locally.
+// Return the authentic command with common result/state=0 so the original
+// client follows its rejection path without timing out.
+const INOTIA1_CMD89_RESOURCE_EXCHANGE_OFFLINE_REJECT: [u8; 4] = [
+    0x00, 0x04, 0x59, 0x00, // length=4, command=89, common result/state=failure
+];
+
+// Phase 8.34 — command 123 is not one-way. Static recovery of the native
+// receive jump table proves server command 123 routes to the common cleanup
+// handler at guest 0x001171fa. The client still consumes the common one-byte
+// result/state field before dispatch, so this is the minimal native cleanup
+// success response after the observed outbound 00 04 7b 00 exit packet.
+const INOTIA1_CMD123_CLEANUP_SUCCESS: [u8; 4] = [
+    0x00, 0x04, 0x7b, 0x01,
 ];
 
 const CASH_RX_HELLO: u8 = 0;
@@ -345,6 +468,7 @@ const CASH_RX_CMD5_STAGE4: u8 = 4;
 const CASH_RX_CMD30_REENTRY: u8 = 5;
 const CASH_RX_CMD31_PURCHASE: u8 = 6;
 const CASH_RX_CMD89_RESOURCE_EXCHANGE: u8 = 7;
+const CASH_RX_CMD123_CLEANUP: u8 = 8;
 
 #[derive(Copy, Clone)]
 struct Inotia1CashRxState {
@@ -359,11 +483,8 @@ static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1Cash
 
 static INOTIA1_CASH_CATALOG_PAGE: Mutex<u8> = Mutex::new(0);
 
-fn inotia1_cash_catalog_frame(page: u8) -> &'static [u8] {
-    match page {
-        1 => &INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE,
-        _ => &INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE,
-    }
+fn inotia1_cash_catalog_frame(_page: u8) -> &'static [u8] {
+    &INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE
 }
 
 // Phase 8.25 — persist the legacy read-callback registration.
@@ -409,7 +530,8 @@ fn inotia1_cash_response_pending() -> bool {
         CASH_RX_CMD5_STAGE4 => INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY.len(),
         CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(*INOTIA1_CASH_CATALOG_PAGE.lock()).len(),
         CASH_RX_CMD31_PURCHASE => INOTIA1_CASH_CMD31_PURCHASE_SUCCESS.len(),
-        CASH_RX_CMD89_RESOURCE_EXCHANGE => INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS.len(),
+        CASH_RX_CMD89_RESOURCE_EXCHANGE => INOTIA1_CMD89_RESOURCE_EXCHANGE_OFFLINE_REJECT.len(),
+        CASH_RX_CMD123_CLEANUP => INOTIA1_CMD123_CLEANUP_SUCCESS.len(),
         _ => 0,
     };
     frame_len != 0 && state.offset < frame_len
@@ -521,7 +643,8 @@ fn reset_inotia1_cash_session_wait() {
 }
 
 fn queue_inotia1_cash_cmd30_page(page: u8) {
-    *INOTIA1_CASH_CATALOG_PAGE.lock() = page.min(1);
+    *INOTIA1_CASH_CATALOG_PAGE.lock() = 0;
+    let _ = page;
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD30_REENTRY,
         offset: 0,
@@ -535,9 +658,16 @@ fn queue_inotia1_cash_cmd31_purchase_success() {
     };
 }
 
-fn queue_inotia1_cmd89_resource_exchange_success() {
+fn queue_inotia1_cmd89_resource_exchange_reject() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD89_RESOURCE_EXCHANGE,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cmd123_cleanup_success() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD123_CLEANUP,
         offset: 0,
     };
 }
@@ -560,6 +690,26 @@ fn read_inotia1_got_u32(
 ) -> Option<u32> {
     let ptr = read_guest_u32(context, r10.wrapping_add(got_offset))?;
     read_guest_u32(context, ptr)
+}
+
+// Phase 8.34 — trace the corrected command-30 page globals. Static UI/native
+// analysis proves GOT 0x510 is page_count, GOT 0x4a4 is zero-based current
+// page, and GOT 0x4d8 is record_count.
+fn trace_phase8_34_inotia1_page_globals(
+    context: &mut dyn WIPICContext,
+    requested_page: u8,
+    label: &str,
+) {
+    if let Some(cpu) = context.debug_cpu_context() {
+        let r10 = cpu[10];
+        let field_510 = read_inotia1_got_u32(context, r10, 0x510);
+        let field_4a4 = read_inotia1_got_u32(context, r10, 0x4a4);
+        let record_count = read_inotia1_got_u32(context, r10, 0x4d8);
+        tracing::info!(
+            "[PHASE8_34_INOTIA1_PAGE_GLOBALS] label={label} requested={requested_page} r10={r10:#010x} got510={field_510:?} got4a4={field_4a4:?} record_count={record_count:?} pc={:#010x} lr={:#010x}",
+            cpu[15], cpu[14]
+        );
+    }
 }
 
 // Phase 8.22 — diagnostic for the common one-byte response state/result field.
@@ -839,11 +989,11 @@ pub async fn socket_write(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
     } else if head.len() >= 3 && head[2] == 0x05 {
-        // Phase 8.33: this is the earliest authentic shop request after the
+        // Phase 8.34: this is the earliest authentic shop request after the
         // gameplay save has been loaded, and it occurs before any local
         // catalog strings have been copied into the guest heap. Use it as the
         // safe one-shot opportunity to locate/repair the persisted name pair.
-        phase8_33_probe_and_repair_inotia1_names(context)?;
+        phase8_34_probe_and_repair_inotia1_names(context)?;
         // Phase 8.24: command 5 requests the catalog transfer. Queue the empty
         // command-2 start; the reader automatically follows it with command 4
         // finalization so the original UI is not left in a half-transfer state.
@@ -853,25 +1003,26 @@ pub async fn socket_write(
             "[PHASE8_24_INOTIA1_CASH_TRANSFER_SEQUENCE] outbound command=5 len={len} -> queued command-2 empty start + command-4 empty finalize"
         );
     } else if head.len() >= 3 && head[2] == 0x7b {
-        // The observed 00 04 7b 00 packet is emitted when leaving/re-entering
-        // the shop and has no matching receive-dispatch handler. Treat it as
-        // the client's one-way session reset/cancel marker and clear only our
-        // pending local-response state.
+        // Phase 8.34: static jump-table recovery proves command 123 has a real
+        // server receive route. Replace any older pending bytes with the
+        // native cleanup success frame and wake the reader so the title clears
+        // its own cash-shop UI/description state.
         reset_inotia1_cash_session_wait();
+        queue_inotia1_cmd123_cleanup_success();
+        queued_reason = Some("command123-cleanup");
         tracing::info!(
-            "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=123 len={len} -> local session queue reset; no response"
+            "[PHASE8_34_INOTIA1_CASH_EXIT_CLEANUP] outbound command=123 len={len} -> queued [00 04 7b 01] for native generic cleanup handler 0x001171fa"
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        // Phase 8.33 uses two 9-record pages because field testing shows the
-        // title has only one reliable page transition. Treat every nonzero
-        // request as page 1; this also absorbs the stale request_page=2 that
-        // can be emitted after closing an item-detail view.
-        let page = if requested_page == 0 { 0 } else { 1 };
-        queue_inotia1_cash_cmd30_page(page);
-        queued_reason = Some("command30-catalog");
+        // Phase 8.35 deliberately exposes only one safe catalog page. Even if
+        // a stale guest state asks for another index, return page 0 and never
+        // write more than nine records into the title's 12-slot table.
+        trace_phase8_34_inotia1_page_globals(context, requested_page, "before-command30-single-page-response");
+        queue_inotia1_cash_cmd30_page(0);
+        queued_reason = Some("command30-single-page-catalog");
         tracing::info!(
-            "[PHASE8_33_INOTIA1_CASH_TWO_PAGE] outbound command=30 len={len} requested_page={requested_page} -> page={page} max_page_index=1 records=9 all price=0"
+            "[PHASE8_35_INOTIA1_CASH_SINGLE_PAGE] outbound command=30 len={len} requested_page={requested_page} -> page_count=1 current_page=0 records=9 capacity=12 safety_margin=3 all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -883,15 +1034,15 @@ pub async fn socket_write(
             "[PHASE8_27_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} head={head:02x?} -> queued local success balance=0"
         );
     } else if head.len() >= 3 && head[2] == 0x59 {
-        // Phase 8.30 — the resource-exchange ticket has already passed both
-        // single-player network gates and now emits its authentic command 89.
-        // The matching native receive handler needs only common state=1; wake
-        // the stored reader immediately so the game's own item/resource update
-        // and persistence path completes instead of hitting timeout 2014.
-        queue_inotia1_cmd89_resource_exchange_success();
-        queued_reason = Some("command89-resource-exchange");
+        // Phase 8.34 — a resource-exchange ticket already present in an older save
+        // can still reach authentic command 89 because earlier compatibility gates
+        // allow the item-use path. This resource belongs to the historical server
+        // account, not the single-player inventory, so return common failure state=0
+        // rather than the old synthetic success that misleadingly displayed '10 acquired'.
+        queue_inotia1_cmd89_resource_exchange_reject();
+        queued_reason = Some("command89-offline-reject");
         tracing::info!(
-            "[PHASE8_30_INOTIA1_RESOURCE_EXCHANGE] outbound command=89 len={len} head={head:02x?} -> queued minimal native success frame"
+            "[PHASE8_34_INOTIA1_RESOURCE_EXCHANGE_OFFLINE_ONLY] outbound command=89 len={len} head={head:02x?} -> queued native failure state=0; server-account resources are not represented in single-player inventory"
         );
     } else if head.len() >= 3 {
         tracing::info!(
@@ -991,7 +1142,8 @@ pub async fn socket_read_ktf_legacy(
             CASH_RX_CMD5_STAGE4 => &INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY,
             CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(catalog_page),
             CASH_RX_CMD31_PURCHASE => &INOTIA1_CASH_CMD31_PURCHASE_SUCCESS,
-            CASH_RX_CMD89_RESOURCE_EXCHANGE => &INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS,
+            CASH_RX_CMD89_RESOURCE_EXCHANGE => &INOTIA1_CMD89_RESOURCE_EXCHANGE_OFFLINE_REJECT,
+            CASH_RX_CMD123_CLEANUP => &INOTIA1_CMD123_CLEANUP_SUCCESS,
             _ => {
                 tracing::info!(
                     "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
@@ -1047,7 +1199,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         tracing::info!(
-            "[PHASE8_33_INOTIA1_FIRST_OPEN_TWO_PAGE] command-4 finalize consumed -> page=0 max_page_index=1 catalog immediately pending (9 records; two compatibility pages)"
+            "[PHASE8_35_INOTIA1_FIRST_OPEN_SINGLE_PAGE] command-4 finalize consumed -> page_count=1 current_page=0 records=9 capacity=12 safety_margin=3 catalog immediately pending"
         );
     }
 
