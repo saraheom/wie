@@ -1,5 +1,10 @@
 # WIE
 
+## Phase 8.33.1 TestFlight workflow correction
+
+Phase 8.33.1 keeps Phase 8.33 runtime behavior unchanged and fixes stale Phase 8.32 three-page catalog assertions in the iOS TestFlight workflow. See `FULL_REPO_PHASE8_33_1_README.md`.
+
+
 ## Phase 8.33 Inotia 1 two-page compatibility / heap-name recovery notes
 
 Phase 8.33 responds to the Phase 8.32 field trace rather than extending the

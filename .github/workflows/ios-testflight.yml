@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.32 WIE WebAssembly core
+      - name: Force clean Phase 8.33 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -135,9 +135,12 @@ jobs:
           grep -n 'lzma-rs = { version = "0.3"' wie_ktf/Cargo.toml
           grep -n 'extern crate std' wie_ktf/src/lib.rs
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 96\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE2_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 160\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 165\]' wie_wipi_c/src/api/net.rs
+          if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE2_FREE' wie_wipi_c/src/api/net.rs; then
+            echo 'Unexpected third Inotia1 cash catalog page is present in Phase 8.33' >&2
+            exit 1
+          fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -186,7 +189,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.32 core source was selected
+      - name: Verify Phase 8.33 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -265,9 +268,12 @@ jobs:
           grep -n 'lzma-rs = { version = "0.3"' wie_ktf/Cargo.toml
           grep -n 'extern crate std' wie_ktf/src/lib.rs
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 96\]' wie_wipi_c/src/api/net.rs
-          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE2_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 160\]' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 165\]' wie_wipi_c/src/api/net.rs
+          if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE2_FREE' wie_wipi_c/src/api/net.rs; then
+            echo 'Unexpected third Inotia1 cash catalog page is present in Phase 8.33' >&2
+            exit 1
+          fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
@@ -320,7 +326,7 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.32 clean WASM build completed.'
+          echo 'Phase 8.33 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash
