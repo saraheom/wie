@@ -1,9 +1,9 @@
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec};
 use core::mem::size_of;
 use jvm::Jvm;
 
 use wie_backend::System;
-use wie_core_arm::{Allocator, ArmCore, EmulatedFunction, ResultWriter, SvcId};
+use wie_core_arm::{Allocator, ArmCore, EmulatedFunction, JumpTo, ResultWriter, SvcId};
 use wie_util::{ByteRead, ByteWrite, Result, WieError, read_generic, read_null_terminated_string_bytes, write_generic};
 
 use wipi_types::ktf::{ExeInterface, ExeInterfaceFunctions, InitParam0, InitParam1, InitParam3, InitParam4, WipiExe};
@@ -43,6 +43,188 @@ async fn handle_init_svc(core: &mut ArmCore, jvm: &mut Jvm, id: SvcId) -> Result
         InitSvcId::IncMem6 => inc_mem_slot(core, 6).await?.write(core, lr),
         InitSvcId::IncMem7 => inc_mem_slot(core, 7).await?.write(core, lr),
     }
+}
+
+// Phase 8.25 — exact-title host acceleration for Inotia 2's dominant RGB565
+// software effect row. Phase 8.23 profiling tied the largest 300-664 ms frame
+// gaps to the tight guest loop at 0x00123f2a..0x00123f82. The loop unpacks one
+// RGB565 pixel, applies the same 32x32 byte lookup table independently to R/G/B,
+// repacks the pixel, and repeats for every pixel in a clipped row. Interpreting
+// that sequence millions of times is unnecessary: replace only the loop entry
+// with a private SVC and reproduce one complete row in Rust using two bulk guest
+// memory transfers.
+//
+// The hook is installed only for exact AID/PID/native length + original bytes.
+// At runtime it additionally verifies the title's active pixel masks are exactly
+// RGB565 (F800/07E0/001F). If that invariant ever fails, the original instruction
+// is restored and execution resumes at the unmodified guest loop for the rest of
+// the launch.
+const SVC_CATEGORY_INOTIA2_RGB565_EFFECT: u32 = 0x81;
+const INOTIA2_RGB565_EFFECT_HOOK_ADDR: u32 = 0x0012_3f2a;
+const INOTIA2_RGB565_EFFECT_HOOK_PC: u32 = 0x0012_3f2b;
+const INOTIA2_RGB565_EFFECT_EXIT_PC: u32 = 0x0012_3f85;
+const INOTIA2_RGB565_EFFECT_ORIGINAL: [u8; 2] = [0x02, 0x99]; // ldr r1,[sp,#8]
+const INOTIA2_RGB565_EFFECT_SVC: [u8; 2] = [0x81, 0xdf];
+
+fn disable_inotia2_rgb565_effect_fastpath(core: &mut ArmCore, reason: &str) -> Result<JumpTo> {
+    core.write_bytes(
+        INOTIA2_RGB565_EFFECT_HOOK_ADDR,
+        &INOTIA2_RGB565_EFFECT_ORIGINAL,
+    )?;
+    tracing::warn!(
+        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] runtime gate failed ({reason}); original guest loop restored"
+    );
+    Ok(JumpTo(INOTIA2_RGB565_EFFECT_HOOK_PC))
+}
+
+async fn handle_inotia2_rgb565_effect_svc(
+    core: &mut ArmCore,
+    _: &mut (),
+) -> Result<JumpTo> {
+    let mut regs = core.save_context();
+    let got = regs.r7;
+    let sp = regs.sp;
+    let row_ptr = regs.r6;
+    let width = regs.r8;
+
+    // The loop is only valid for a positive clipped width. Keep a conservative
+    // sanity cap so an unexpected call state can never request a huge host
+    // allocation; fallback restores the original code instead.
+    if width == 0 || width > 4096 {
+        return disable_inotia2_rgb565_effect_fastpath(core, "invalid clipped width");
+    }
+
+    // Pixel-format masks are initialized by the game's own graphics setup.
+    // GOT entries 0x10e4/0x10e0/0x10e8 point to the active R/G/B mask cells.
+    let red_mask_ptr: u32 = match read_generic(core, got.wrapping_add(0x10e4)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "red-mask pointer unreadable"),
+    };
+    let green_mask_ptr: u32 = match read_generic(core, got.wrapping_add(0x10e0)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "green-mask pointer unreadable"),
+    };
+    let blue_mask_ptr: u32 = match read_generic(core, got.wrapping_add(0x10e8)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "blue-mask pointer unreadable"),
+    };
+    let red_mask: u32 = match read_generic(core, red_mask_ptr) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "red-mask unreadable"),
+    };
+    let green_mask: u32 = match read_generic(core, green_mask_ptr) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "green-mask unreadable"),
+    };
+    let blue_mask: u32 = match read_generic(core, blue_mask_ptr) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "blue-mask unreadable"),
+    };
+    if red_mask != 0xf800 || green_mask != 0x07e0 || blue_mask != 0x001f {
+        return disable_inotia2_rgb565_effect_fastpath(core, "pixel format is not RGB565");
+    }
+
+    // The hot loop loads the 32x32 transform table directly from GOT+0x113c.
+    let lut_ptr: u32 = match read_generic(core, got.wrapping_add(0x113c)) {
+        Ok(value) if value != 0 => value,
+        _ => return disable_inotia2_rgb565_effect_fastpath(core, "lookup-table pointer unavailable"),
+    };
+    let mut lut = [0u8; 32 * 32];
+    if core.read_bytes(lut_ptr, &mut lut).is_err() {
+        return disable_inotia2_rgb565_effect_fastpath(core, "lookup table unreadable");
+    }
+
+    // The row's reference color was unpacked once immediately before entering
+    // the loop into sp+0x58 (R), sp+0x54 (G), sp+0x50 (B). Only the top five
+    // bits are used as LUT indices, exactly matching the original ASRS #3.
+    let ref_r: u32 = match read_generic(core, sp.wrapping_add(0x58)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "reference red unavailable"),
+    };
+    let ref_g: u32 = match read_generic(core, sp.wrapping_add(0x54)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "reference green unavailable"),
+    };
+    let ref_b: u32 = match read_generic(core, sp.wrapping_add(0x50)) {
+        Ok(value) => value,
+        Err(_) => return disable_inotia2_rgb565_effect_fastpath(core, "reference blue unavailable"),
+    };
+    let ref_r_index = ((ref_r >> 3) & 31) as usize;
+    let ref_g_index = ((ref_g >> 3) & 31) as usize;
+    let ref_b_index = ((ref_b >> 3) & 31) as usize;
+
+    let byte_len = (width as usize) * 2;
+    let mut row = vec![0u8; byte_len];
+    if core.read_bytes(row_ptr, &mut row).is_err() {
+        return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 row unreadable");
+    }
+
+    let mut last_packed = regs.r0;
+    for pixel_bytes in row.chunks_exact_mut(2) {
+        let pixel = u16::from_le_bytes([pixel_bytes[0], pixel_bytes[1]]);
+
+        // RGB565 unpack -> the same 5-bit LUT indices produced by the title's
+        // specialized unpacker followed by ASRS #3. Green has six source bits,
+        // so its lower bit is intentionally discarded by the >>1.
+        let r_index = ((pixel >> 11) & 0x1f) as usize;
+        let g_index = (((pixel >> 5) & 0x3f) >> 1) as usize;
+        let b_index = (pixel & 0x1f) as usize;
+
+        let r = lut[r_index * 32 + ref_r_index];
+        let g = lut[g_index * 32 + ref_g_index];
+        let b = lut[b_index * 32 + ref_b_index];
+
+        // Exact RGB565 packing convention used by the title's specialized
+        // packer: high 5 R bits, high 6 G bits, high 5 B bits.
+        let packed = (((r as u16) & 0xf8) << 8)
+            | (((g as u16) & 0xfc) << 3)
+            | ((b as u16) >> 3);
+        pixel_bytes.copy_from_slice(&packed.to_le_bytes());
+        last_packed = packed as u32;
+    }
+
+    if core.write_bytes(row_ptr, &row).is_err() {
+        return disable_inotia2_rgb565_effect_fastpath(core, "RGB565 row unwritable");
+    }
+
+    // Reproduce the register state at the natural exit of the guest loop. The
+    // following instruction at 0x00123f84 begins the row/height bookkeeping.
+    regs.r0 = last_packed;
+    regs.r5 = width;
+    regs.r6 = row_ptr.wrapping_add(width.wrapping_mul(2));
+    core.restore_context(&regs);
+
+    tracing::trace!(
+        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] row={row_ptr:#010x} width={width} accelerated"
+    );
+    Ok(JumpTo(INOTIA2_RGB565_EFFECT_EXIT_PC))
+}
+
+fn install_inotia2_rgb565_effect_fastpath(core: &mut ArmCore) -> Result<()> {
+    let mut current = [0u8; 2];
+    core.read_bytes(INOTIA2_RGB565_EFFECT_HOOK_ADDR, &mut current)?;
+    if current != INOTIA2_RGB565_EFFECT_ORIGINAL {
+        tracing::warn!(
+            "[PHASE8_25_INOTIA2_RGB565_FASTPATH] install guard mismatch at {INOTIA2_RGB565_EFFECT_HOOK_ADDR:#010x}: got={current:02x?}; acceleration suppressed"
+        );
+        return Ok(());
+    }
+
+    // Register before writing the SVC opcode. No guest thread is running yet,
+    // but this order also makes the install atomic from the emulator's view.
+    core.register_svc_handler(
+        SVC_CATEGORY_INOTIA2_RGB565_EFFECT,
+        handle_inotia2_rgb565_effect_svc,
+        &(),
+    )?;
+    core.write_bytes(
+        INOTIA2_RGB565_EFFECT_HOOK_ADDR,
+        &INOTIA2_RGB565_EFFECT_SVC,
+    )?;
+    tracing::info!(
+        "[PHASE8_25_INOTIA2_RGB565_FASTPATH] installed hook={INOTIA2_RGB565_EFFECT_HOOK_PC:#010x} exit={INOTIA2_RGB565_EFFECT_EXIT_PC:#010x}; runtime RGB565 mask guard enabled"
+    );
+    Ok(())
 }
 
 pub async fn load_native(
@@ -280,6 +462,13 @@ pub async fn load_native(
     // metadata-region collision is implausible; tighten patterns rather than
     // narrow the range if that ever becomes false.
     wie_core_arm::install_binary_patches(core, data, &[(IMAGE_BASE, data.len() as u32)])?;
+
+    if system.aid() == INOTIA2_AID
+        && system.pid() == INOTIA2_PID
+        && data.len() == INOTIA2_NATIVE_LEN
+    {
+        install_inotia2_rgb565_effect_fastpath(core)?;
+    }
 
     register_wipic_svc_handler(core, system, jvm)?;
     register_init_svc_handler(core, jvm)?;

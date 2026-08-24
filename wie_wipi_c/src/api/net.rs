@@ -132,6 +132,130 @@ static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1Cash
     offset: 0,
 });
 
+// Phase 8.25 — persist the legacy read-callback registration.
+//
+// Phase 8.24 proved that the client can leave the synchronous command-2/4
+// transfer, register MC_netSetReadCB, and only later emit command 30 from its
+// main timer thread. The offline bridge queued the command-30 response, but
+// set_read_cb previously discarded the callback pointer, so nothing woke the
+// guest to call slot-32 RECV. The title then hit its own 30-second timeout
+// (cash error 2014). Keep the latest one-shot waiter and fire it when local
+// response data becomes available.
+#[derive(Copy, Clone)]
+struct Inotia1CashReadCallback {
+    active: bool,
+    fd: i32,
+    cb: WIPICWord,
+    param: WIPICWord,
+}
+
+static INOTIA1_CASH_READ_CALLBACK: Mutex<Inotia1CashReadCallback> =
+    Mutex::new(Inotia1CashReadCallback {
+        active: false,
+        fd: INOTIA1_FAKE_SOCKET_FD,
+        cb: 0,
+        param: 0,
+    });
+
+fn reset_inotia1_cash_read_callback() {
+    *INOTIA1_CASH_READ_CALLBACK.lock() = Inotia1CashReadCallback {
+        active: false,
+        fd: INOTIA1_FAKE_SOCKET_FD,
+        cb: 0,
+        param: 0,
+    };
+}
+
+fn inotia1_cash_response_pending() -> bool {
+    let state = *INOTIA1_CASH_RX_STATE.lock();
+    let frame_len = match state.phase {
+        CASH_RX_HELLO => INOTIA1_CASH_SERVER_HELLO.len(),
+        CASH_RX_CMD1 => INOTIA1_CASH_CMD1_SUCCESS.len(),
+        CASH_RX_CMD5_STAGE2 => INOTIA1_CASH_CMD5_STAGE2_EMPTY.len(),
+        CASH_RX_CMD5_STAGE4 => INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY.len(),
+        CASH_RX_CMD30_REENTRY => INOTIA1_CASH_CMD30_REENTRY_EMPTY.len(),
+        _ => 0,
+    };
+    frame_len != 0 && state.offset < frame_len
+}
+
+fn wake_inotia1_cash_reader(
+    context: &mut dyn WIPICContext,
+    reason: &'static str,
+) -> Result<()> {
+    if !inotia1_cash_response_pending() {
+        return Ok(());
+    }
+
+    // The observed callback is 0x0010c15d. Keep the same exact-title native
+    // range guard used for the legacy socket-connect callback before jumping
+    // through any guest-provided function pointer.
+    const INOTIA1_NATIVE_START: WIPICWord = 0x0010_0001;
+    const INOTIA1_NATIVE_END: WIPICWord = 0x0018_b0c5;
+
+    let waiter = {
+        let mut slot = INOTIA1_CASH_READ_CALLBACK.lock();
+        if !slot.active {
+            return Ok(());
+        }
+        let waiter = *slot;
+        slot.active = false; // one wake per registration; guest may re-arm.
+        waiter
+    };
+
+    let callback_is_safe = (waiter.cb & 1) == 1
+        && waiter.cb >= INOTIA1_NATIVE_START
+        && waiter.cb < INOTIA1_NATIVE_END;
+    if !callback_is_safe {
+        tracing::warn!(
+            "[PHASE8_25_INOTIA1_CASH_READ_WAKE] unsafe callback suppressed cb={:#010x} reason={reason}",
+            waiter.cb
+        );
+        return Ok(());
+    }
+
+    struct CashReadReadyCallback {
+        fd: i32,
+        cb: WIPICWord,
+        param: WIPICWord,
+        reason: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl MethodBody<WieError> for CashReadReadyCallback {
+        #[tracing::instrument(name = "timer", skip_all)]
+        async fn call(
+            &self,
+            context: &mut dyn WIPICContext,
+            _: Box<[WIPICWord]>,
+        ) -> Result<WIPICResult> {
+            // Preserve the asynchronous ordering expected by the carrier API;
+            // callback ABI is (fd, status, param), with status=0 meaning data
+            // is ready. The guest callback then invokes legacy slot-32 RECV.
+            context.system().sleep(1).await;
+            tracing::info!(
+                "[PHASE8_25_INOTIA1_CASH_READ_WAKE] callback={:#010x} fd={} status=0 param={:#010x} reason={}",
+                self.cb,
+                self.fd,
+                self.param,
+                self.reason
+            );
+            context
+                .call_function(self.cb, &[self.fd as WIPICWord, 0, self.param])
+                .await?;
+            Ok(WIPICResult { results: Vec::new() })
+        }
+    }
+
+    context.spawn(Box::new(CashReadReadyCallback {
+        fd: waiter.fd,
+        cb: waiter.cb,
+        param: waiter.param,
+        reason,
+    }))?;
+    Ok(())
+}
+
 fn reset_inotia1_cash_rx() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_HELLO,
@@ -247,6 +371,7 @@ pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPIC
 
     if inotia1 {
         reset_inotia1_cash_rx();
+        reset_inotia1_cash_read_callback();
         tracing::info!(
             "[PHASE8_12_INOTIA1_NET] MC_netConnect offline bridge cb={cb:#010x} param={param:#010x} -> callback success"
         );
@@ -286,6 +411,7 @@ pub async fn close(context: &mut dyn WIPICContext) -> Result<()> {
     if is_inotia1_offline_network(context) {
         trace_inotia1_cash_reject(context, "MC_netClose", None);
         reset_inotia1_cash_rx();
+        reset_inotia1_cash_read_callback();
         tracing::info!("[INOTIA1_CASH_NET] MC_netClose offline bridge");
     } else {
         tracing::warn!("stub MC_netClose()");
@@ -454,8 +580,10 @@ pub async fn socket_write(
     // command-1 request. The recovered frame is 20 bytes and command byte 2
     // is 0x01. Preserve later commands for protocol capture instead of
     // guessing purchase semantics.
+    let mut queued_reason: Option<&'static str> = None;
     if head.len() >= 3 && head[0] == 0x00 && head[1] == 0x14 && head[2] == 0x01 {
         queue_inotia1_cash_cmd1_success();
+        queued_reason = Some("command1");
         tracing::info!(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
@@ -464,6 +592,7 @@ pub async fn socket_write(
         // command-2 start; the reader automatically follows it with command 4
         // finalization so the original UI is not left in a half-transfer state.
         queue_inotia1_cash_cmd5_stage2();
+        queued_reason = Some("command5-transfer");
         tracing::info!(
             "[PHASE8_24_INOTIA1_CASH_TRANSFER_SEQUENCE] outbound command=5 len={len} -> queued command-2 empty start + command-4 empty finalize"
         );
@@ -478,6 +607,7 @@ pub async fn socket_write(
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
         queue_inotia1_cash_cmd30_reentry();
+        queued_reason = Some("command30-reentry");
         tracing::info!(
             "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=30 len={len} -> queued minimal command-30 success/zero-record response"
         );
@@ -486,6 +616,14 @@ pub async fn socket_write(
             "[PHASE8_18_INOTIA1_CASH_PROTOCOL] outbound command={} len={len}; no synthetic response yet",
             head[2]
         );
+    }
+
+    // Phase 8.25: command 30 is commonly emitted *after* the guest has armed
+    // MC_netSetReadCB. Wake that stored one-shot callback now that bytes are
+    // available. The same helper is safe for earlier responses; it is a no-op
+    // when no waiter has been registered.
+    if let Some(reason) = queued_reason {
+        wake_inotia1_cash_reader(context, reason)?;
     }
 
     // Pretend the complete buffer was accepted.  The original client then
@@ -639,6 +777,7 @@ pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32
         // socket.  This is diagnostic only and does not weaken save handling.
         trace_inotia1_cash_reject(context, "MC_netSocketClose", Some(fd));
         reset_inotia1_cash_rx();
+        reset_inotia1_cash_read_callback();
         tracing::info!("[INOTIA1_CASH_NET] MC_netSocketClose({fd}) -> 0");
         return Ok(0);
     }
@@ -654,9 +793,20 @@ pub async fn set_read_cb(
     param: WIPICWord,
 ) -> Result<i32> {
     if is_inotia1_offline_network(context) {
+        *INOTIA1_CASH_READ_CALLBACK.lock() = Inotia1CashReadCallback {
+            active: true,
+            fd,
+            cb,
+            param,
+        };
         tracing::info!(
-            "[PHASE8_12_CASH_RX_WAIT] MC_netSetReadCB fd={fd} cb={cb:#010x} param={param:#010x} registered; awaiting local protocol response"
+            "[PHASE8_25_INOTIA1_CASH_READ_CALLBACK] MC_netSetReadCB fd={fd} cb={cb:#010x} param={param:#010x} persisted; awaiting local protocol response"
         );
+
+        // Close the race where local bytes were queued just before the guest
+        // registered its callback. If a frame is already pending, schedule the
+        // same asynchronous data-ready callback immediately.
+        wake_inotia1_cash_reader(context, "register-with-pending-data")?;
         return Ok(0);
     }
 
