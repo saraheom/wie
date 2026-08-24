@@ -1,5 +1,13 @@
 # WIE
 
+## Phase 8.32 Inotia 1 page-bound / character-name repair notes
+
+Phase 8.32 preserves the validated Phase 8.30 special-item behavior and the
+Phase 8.31 six-record catalog safety limit, corrects the command-30 page-bound
+field so the original UI sees native page indices 0/1/2 instead of a phantom
+fourth page, and adds an exact-match in-memory recovery for the two persisted
+character names corrupted by Phase 8.28. See `FULL_REPO_PHASE8_32_README.md`.
+
 ## Phase 8.31 Inotia 1 cash paging / name-recovery notes
 
 Phase 8.31 preserves the validated Phase 8.30 network-item fixes, changes the

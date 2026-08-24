@@ -1,6 +1,6 @@
 use alloc::{collections::BTreeMap, format, string::ToString, sync::Arc, vec::Vec};
 
-use wie_util::{ByteWrite, Result, WieError, read_generic};
+use wie_util::{ByteRead, ByteWrite, Result, WieError, read_generic};
 
 use super::{Entry, PatternToken, scan_pattern};
 use crate::{ArmCore, engine::ArmRegister, function::JumpTo, stdlib};
@@ -237,6 +237,99 @@ fn decode_exit_b(b_site: u32, bytes: [u8; 2]) -> u32 {
 
 type Registry = Arc<BTreeMap<u32, HookKind>>;
 
+// Phase 8.32 — Inotia 1 persisted character-name recovery.
+//
+// Static analysis of the exact PD005362 native image resolves the command-30
+// catalog parser's name-pointer table through GOT slot r10+0x4b8.  The table
+// has twelve valid 4-byte entries.  Phase 8.28's former 18-record response
+// wrote record 13 and record 14 into the two immediately-adjacent pointer
+// slots at table+0x30 and table+0x34.  Field testing then confirmed those two
+// pointers became the persisted scenario character names:
+//
+//   slot 0: 자원 교환권  -> 이노티아
+//   slot 1: 초보용 용사의 인장 -> 기사
+//
+// Do not touch the opaque save database and do not scan arbitrary guest
+// memory.  At ordinary compiler-library hooks, resolve the exact two adjacent
+// slots using the title's live static-base register and repair *in place* only
+// when the complete NUL-terminated byte sequence exactly matches one of the
+// two known corrupt EUC-KR names.  The replacement strings are shorter, so
+// zero-filling the old allocation is capacity-safe.  Once changed, the game's
+// original save serializer can persist the corrected strings normally.
+const INOTIA1_CASH_NAME_TABLE_GOT_OFFSET: u32 = 0x4b8;
+const INOTIA1_CHARACTER_NAME0_POINTER_OFFSET: u32 = 12 * 4;
+const INOTIA1_CHARACTER_NAME1_POINTER_OFFSET: u32 = 13 * 4;
+
+const INOTIA1_CORRUPT_NAME0: [u8; 12] = [
+    0xc0, 0xda, 0xbf, 0xf8, 0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x00,
+];
+const INOTIA1_CORRECT_NAME0_PADDED: [u8; 12] = [
+    0xc0, 0xcc, 0xb3, 0xeb, 0xc6, 0xbc, 0xbe, 0xc6, 0x00, 0x00, 0x00, 0x00,
+];
+const INOTIA1_CORRUPT_NAME1: [u8; 19] = [
+    0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x00,
+];
+const INOTIA1_CORRECT_NAME1_PADDED: [u8; 19] = [
+    0xb1, 0xe2, 0xbb, 0xe7, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+];
+
+fn phase8_32_try_repair_inotia1_character_names(core: &mut ArmCore) {
+    let r10 = core.inner.lock().engine.reg_read(ArmRegister::SL);
+
+    // A failed read simply means this is another binary/app or the Inotia 1
+    // globals are not initialized yet.  Generic compiler hooks are shared by
+    // multiple titles, so this helper must always fail closed.
+    let name_table: u32 = match read_generic(core, r10.wrapping_add(INOTIA1_CASH_NAME_TABLE_GOT_OFFSET)) {
+        Ok(value) => value,
+        Err(_) => return,
+    };
+    if name_table < 0x1000 {
+        return;
+    }
+
+    let slots = [
+        (
+            0u8,
+            name_table.wrapping_add(INOTIA1_CHARACTER_NAME0_POINTER_OFFSET),
+            &INOTIA1_CORRUPT_NAME0[..],
+            &INOTIA1_CORRECT_NAME0_PADDED[..],
+            "자원 교환권",
+            "이노티아",
+        ),
+        (
+            1u8,
+            name_table.wrapping_add(INOTIA1_CHARACTER_NAME1_POINTER_OFFSET),
+            &INOTIA1_CORRUPT_NAME1[..],
+            &INOTIA1_CORRECT_NAME1_PADDED[..],
+            "초보용 용사의 인장",
+            "기사",
+        ),
+    ];
+
+    for (slot, pointer_slot, corrupt, replacement, old_text, new_text) in slots {
+        let string_ptr: u32 = match read_generic(core, pointer_slot) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        if string_ptr < 0x1000 {
+            continue;
+        }
+
+        let mut current = [0u8; 19];
+        let current = &mut current[..corrupt.len()];
+        if core.read_bytes(string_ptr, current).is_err() || &*current != corrupt {
+            continue;
+        }
+        if core.write_bytes(string_ptr, replacement).is_err() {
+            continue;
+        }
+
+        tracing::info!(
+            "[PHASE8_32_INOTIA1_CHARACTER_NAME_REPAIR] slot={slot} pointer_slot={pointer_slot:#010x} string_ptr={string_ptr:#010x} {old_text:?} -> {new_text:?}; exact-match in-place repair applied"
+        );
+    }
+}
+
 async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) -> Result<JumpTo> {
     let (pc, lr) = core.read_pc_lr()?;
     // PC on entry is the address right after the patched 2-byte SVC. Drop any
@@ -247,6 +340,13 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
         .get(&hook_pc)
         .copied()
         .ok_or_else(|| WieError::FatalError(format!("binary-patch hook fired at unregistered PC {hook_pc:#x}")))?;
+
+    // Restrict the recovery check to the exact RVCT string-helper hook sites
+    // present in this Inotia 1 native image.  The memcpy hook is a framebuffer
+    // hot path in some titles and must not pay this diagnostic/repair cost.
+    if hook_pc == 0x0015_42f1 || hook_pc == 0x0015_433d {
+        phase8_32_try_repair_inotia1_character_names(core);
+    }
 
     match kind {
         HookKind::Memcpy => {
@@ -366,6 +466,36 @@ mod tests {
             patches: vec![],
             patch_patterns: vec![],
         }
+    }
+
+    #[test]
+    fn phase8_32_inotia1_character_name_repair_is_exact_and_in_place() -> Result<()> {
+        let mut core = ArmCore::new(false, None)?;
+        core.map(0x10000, 0x3000)?;
+
+        let r10 = 0x10000u32;
+        let name_table = 0x10800u32;
+        let name0 = 0x10900u32;
+        let name1 = 0x10940u32;
+        {
+            let mut inner = core.inner.lock();
+            inner.engine.reg_write(ArmRegister::SL, r10);
+        }
+        core.write_bytes(r10 + INOTIA1_CASH_NAME_TABLE_GOT_OFFSET, &name_table.to_le_bytes())?;
+        core.write_bytes(name_table + INOTIA1_CHARACTER_NAME0_POINTER_OFFSET, &name0.to_le_bytes())?;
+        core.write_bytes(name_table + INOTIA1_CHARACTER_NAME1_POINTER_OFFSET, &name1.to_le_bytes())?;
+        core.write_bytes(name0, &INOTIA1_CORRUPT_NAME0)?;
+        core.write_bytes(name1, &INOTIA1_CORRUPT_NAME1)?;
+
+        phase8_32_try_repair_inotia1_character_names(&mut core);
+
+        let mut out0 = [0xffu8; 12];
+        let mut out1 = [0xffu8; 19];
+        core.read_bytes(name0, &mut out0)?;
+        core.read_bytes(name1, &mut out1)?;
+        assert_eq!(out0, INOTIA1_CORRECT_NAME0_PADDED);
+        assert_eq!(out1, INOTIA1_CORRECT_NAME1_PADDED);
+        Ok(())
     }
 
     #[test]

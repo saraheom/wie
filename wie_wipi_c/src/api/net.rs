@@ -101,7 +101,7 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.31 — field-correct three-page offline catalog.
+// Phase 8.32 — field-correct three-page offline catalog page-bound semantics.
 //
 // Phase 8.29 fixed the 18-record overwrite by splitting the catalog 12 + 6,
 // which respected the client array limit but assumed that command-30 exposed
@@ -111,10 +111,16 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
 // exact requested page index 0/1/2. Six records is also comfortably below the
 // fixed-array limit that caused the original character-name overwrite.
 //
-// Response layout: length, command=30, result=1, page_index, total_pages=3,
+// Phase 8.31 field testing exposed one remaining protocol-semantic mismatch:
+// the byte after page_index is not a page *count*. The original UI treats it
+// as the highest valid page index. Advertising 3 therefore rendered 4/0 and
+// made the client request page 3. Keep three physical pages (0,1,2) but
+// advertise max_page_index=2.
+//
+// Response layout: length, command=30, result=1, page_index, max_page_index=2,
 // record_count=6, repeated { name_len, EUC-KR name, field=1, value=0 }.
 const INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: [u8; 118] = [
-    0x00, 0x76, 0x1e, 0x01, 0x00, 0x03, 0x06, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+    0x00, 0x76, 0x1e, 0x01, 0x00, 0x02, 0x06, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -127,7 +133,7 @@ const INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: [u8; 118] = [
 ];
 
 const INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: [u8; 96] = [
-    0x00, 0x60, 0x1e, 0x01, 0x01, 0x03, 0x06, 0x08, 0x33, 0xc4, 0xad, 0x20,
+    0x00, 0x60, 0x1e, 0x01, 0x01, 0x02, 0x06, 0x08, 0x33, 0xc4, 0xad, 0x20,
     0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08, 0x36, 0xc4,
     0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x08,
     0x39, 0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00,
@@ -138,7 +144,7 @@ const INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: [u8; 96] = [
 ];
 
 const INOTIA1_CASH_CMD30_CATALOG_PAGE2_FREE: [u8; 118] = [
-    0x00, 0x76, 0x1e, 0x01, 0x02, 0x03, 0x06, 0x0b, 0xc0, 0xda, 0xbf, 0xf8,
+    0x00, 0x76, 0x1e, 0x01, 0x02, 0x02, 0x06, 0x0b, 0xc0, 0xda, 0xbf, 0xf8,
     0x20, 0xb1, 0xb3, 0xc8, 0xaf, 0xb1, 0xc7, 0x01, 0x00, 0x00, 0x00, 0x00,
     0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7,
     0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00,
@@ -697,11 +703,15 @@ pub async fn socket_write(
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        let page = requested_page.min(2);
+        // Valid native indices are exactly 0, 1 and 2.  Phase 8.31's
+        // advertised value 3 caused the UI to synthesize a fourth page and
+        // then request index 3. Do not clamp an invalid request back to page
+        // 2 (which traps the UI at 4/2); fall back to the first page instead.
+        let page = if requested_page <= 2 { requested_page } else { 0 };
         queue_inotia1_cash_cmd30_page(page);
         queued_reason = Some("command30-catalog");
         tracing::info!(
-            "[PHASE8_31_INOTIA1_CASH_THREE_PAGE] outbound command=30 len={len} requested_page={requested_page} -> page={page} total_pages=3 records=6 all price=0"
+            "[PHASE8_32_INOTIA1_CASH_PAGE_BOUND] outbound command=30 len={len} requested_page={requested_page} -> page={page} max_page_index=2 records=6 all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -877,7 +887,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         tracing::info!(
-            "[PHASE8_31_INOTIA1_FIRST_OPEN_THREE_PAGE] command-4 finalize consumed -> page=0 catalog immediately pending (6 records; three native pages)"
+            "[PHASE8_32_INOTIA1_FIRST_OPEN_PAGE_BOUND] command-4 finalize consumed -> page=0 max_page_index=2 catalog immediately pending (6 records; three native pages)"
         );
     }
 

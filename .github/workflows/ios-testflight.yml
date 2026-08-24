@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.31 WIE WebAssembly core
+      - name: Force clean Phase 8.32 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -111,9 +111,9 @@ jobs:
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_31_INOTIA1_CASH_THREE_PAGE' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_31_INOTIA1_NAME_RENDER_PROBE' wie_wipi_c/src/api/graphics.rs
-          grep -n 'PHASE8_31_INOTIA1_FIRST_OPEN_THREE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_32_INOTIA1_CASH_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_32_INOTIA1_CHARACTER_NAME_REPAIR' wie_core_arm/src/binary_patches/hook.rs
+          grep -n 'PHASE8_32_INOTIA1_FIRST_OPEN_PAGE_BOUND' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs
@@ -184,7 +184,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.31 core source was selected
+      - name: Verify Phase 8.32 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -239,9 +239,9 @@ jobs:
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_31_INOTIA1_CASH_THREE_PAGE' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_31_INOTIA1_NAME_RENDER_PROBE' wie_wipi_c/src/api/graphics.rs
-          grep -n 'PHASE8_31_INOTIA1_FIRST_OPEN_THREE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_32_INOTIA1_CASH_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_32_INOTIA1_CHARACTER_NAME_REPAIR' wie_core_arm/src/binary_patches/hook.rs
+          grep -n 'PHASE8_32_INOTIA1_FIRST_OPEN_PAGE_BOUND' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs
@@ -316,7 +316,7 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.31 clean WASM build completed.'
+          echo 'Phase 8.32 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash
