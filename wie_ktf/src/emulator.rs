@@ -94,15 +94,21 @@ impl KtfEmulator {
             // the default 1k budget.
             core.set_run_slice_instructions(4_000);
             core.set_thread_lifecycle_logging(false);
-            // Phase 8.24: return native-loop tracing to the production default.
-            // Phase 8.23 intentionally lowered the threshold to ~4.1M guest
-            // instructions and emitted hundreds of WebView console records so
-            // we could identify the remaining hot paths. The field log now
-            // proves the presentation bridge is cheap and the long hitches are
-            // guest-native work, so keep the established 4k latency profile but
-            // remove profiler-induced logging from normal gameplay.
+            // Phase 8.30 — narrow startup/main-menu native-loop probe.
+            //
+            // Phase 8.29 proves the corrected LZMA and RGB565 host paths are
+            // active, yet roughly eight seconds remain between the final static
+            // resource writeback and the first full-screen RGB batch. Gameplay
+            // is otherwise stable, so do not make another speculative scheduler
+            // or graphics change. Lower only the one-shot NATIVE_LOOP threshold
+            // from the production 16,384 chunks (~65.5M instructions at 4k) to
+            // 2,048 chunks (~8.2M). Each run_function can log at most once at
+            // this equality threshold, giving us the exact PC/LR for the black
+            // startup and laggy main-menu work without restoring the old frame
+            // stall profiler or changing execution semantics.
+            core.set_native_loop_trace_chunks(2_048);
             tracing::info!(
-                "[PHASE8_24_INOTIA2_QUIET_PERF] native run slice=4000; stall profiler disabled; production native-loop threshold restored"
+                "[PHASE8_30_INOTIA2_STARTUP_MENU_PROBE] native run slice=4000; NATIVE_LOOP threshold=2048 chunks (~8.2M instructions); frame stall profiler remains disabled"
             );
         }
         let system = System::new(platform, pid, aid, KtfTaskRunner { core: core.clone() });

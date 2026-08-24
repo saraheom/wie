@@ -172,6 +172,20 @@ const INOTIA1_CASH_CMD31_PURCHASE_SUCCESS: [u8; 8] = [
     0x00, 0x00, 0x00, 0x00, // post-purchase value/balance = 0
 ];
 
+// Phase 8.30 — 자원 교환권 (resource exchange ticket) authentic server reply.
+//
+// Phase 8.29 field capture recovered the exact outbound packet:
+//   00 07 59 00 02 00 0a
+// and the client timed out with error 2014 only because command 89 had no
+// offline response. Static dispatch analysis resolves server command 89 at
+// guest 0x00119294. Its receive handler consumes only the common result/state
+// byte; on state=1 it executes the title's original resource/inventory update
+// path and does not read any command-specific payload. Therefore the minimal
+// faithful local success frame is exactly four bytes.
+const INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: [u8; 4] = [
+    0x00, 0x04, 0x59, 0x01, // length=4, command=89, common result/state=success
+];
+
 const CASH_RX_HELLO: u8 = 0;
 const CASH_RX_WAIT: u8 = 1;
 const CASH_RX_CMD1: u8 = 2;
@@ -179,6 +193,7 @@ const CASH_RX_CMD5_STAGE2: u8 = 3;
 const CASH_RX_CMD5_STAGE4: u8 = 4;
 const CASH_RX_CMD30_REENTRY: u8 = 5;
 const CASH_RX_CMD31_PURCHASE: u8 = 6;
+const CASH_RX_CMD89_RESOURCE_EXCHANGE: u8 = 7;
 
 #[derive(Copy, Clone)]
 struct Inotia1CashRxState {
@@ -243,6 +258,7 @@ fn inotia1_cash_response_pending() -> bool {
         CASH_RX_CMD5_STAGE4 => INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY.len(),
         CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(*INOTIA1_CASH_CATALOG_PAGE.lock()).len(),
         CASH_RX_CMD31_PURCHASE => INOTIA1_CASH_CMD31_PURCHASE_SUCCESS.len(),
+        CASH_RX_CMD89_RESOURCE_EXCHANGE => INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS.len(),
         _ => 0,
     };
     frame_len != 0 && state.offset < frame_len
@@ -364,6 +380,13 @@ fn queue_inotia1_cash_cmd30_page(page: u8) {
 fn queue_inotia1_cash_cmd31_purchase_success() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD31_PURCHASE,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cmd89_resource_exchange_success() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD89_RESOURCE_EXCHANGE,
         offset: 0,
     };
 }
@@ -700,6 +723,17 @@ pub async fn socket_write(
         tracing::info!(
             "[PHASE8_27_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} head={head:02x?} -> queued local success balance=0"
         );
+    } else if head.len() >= 3 && head[2] == 0x59 {
+        // Phase 8.30 — the resource-exchange ticket has already passed both
+        // single-player network gates and now emits its authentic command 89.
+        // The matching native receive handler needs only common state=1; wake
+        // the stored reader immediately so the game's own item/resource update
+        // and persistence path completes instead of hitting timeout 2014.
+        queue_inotia1_cmd89_resource_exchange_success();
+        queued_reason = Some("command89-resource-exchange");
+        tracing::info!(
+            "[PHASE8_30_INOTIA1_RESOURCE_EXCHANGE] outbound command=89 len={len} head={head:02x?} -> queued minimal native success frame"
+        );
     } else if head.len() >= 3 {
         tracing::info!(
             "[PHASE8_18_INOTIA1_CASH_PROTOCOL] outbound command={} len={len}; no synthetic response yet",
@@ -798,6 +832,7 @@ pub async fn socket_read_ktf_legacy(
             CASH_RX_CMD5_STAGE4 => &INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY,
             CASH_RX_CMD30_REENTRY => inotia1_cash_catalog_frame(catalog_page),
             CASH_RX_CMD31_PURCHASE => &INOTIA1_CASH_CMD31_PURCHASE_SUCCESS,
+            CASH_RX_CMD89_RESOURCE_EXCHANGE => &INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS,
             _ => {
                 tracing::info!(
                     "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"

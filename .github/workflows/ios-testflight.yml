@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.29 WIE WebAssembly core
+      - name: Force clean Phase 8.30 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -83,7 +83,7 @@ jobs:
           grep -n 'PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_21_INOTIA2_DB_CACHE' wie_wipi_c/src/api/database.rs
           grep -n 'host_blob_cache_get' wie_wipi_c/src/context.rs
-          grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_17_INOTIA2_MEDIA_QUIET' wie_wipi_c/src/api/media.rs
           grep -n 'PHASE8_16_INOTIA1_NET31_TX' wie_wipi_c/src/api/net.rs
@@ -113,6 +113,12 @@ jobs:
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_CASH_CATALOG_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_29_INOTIA1_FIRST_OPEN_SAFE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'INOTIA1_BLESSED_SEAL_NETWORK_BRANCH: u32 = 0x0014_85b6' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
+          grep -n 'set_native_loop_trace_chunks(2_048)' wie_ktf/src/emulator.rs
           grep -n 'INOTIA1_NETWORK_ITEM_USE_BRANCH: u32 = 0x0015_032e' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_EPILOGUE_PC: u32 = 0x0012_3d4b' wie_ktf/src/runtime/init.rs
@@ -128,7 +134,7 @@ jobs:
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 207\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'native_loop_trace_chunks: 16_384' wie_core_arm/src/core.rs
@@ -176,7 +182,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.29 core source was selected
+      - name: Verify Phase 8.30 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -203,7 +209,7 @@ jobs:
           grep -n 'PHASE8_21_INOTIA1_CASH_CMD1_DATA_VALIDATION_BYPASS' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_21_INOTIA2_DB_CACHE' wie_wipi_c/src/api/database.rs
           grep -n 'host_blob_cache_get' wie_wipi_c/src/context.rs
-          grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'PHASE8_19_INOTIA2_INSTALLED_FASTPATH' wie_wipi_c/src/api/database.rs
           grep -n 'PHASE8_17_INOTIA2_MEDIA_QUIET' wie_wipi_c/src/api/media.rs
           grep -n 'PHASE8_16_INOTIA1_NET31_TX' wie_wipi_c/src/api/net.rs
@@ -233,6 +239,12 @@ jobs:
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_CASH_CATALOG_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_29_INOTIA1_FIRST_OPEN_SAFE_PAGE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
+          grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs
+          grep -n 'INOTIA1_BLESSED_SEAL_NETWORK_BRANCH: u32 = 0x0014_85b6' wie_ktf/src/runtime/init.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
+          grep -n 'set_native_loop_trace_chunks(2_048)' wie_ktf/src/emulator.rs
           grep -n 'INOTIA1_NETWORK_ITEM_USE_BRANCH: u32 = 0x0015_032e' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA2_RGB565_BATCH' wie_ktf/src/runtime/init.rs
           grep -n 'INOTIA2_RGB565_EFFECT_EPILOGUE_PC: u32 = 0x0012_3d4b' wie_ktf/src/runtime/init.rs
@@ -248,7 +260,7 @@ jobs:
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE0_FREE: \[u8; 207\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_PAGE1_FREE: \[u8; 118\]' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_24_INOTIA2_QUIET_PERF' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
           grep -n 'Phase 8.24 — interpreter dispatch hot path' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'socket_write_ktf_legacy.into_body' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n 'native_loop_trace_chunks: 16_384' wie_core_arm/src/core.rs
@@ -300,7 +312,7 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.29 clean WASM build completed.'
+          echo 'Phase 8.30 clean WASM build completed.'
 
       - name: Install Apple project tools
         shell: bash

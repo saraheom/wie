@@ -788,6 +788,45 @@ pub async fn load_native(
                 "[PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE] byte guard mismatch at {INOTIA1_NETWORK_SPECIAL_ID_BRANCH:#010x}: got={network_special_id_branch:02x?}; patch suppressed"
             );
         }
+
+
+        // Phase 8.30 — enable the remaining blessed-seal network-mode gate.
+        //
+        // Phase 8.29 removed the item-dispatch range rejection at 0x0015034a,
+        // but the field test still showed 축복받은 용사의 인장 rejected before
+        // any network packet was emitted. A second exact network-state check is
+        // reached through the item's property/type validator at guest 0x001485b6:
+        // after the current item resolves to type 0xBA, the client requires
+        // global network state == 2 or routes to the same network-only failure
+        // UI. Preserve the item/type check and every use-effect call; change
+        // only this BEQ to the existing valid continuation for this exact
+        // Inotia 1 binary.
+        const INOTIA1_BLESSED_SEAL_NETWORK_BRANCH: u32 = 0x0014_85b6;
+        const INOTIA1_BLESSED_SEAL_NETWORK_EXPECT: [u8; 2] = [0x0a, 0xd0]; // beq 0x1485ce
+        const INOTIA1_BLESSED_SEAL_NETWORK_BYPASS: [u8; 2] = [0x0a, 0xe0]; // b   0x1485ce
+
+        let mut blessed_seal_network_branch = [0u8; 2];
+        core.read_bytes(
+            INOTIA1_BLESSED_SEAL_NETWORK_BRANCH,
+            &mut blessed_seal_network_branch,
+        )?;
+        if blessed_seal_network_branch == INOTIA1_BLESSED_SEAL_NETWORK_EXPECT {
+            core.write_bytes(
+                INOTIA1_BLESSED_SEAL_NETWORK_BRANCH,
+                &INOTIA1_BLESSED_SEAL_NETWORK_BYPASS,
+            )?;
+            tracing::info!(
+                "[PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE] branch={INOTIA1_BLESSED_SEAL_NETWORK_BRANCH:#010x} type-0xBA network-state requirement bypassed; original item-use path preserved"
+            );
+        } else if blessed_seal_network_branch == INOTIA1_BLESSED_SEAL_NETWORK_BYPASS {
+            tracing::info!(
+                "[PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE] branch already patched at {INOTIA1_BLESSED_SEAL_NETWORK_BRANCH:#010x}"
+            );
+        } else {
+            tracing::warn!(
+                "[PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE] byte guard mismatch at {INOTIA1_BLESSED_SEAL_NETWORK_BRANCH:#010x}: got={blessed_seal_network_branch:02x?}; patch suppressed"
+            );
+        }
     }
 
     // Patterns target instruction encodings, which the guest self-rebase at
