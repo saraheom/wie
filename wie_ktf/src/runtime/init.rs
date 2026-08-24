@@ -232,17 +232,26 @@ fn install_inotia2_rgb565_effect_fastpath(core: &mut ArmCore) -> Result<()> {
 // decoder. The remaining black startup interval is not IndexedDB latency: the
 // Phase 8.25 field log still shows repeated ~65.5M-instruction guest runs while
 // static resources are expanded. Static analysis resolves guest 0x00125928 as
-// the high-level LZMA wrapper with ABI:
-//   r0 = [custom-prefix][standard .lzma stream] pointer
-//   r1 = total compressed byte length (including the one-byte prefix)
+// Phase 8.27 — corrected Inotia 2 host LZMA wrapper.
+//
+// Exact disassembly of guest 0x00125928 plus the Phase 8.26 field failure
+// resolves the actual private stream ABI:
+//   r0 = pointer one byte *into* the packaged resource wrapper
+//   r1 = remaining compressed byte length
 //   r2 = caller-allocated output buffer
-//   r3 = expected unpacked length
-// It returns r3 on success and -1 on failure. Actual packaged Inotia 2 resource
-// blobs independently decode as standard LZMA-Alone when the custom first byte
-// is skipped. Replace only the wrapper entry and preserve the game's original
-// allocation/callers. Any header, size, memory, or decoder mismatch restores
-// the exact original PUSH instruction and permanently falls back to guest code
-// for that launch.
+//   r3 = expected unpacked payload length
+//
+// Relative to r0, bytes 1..5 are the normal five-byte LZMA properties block,
+// bytes 6..9 contain the same little-endian u32 unpacked length, bytes 10..13
+// are title-private metadata, and raw LZMA payload begins at byte 14. Phase
+// 8.26 incorrectly treated bytes 6..13 as the LZMA-Alone u64 length field,
+// causing the runtime gate to restore the guest decoder every launch.
+//
+// Rebuild only the standard 13-byte LZMA-Alone header in host memory
+// (properties + r3 as u64), append the original raw payload, decode it, and
+// return exactly as the original wrapper would. Allocation, database rebuild,
+// runtime table initialization, and callers remain guest-owned. Any guard or
+// decoder failure restores the exact original PUSH instruction.
 const SVC_CATEGORY_INOTIA2_LZMA: u32 = 0x82;
 const INOTIA2_LZMA_HOOK_ADDR: u32 = 0x0012_5928;
 const INOTIA2_LZMA_HOOK_PC: u32 = 0x0012_5929;
@@ -256,7 +265,7 @@ static INOTIA2_LZMA_FIRST_USE: spin::Mutex<bool> = spin::Mutex::new(false);
 fn disable_inotia2_lzma_fastpath(core: &mut ArmCore, reason: &str) -> Result<JumpTo> {
     core.write_bytes(INOTIA2_LZMA_HOOK_ADDR, &INOTIA2_LZMA_ORIGINAL)?;
     tracing::warn!(
-        "[PHASE8_26_INOTIA2_LZMA_FASTPATH] runtime gate failed ({reason}); original guest decoder restored"
+        "[PHASE8_27_INOTIA2_LZMA_FASTPATH] runtime gate failed ({reason}); original guest decoder restored"
     );
     Ok(JumpTo(INOTIA2_LZMA_HOOK_PC))
 }
@@ -271,7 +280,7 @@ async fn handle_inotia2_lzma_svc(core: &mut ArmCore, _: &mut ()) -> Result<JumpT
     if compressed_ptr == 0 || output_ptr == 0 {
         return disable_inotia2_lzma_fastpath(core, "null input/output pointer");
     }
-    if compressed_len < 14 || compressed_len > INOTIA2_LZMA_MAX_COMPRESSED {
+    if compressed_len < 15 || compressed_len > INOTIA2_LZMA_MAX_COMPRESSED {
         return disable_inotia2_lzma_fastpath(core, "compressed length outside guard");
     }
     if expected_len == 0 || expected_len > INOTIA2_LZMA_MAX_OUTPUT {
@@ -283,10 +292,10 @@ async fn handle_inotia2_lzma_svc(core: &mut ArmCore, _: &mut ()) -> Result<JumpT
         return disable_inotia2_lzma_fastpath(core, "compressed guest buffer unreadable");
     }
 
-    // Byte 0 is the title's private wrapper prefix. Bytes 1..14 are the
-    // canonical 13-byte LZMA-Alone header: properties, dictionary size, and
-    // little-endian u64 unpacked size. The original property parser rejects
-    // values > 0xE0 as well, so mirror that invariant before invoking host code.
+    // r0 points at wrapper byte 1. The guest itself passes r0+1 to its
+    // five-byte LZMA property parser, so the canonical property block here is
+    // compressed[1..6].  The private u32 at compressed[6..10] is independently
+    // read by guest helper 0x0012599c and becomes this wrapper's r3.
     let properties = compressed[1];
     if properties > 0xe0 {
         return disable_inotia2_lzma_fastpath(core, "invalid LZMA properties");
@@ -297,30 +306,37 @@ async fn handle_inotia2_lzma_svc(core: &mut ArmCore, _: &mut ()) -> Result<JumpT
         compressed[4],
         compressed[5],
     ]) as usize;
-    if dictionary_size > INOTIA2_LZMA_MAX_OUTPUT {
-        return disable_inotia2_lzma_fastpath(core, "dictionary exceeds host guard");
+    if dictionary_size == 0 || dictionary_size > INOTIA2_LZMA_MAX_OUTPUT {
+        return disable_inotia2_lzma_fastpath(core, "dictionary outside host guard");
     }
-    let declared_len = u64::from_le_bytes([
+    let private_declared_len = u32::from_le_bytes([
         compressed[6],
         compressed[7],
         compressed[8],
         compressed[9],
-        compressed[10],
-        compressed[11],
-        compressed[12],
-        compressed[13],
-    ]);
-    if declared_len != u64::MAX && declared_len != expected_len as u64 {
-        return disable_inotia2_lzma_fastpath(core, "header/output length mismatch");
+    ]) as usize;
+    if private_declared_len != expected_len {
+        return disable_inotia2_lzma_fastpath(core, "private u32/output length mismatch");
     }
 
-    // lzma-rs accepts the standard .lzma stream through std::io traits. This
-    // crate is otherwise no_std, but WIE's wasm/iOS targets provide Rust std;
-    // no filesystem/network API is used here.
-    let mut input = std::io::Cursor::new(&compressed[1..]);
+    // lzma-rs consumes LZMA-Alone. Inotia 2 stores the same raw LZMA payload
+    // but replaces the normal eight-byte output-size field with private
+    // metadata. Synthesize only that header in temporary host memory:
+    //
+    //   [5-byte props from guest][u64 r3][raw payload from guest+14]
+    //
+    // This exact reconstruction was validated against eventdata.dat,
+    // filetext.dat, i_mapfeature.dat, i_tile.dat and game.dat from this title.
+    let payload_len = compressed_len - 14;
+    let mut host_stream = Vec::with_capacity(13 + payload_len);
+    host_stream.extend_from_slice(&compressed[1..6]);
+    host_stream.extend_from_slice(&(expected_len as u64).to_le_bytes());
+    host_stream.extend_from_slice(&compressed[14..]);
+
+    let mut input = std::io::Cursor::new(&host_stream);
     let mut output = Vec::with_capacity(expected_len);
     if lzma_rs::lzma_decompress(&mut input, &mut output).is_err() {
-        return disable_inotia2_lzma_fastpath(core, "host LZMA decode failed");
+        return disable_inotia2_lzma_fastpath(core, "host reconstructed LZMA decode failed");
     }
     if output.len() != expected_len {
         return disable_inotia2_lzma_fastpath(core, "decoded length differs from guest ABI");
@@ -341,7 +357,7 @@ async fn handle_inotia2_lzma_svc(core: &mut ArmCore, _: &mut ()) -> Result<JumpT
     };
     if first_use {
         tracing::info!(
-            "[PHASE8_26_INOTIA2_LZMA_FASTPATH] first decode accelerated compressed={} unpacked={} prefix={:#04x} props={:#04x} dict={}",
+            "[PHASE8_27_INOTIA2_LZMA_FASTPATH] first decode accelerated compressed={} unpacked={} prefix={:#04x} props={:#04x} dict={}",
             compressed_len,
             expected_len,
             compressed[0],
@@ -350,7 +366,7 @@ async fn handle_inotia2_lzma_svc(core: &mut ArmCore, _: &mut ()) -> Result<JumpT
         );
     } else {
         tracing::trace!(
-            "[PHASE8_26_INOTIA2_LZMA_FASTPATH] decode accelerated compressed={} unpacked={}",
+            "[PHASE8_27_INOTIA2_LZMA_FASTPATH] decode accelerated compressed={} unpacked={}",
             compressed_len,
             expected_len
         );
@@ -364,7 +380,7 @@ fn install_inotia2_lzma_fastpath(core: &mut ArmCore) -> Result<()> {
     core.read_bytes(INOTIA2_LZMA_HOOK_ADDR, &mut current)?;
     if current != INOTIA2_LZMA_ORIGINAL {
         tracing::warn!(
-            "[PHASE8_26_INOTIA2_LZMA_FASTPATH] install guard mismatch at {INOTIA2_LZMA_HOOK_ADDR:#010x}: got={current:02x?}; acceleration suppressed"
+            "[PHASE8_27_INOTIA2_LZMA_FASTPATH] install guard mismatch at {INOTIA2_LZMA_HOOK_ADDR:#010x}: got={current:02x?}; acceleration suppressed"
         );
         return Ok(());
     }
@@ -377,7 +393,7 @@ fn install_inotia2_lzma_fastpath(core: &mut ArmCore) -> Result<()> {
     )?;
     core.write_bytes(INOTIA2_LZMA_HOOK_ADDR, &INOTIA2_LZMA_SVC)?;
     tracing::info!(
-        "[PHASE8_26_INOTIA2_LZMA_FASTPATH] installed hook={INOTIA2_LZMA_HOOK_PC:#010x}; one-byte custom-prefix + LZMA-Alone header guards enabled"
+        "[PHASE8_27_INOTIA2_LZMA_FASTPATH] installed hook={INOTIA2_LZMA_HOOK_PC:#010x}; private-header reconstruction guards enabled"
     );
     Ok(())
 }
