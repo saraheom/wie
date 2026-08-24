@@ -18,6 +18,7 @@ java_class_proto = { workspace = true }
 java_constants = { workspace = true }
 java_runtime = { workspace = true }
 jvm = { workspace = true }
+lzma-rs = { version = "0.3", default-features = false }
 wipi_types = { workspace = true, features = ["ktf"] }
 
 wie_backend = { workspace = true }

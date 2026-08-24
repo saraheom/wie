@@ -101,17 +101,39 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.24 — retry/re-entry probe. After the user leaves the first cash-shop
-// attempt, the original title sends command 123 (one-way reset/cancel) followed
-// by command 30 carrying the handset identifier. Command 30 has a dedicated
-// receive handler. Its success path begins by consuming three one-byte fields;
-// a zero-count third field avoids the variable-length record loop while still
-// allowing the title to execute its original completion/UI state transition.
-// This is deliberately metadata-only: no item or purchase record is fabricated.
-const INOTIA1_CASH_CMD30_REENTRY_EMPTY: [u8; 7] = [
-    0x00, 0x07, 0x1e, // length=7, server command=30
+// Phase 8.26 — first real offline catalog record.
+//
+// Phase 8.25 proved that command 30 is the catalog/re-entry response and that
+// the title's async read callback now works. Static analysis of the exact
+// command-30 parser (guest 0x00117f3a) resolves its payload as:
+//   u8 fixed0, u8 fixed1, u8 record_count,
+//   repeated { u8 name_len, name_bytes, u8 field, u32 value }.
+//
+// The previous zero-count response is exactly why the original cash-shop page
+// rendered 1/0 with a blank selectable row. Use one conservative record whose
+// name is already known to the title: the authentic command-31 purchase packet
+// emitted for that blank selection contained EUC-KR B4 DC B0 CB = "단검".
+// Keep the final u32 at zero so this probe is free and let the title's own item
+// table provide its icon/description. No char.dat/save record is modified here.
+const INOTIA1_CASH_CMD30_CATALOG_ONE_FREE: [u8; 17] = [
+    0x00, 0x11, 0x1e, // length=17, server command=30
     0x01, // common result/state = success
-    0x00, 0x00, 0x00, // three command-30 fixed fields; record count = 0
+    0x00, 0x00, 0x01, // fixed0, fixed1, record_count=1
+    0x04, // EUC-KR item-name byte length
+    0xb4, 0xdc, 0xb0, 0xcb, // "단검"
+    0x01, // per-record type/availability field
+    0x00, 0x00, 0x00, 0x00, // value/price = 0 (offline free probe)
+];
+
+// Phase 8.26 — command-31 is the title's authentic BUY request. The exact
+// receive handler at guest 0x001181b8 accepts common result/state=1 and, on its
+// purchase-completion path, consumes one four-byte value before executing the
+// original inventory/UI completion logic. Return zero as the post-purchase
+// balance/value and allow the game itself to perform any inventory mutation.
+const INOTIA1_CASH_CMD31_PURCHASE_SUCCESS: [u8; 8] = [
+    0x00, 0x08, 0x1f, // length=8, server command=31
+    0x01, // common result/state = success
+    0x00, 0x00, 0x00, 0x00, // post-purchase value/balance = 0
 ];
 
 const CASH_RX_HELLO: u8 = 0;
@@ -120,6 +142,7 @@ const CASH_RX_CMD1: u8 = 2;
 const CASH_RX_CMD5_STAGE2: u8 = 3;
 const CASH_RX_CMD5_STAGE4: u8 = 4;
 const CASH_RX_CMD30_REENTRY: u8 = 5;
+const CASH_RX_CMD31_PURCHASE: u8 = 6;
 
 #[derive(Copy, Clone)]
 struct Inotia1CashRxState {
@@ -173,7 +196,8 @@ fn inotia1_cash_response_pending() -> bool {
         CASH_RX_CMD1 => INOTIA1_CASH_CMD1_SUCCESS.len(),
         CASH_RX_CMD5_STAGE2 => INOTIA1_CASH_CMD5_STAGE2_EMPTY.len(),
         CASH_RX_CMD5_STAGE4 => INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY.len(),
-        CASH_RX_CMD30_REENTRY => INOTIA1_CASH_CMD30_REENTRY_EMPTY.len(),
+        CASH_RX_CMD30_REENTRY => INOTIA1_CASH_CMD30_CATALOG_ONE_FREE.len(),
+        CASH_RX_CMD31_PURCHASE => INOTIA1_CASH_CMD31_PURCHASE_SUCCESS.len(),
         _ => 0,
     };
     frame_len != 0 && state.offset < frame_len
@@ -287,6 +311,13 @@ fn reset_inotia1_cash_session_wait() {
 fn queue_inotia1_cash_cmd30_reentry() {
     *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
         phase: CASH_RX_CMD30_REENTRY,
+        offset: 0,
+    };
+}
+
+fn queue_inotia1_cash_cmd31_purchase_success() {
+    *INOTIA1_CASH_RX_STATE.lock() = Inotia1CashRxState {
+        phase: CASH_RX_CMD31_PURCHASE,
         offset: 0,
     };
 }
@@ -607,9 +638,18 @@ pub async fn socket_write(
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
         queue_inotia1_cash_cmd30_reentry();
-        queued_reason = Some("command30-reentry");
+        queued_reason = Some("command30-catalog");
         tracing::info!(
-            "[PHASE8_24_INOTIA1_CASH_REENTRY] outbound command=30 len={len} -> queued minimal command-30 success/zero-record response"
+            "[PHASE8_26_INOTIA1_CASH_CATALOG] outbound command=30 len={len} -> queued one-record free catalog item=단검 price=0"
+        );
+    } else if head.len() >= 3 && head[2] == 0x1f {
+        // The first Phase 8.25 purchase attempt provided the complete authentic
+        // request shape, including EUC-KR item-name bytes. A command-31 success
+        // response is now safe to feed back through the same async reader wake.
+        queue_inotia1_cash_cmd31_purchase_success();
+        queued_reason = Some("command31-purchase");
+        tracing::info!(
+            "[PHASE8_26_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} head={head:02x?} -> queued local success balance=0"
         );
     } else if head.len() >= 3 {
         tracing::info!(
@@ -618,10 +658,10 @@ pub async fn socket_write(
         );
     }
 
-    // Phase 8.25: command 30 is commonly emitted *after* the guest has armed
-    // MC_netSetReadCB. Wake that stored one-shot callback now that bytes are
-    // available. The same helper is safe for earlier responses; it is a no-op
-    // when no waiter has been registered.
+    // Phase 8.25/8.26: command 30 and the subsequent command-31 purchase are
+    // emitted after the guest has armed MC_netSetReadCB. Wake that stored
+    // one-shot callback whenever local response bytes become available. The
+    // same helper is safe for earlier responses; it is a no-op without a waiter.
     if let Some(reason) = queued_reason {
         wake_inotia1_cash_reader(context, reason)?;
     }
@@ -706,7 +746,8 @@ pub async fn socket_read_ktf_legacy(
             CASH_RX_CMD1 => &INOTIA1_CASH_CMD1_SUCCESS,
             CASH_RX_CMD5_STAGE2 => &INOTIA1_CASH_CMD5_STAGE2_EMPTY,
             CASH_RX_CMD5_STAGE4 => &INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY,
-            CASH_RX_CMD30_REENTRY => &INOTIA1_CASH_CMD30_REENTRY_EMPTY,
+            CASH_RX_CMD30_REENTRY => &INOTIA1_CASH_CMD30_CATALOG_ONE_FREE,
+            CASH_RX_CMD31_PURCHASE => &INOTIA1_CASH_CMD31_PURCHASE_SUCCESS,
             _ => {
                 tracing::info!(
                     "[PHASE8_16_INOTIA1_NET32_RX] fd={fd} local response queue empty -> M_E_WOULDBLOCK ({M_E_WOULDBLOCK})"
