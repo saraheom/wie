@@ -1,0 +1,17 @@
+Phase 8.35.1 CI-only correction
+
+Runtime behavior is identical to Phase 8.35.
+
+The previous TestFlight workflow successfully built and exported the IPA, but then failed
+because it searched the entire final app bundle for the literal Rust/WASM log string
+PHASE8_35_RUNTIME_SENTINEL. Tauri/Webpack/Xcode packaging does not guarantee that a Rust
+string remains directly grep-able in the final IPA layout.
+
+Phase 8.35.1 instead:
+1. verifies PHASE8_35_RUNTIME_SENTINEL in both wasm-pack and webpack WASM output;
+2. copies a tiny deterministic phase8_35_build.txt marker through webpack's public assets;
+3. deletes wie_app/gen/apple before ios init to prevent stale generated Apple assets;
+4. verifies the marker hash in the generated iOS assets after the build;
+5. verifies the same marker hash plus CFBundleShortVersionString=0.1.35 inside the final IPA.
+
+No Inotia1 or Inotia2 emulator/runtime logic changed.
