@@ -6,6 +6,8 @@ use core::mem::size_of;
 
 use alloc::{string::String, vec, vec::Vec};
 
+use spin::Mutex;
+
 use wie_backend::{
     Event,
     canvas::{Clip, Color, PixelType, Rgb8Pixel, Rgb565Pixel, TextAlignment, string_width},
@@ -20,6 +22,68 @@ use self::{framebuffer::FrameBuffer, grp_context::WIPICGraphicsContextIdx, image
 
 const FRAMEBUFFER_DEPTH: u32 = 16; // XXX hardcode to 16bpp as some game requires 16bpp framebuffer
 const SCREEN_FRAMEBUFFER_PTR: u32 = 0x7fff1000;
+
+const INOTIA1_AID: &str = "010100D3";
+const INOTIA1_PID: &str = "PD005362";
+
+// Phase 8.31 diagnostic only: remember rendered Inotia 1 string pointer/content
+// pairs so static labels are logged once instead of once per frame. This state
+// never affects guest behavior; it only bounds diagnostic volume.
+static INOTIA1_NAME_RENDER_SEEN: Mutex<Vec<(WIPICWord, u64)>> = Mutex::new(Vec::new());
+
+fn inotia1_string_fingerprint(data: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for &byte in data {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn contains_hangul(text: &str) -> bool {
+    text.chars().any(|ch| ('\u{ac00}'..='\u{d7a3}').contains(&ch))
+}
+
+fn trace_inotia1_name_render(context: &mut dyn WIPICContext, ptr_string: WIPICWord, x: i32, y: i32, string_bytes: &[u8]) {
+    let is_inotia1 = {
+        let system = context.system();
+        system.aid() == INOTIA1_AID && system.pid() == INOTIA1_PID
+    };
+    if !is_inotia1 || string_bytes.is_empty() || string_bytes.len() > 64 {
+        return;
+    }
+
+    let (encoding, decoded) = if let Ok(text) = core::str::from_utf8(string_bytes) {
+        if contains_hangul(text) {
+            ("utf-8", String::from(text))
+        } else {
+            let text = encoding_rs::EUC_KR.decode(string_bytes).0.into_owned();
+            if !contains_hangul(&text) {
+                return;
+            }
+            ("euc-kr", text)
+        }
+    } else {
+        let text = encoding_rs::EUC_KR.decode(string_bytes).0.into_owned();
+        if !contains_hangul(&text) {
+            return;
+        }
+        ("euc-kr", text)
+    };
+
+    let fingerprint = inotia1_string_fingerprint(string_bytes);
+    let mut seen = INOTIA1_NAME_RENDER_SEEN.lock();
+    if seen.iter().any(|&(ptr, hash)| ptr == ptr_string && hash == fingerprint) || seen.len() >= 1024 {
+        return;
+    }
+    seen.push((ptr_string, fingerprint));
+    drop(seen);
+
+    tracing::info!(
+        "[PHASE8_31_INOTIA1_NAME_RENDER_PROBE] ptr={ptr_string:#010x} len={} x={x} y={y} encoding={encoding} text={decoded:?} raw={string_bytes:02x?}",
+        string_bytes.len()
+    );
+}
 
 /// Read a WIPI-C string. `length == -1` means NUL-terminated; `length > 0`
 /// reads exactly that many bytes; `length == 0` and other negatives yield
@@ -543,6 +607,8 @@ pub async fn draw_string(
     if string_bytes.is_empty() {
         return Ok(());
     }
+
+    trace_inotia1_name_render(context, ptr_string, x, y, &string_bytes);
 
     let framebuffer = FrameBuffer(read_generic(context, context.data_ptr(dst)?)?);
     let gctx: WIPICGraphicsContext = read_generic(context, pgc)?;

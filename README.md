@@ -1,5 +1,13 @@
 # WIE
 
+## Phase 8.31 Inotia 1 cash paging / name-recovery notes
+
+Phase 8.31 preserves the validated Phase 8.30 network-item fixes, changes the
+18-item Inotia 1 cash catalog to the title's observed three six-item pages
+(0/1/2), and adds a non-destructive rendered-name probe for comparing the
+August 22 clean backup with the August 24 corrupted backup. See
+`FULL_REPO_PHASE8_31_README.md`.
+
 
 ## Phase 8.24 Inotia compatibility/performance notes
 
