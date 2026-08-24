@@ -111,9 +111,11 @@ jobs:
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_32_INOTIA1_CASH_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_CASH_TWO_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_32_INOTIA1_CHARACTER_NAME_REPAIR' wie_core_arm/src/binary_patches/hook.rs
-          grep -n 'PHASE8_32_INOTIA1_FIRST_OPEN_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_NAME_HEAP_PROBE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_CHARACTER_NAME_REPAIR' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_FIRST_OPEN_TWO_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs
@@ -239,9 +241,11 @@ jobs:
           grep -n 'INOTIA2_RGB565_EFFECT_ORIGINAL: \[u8; 2\] = \[0x02, 0x99\]' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_28_INOTIA1_NETWORK_USE_GATE' wie_ktf/src/runtime/init.rs
           grep -n 'PHASE8_29_INOTIA1_NETWORK_SPECIAL_USE_GATE' wie_ktf/src/runtime/init.rs
-          grep -n 'PHASE8_32_INOTIA1_CASH_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_CASH_TWO_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_32_INOTIA1_CHARACTER_NAME_REPAIR' wie_core_arm/src/binary_patches/hook.rs
-          grep -n 'PHASE8_32_INOTIA1_FIRST_OPEN_PAGE_BOUND' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_NAME_HEAP_PROBE' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_CHARACTER_NAME_REPAIR' wie_wipi_c/src/api/net.rs
+          grep -n 'PHASE8_33_INOTIA1_FIRST_OPEN_TWO_PAGE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_RESOURCE_EXCHANGE' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD89_RESOURCE_EXCHANGE_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_30_INOTIA1_BLESSED_SEAL_USE_GATE' wie_ktf/src/runtime/init.rs

@@ -1,5 +1,17 @@
 # WIE
 
+## Phase 8.33 Inotia 1 two-page compatibility / heap-name recovery notes
+
+Phase 8.33 responds to the Phase 8.32 field trace rather than extending the
+three-page guess. The trace shows that the guest repeatedly emits command-30
+page 1 while stuck at 3/1 and only reaches page 2 after an item-detail/back
+transition. The offline catalog is therefore collapsed to two safe 9-record
+pages (still below the proven 12-record overwrite boundary), and every nonzero
+page request maps to page 1. The phase also probes WIE's live 16/32-byte
+small-object heap at the first authentic command-5 transfer, before catalog
+strings are copied, and repairs the two corrupted character names only when
+the exact corrupt pair is unique. See `FULL_REPO_PHASE8_33_README.md`.
+
 ## Phase 8.32 Inotia 1 page-bound / character-name repair notes
 
 Phase 8.32 preserves the validated Phase 8.30 special-item behavior and the
