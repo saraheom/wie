@@ -1,0 +1,8 @@
+WIPI Player Phase 8.38
+TestFlight app version: 0.1.38
+Runtime marker: PHASE8_38_RUNTIME_SENTINEL
+Normal cash shop: unchanged Phase 8.37 fixed-capacity 12-record catalog
+Party-wipe cash shop: state-14 detection at command-5 boundary, one-record 부활의 기도문 emergency catalog
+Emergency cancel: mirrors native state-14 CLEAR branch (state 11, selection 0) before command-123 cleanup
+Main name: validated 자원 교환권 -> 이노티아 repair preserved
+Performance: no per-frame/per-key party-wipe instrumentation; only rare cash-protocol boundary reads

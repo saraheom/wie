@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, vec, vec::Vec};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use spin::Mutex;
 use wipi_types::wipic::WIPICWord;
@@ -435,6 +436,23 @@ const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 227] = [
     0xba, 0x20, 0xb0, 0xa1, 0xb8, 0xe9, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
+// Phase 8.38 — party-wipe emergency prayer catalog.
+//
+// Static recovery of the original title proves item id 0x219 (537) is
+// "부활의 기도문".  The party-wipe input state machine enters state 14 only
+// when the user selected the prayer-revival branch but does not own the item;
+// that state then launches the carrier cash shop.  Keep the normal Phase 8.37
+// 12-record catalog untouched, but while that exact death state is active,
+// expose only the missing prayer as a one-record emergency catalog.  The
+// packet uses the same [0,1] compatibility metadata that field testing
+// validated for normal shop entry, and remains far below the 12-record native
+// table ceiling.
+const INOTIA1_CASH_CMD30_EMERGENCY_PRAYER_FREE: [u8; 26] = [
+    0x00, 0x1a, 0x1e, 0x01, 0x00, 0x01, 0x01,
+    0x0d, 0xba, 0xce, 0xc8, 0xb0, 0xc0, 0xc7, 0x20, 0xb1, 0xe2, 0xb5, 0xb5,
+    0xb9, 0xae, 0x01, 0x00, 0x00, 0x00, 0x00,
+];
+
 // Phase 8.26 — command-31 is the title's authentic BUY request. The exact
 // receive handler at guest 0x001181b8 accepts common result/state=1 and, on its
 // purchase-completion path, consumes one four-byte value before executing the
@@ -489,8 +507,17 @@ static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1Cash
 
 static INOTIA1_CASH_CATALOG_PAGE: Mutex<u8> = Mutex::new(0);
 
+// Phase 8.38: set only at a cash-protocol boundary when the original death UI
+// is in state 14 (missing-prayer purchase prompt).  No per-frame or per-key
+// instrumentation is used, preserving the Phase 8.37 performance baseline.
+static INOTIA1_EMERGENCY_PRAYER_CASH: AtomicBool = AtomicBool::new(false);
+
 fn inotia1_cash_catalog_frame(_page: u8) -> &'static [u8] {
-    &INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE
+    if INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed) {
+        &INOTIA1_CASH_CMD30_EMERGENCY_PRAYER_FREE
+    } else {
+        &INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE
+    }
 }
 
 // Phase 8.25 — persist the legacy read-callback registration.
@@ -696,6 +723,80 @@ fn read_inotia1_got_u32(
 ) -> Option<u32> {
     let ptr = read_guest_u32(context, r10.wrapping_add(got_offset))?;
     read_guest_u32(context, ptr)
+}
+
+fn write_guest_u32(context: &mut dyn WIPICContext, address: WIPICWord, value: u32) -> bool {
+    context.write_bytes(address, &value.to_le_bytes()).is_ok()
+}
+
+fn write_inotia1_got_u32(
+    context: &mut dyn WIPICContext,
+    r10: WIPICWord,
+    got_offset: WIPICWord,
+    value: u32,
+) -> bool {
+    let Some(ptr) = read_guest_u32(context, r10.wrapping_add(got_offset)) else {
+        return false;
+    };
+    write_guest_u32(context, ptr, value)
+}
+
+// Phase 8.38 — exact party-wipe state globals recovered from native code:
+//   r10+0x25c -> outer death/revival UI state
+//   r10+0x30c -> death animation/substate
+//   r10+0x5f8 -> two-option selection in the death/prayer prompt
+// State 14 is entered by guest 0x0014a706 only when item 0x219 cannot be
+// found and is the native "buy 부활의 기도문" prompt.  Importantly, the
+// original CLEAR path at 0x0014a606 performs exactly state=11, selection=0.
+fn inotia1_party_wipe_state(
+    context: &mut dyn WIPICContext,
+) -> Option<(WIPICWord, u32, u32, u32)> {
+    let cpu = context.debug_cpu_context()?;
+    let r10 = cpu[10];
+    let state = read_inotia1_got_u32(context, r10, 0x25c)?;
+    let substate = read_inotia1_got_u32(context, r10, 0x30c).unwrap_or(u32::MAX);
+    let selection = read_inotia1_got_u32(context, r10, 0x5f8).unwrap_or(u32::MAX);
+    Some((r10, state, substate, selection))
+}
+
+fn phase8_38_detect_emergency_prayer_cash(context: &mut dyn WIPICContext, label: &str) -> bool {
+    let Some((r10, state, substate, selection)) = inotia1_party_wipe_state(context) else {
+        tracing::info!(
+            "[PHASE8_38_INOTIA1_WIPE_CASH_STATE] label={label} unavailable -> normal catalog"
+        );
+        return false;
+    };
+    let emergency = state == 14;
+    tracing::info!(
+        "[PHASE8_38_INOTIA1_WIPE_CASH_STATE] label={label} r10={r10:#010x} state={state} substate={substate} selection={selection} emergency={emergency}"
+    );
+    emergency
+}
+
+fn phase8_38_restore_death_prompt_after_cash_cancel(context: &mut dyn WIPICContext) {
+    let Some((r10, state, substate, selection)) = inotia1_party_wipe_state(context) else {
+        tracing::warn!(
+            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] state unavailable; no guest memory changed"
+        );
+        return;
+    };
+
+    // Mirror the title's own CLEAR branch from state 14 exactly.  Do not force
+    // a revive, consume an item, apply penalty, or touch save bytes.  Returning
+    // to state 11 lets the original two-option death prompt decide the next
+    // action.  If a prayer was bought, selecting prayer again naturally enters
+    // state 13 because the native item lookup now succeeds.
+    if state == 14 {
+        let state_ok = write_inotia1_got_u32(context, r10, 0x25c, 11);
+        let selection_ok = write_inotia1_got_u32(context, r10, 0x5f8, 0);
+        tracing::info!(
+            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] mirrored native CLEAR path state 14->11 selection {selection}->0 substate={substate} state_write={state_ok} selection_write={selection_ok}"
+        );
+    } else {
+        tracing::info!(
+            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] emergency session ended but current state={state}; no forced transition"
+        );
+    }
 }
 
 // Phase 8.34 — trace the corrected command-30 page globals. Static UI/native
@@ -995,6 +1096,12 @@ pub async fn socket_write(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
     } else if head.len() >= 3 && head[2] == 0x05 {
+        // Phase 8.38: classify the cash session only at this rare protocol
+        // boundary. State 14 is the title's missing-prayer purchase prompt.
+        // This replaces the old high-frequency diagnostics with three cheap
+        // guest reads that occur only when the cash transfer starts.
+        let emergency_prayer = phase8_38_detect_emergency_prayer_cash(context, "command5");
+        INOTIA1_EMERGENCY_PRAYER_CASH.store(emergency_prayer, Ordering::Relaxed);
         // Phase 8.36: the broad heap/GOT name probe used here in Phase 8.35
         // was diagnostic-only and expensive.  Main-name recovery now happens
         // only at two exact native strlen callers, so command 5 stays purely
@@ -1008,6 +1115,14 @@ pub async fn socket_write(
             "[PHASE8_24_INOTIA1_CASH_TRANSFER_SEQUENCE] outbound command=5 len={len} -> queued command-2 empty start + command-4 empty finalize"
         );
     } else if head.len() >= 3 && head[2] == 0x7b {
+        // Phase 8.38: normal cash-shop exit keeps the Phase 8.34 cleanup. For
+        // the party-wipe emergency shop only, first mirror the title's own
+        // state-14 CLEAR branch so backing out cannot leave the outer death UI
+        // parked in the purchase state after its network overlay disappears.
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
+        if emergency_prayer {
+            phase8_38_restore_death_prompt_after_cash_cancel(context);
+        }
         // Phase 8.34: static jump-table recovery proves command 123 has a real
         // server receive route. Replace any older pending bytes with the
         // native cleanup success frame and wake the reader so the title clears
@@ -1016,8 +1131,9 @@ pub async fn socket_write(
         queue_inotia1_cmd123_cleanup_success();
         queued_reason = Some("command123-cleanup");
         tracing::info!(
-            "[PHASE8_34_INOTIA1_CASH_EXIT_CLEANUP] outbound command=123 len={len} -> queued [00 04 7b 01] for native generic cleanup handler 0x001171fa"
+            "[PHASE8_38_INOTIA1_CASH_EXIT_CLEANUP] outbound command=123 len={len} emergency_prayer={emergency_prayer} -> queued [00 04 7b 01] for native generic cleanup handler 0x001171fa"
         );
+        INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
         // Phase 8.37 exposes one complete physical catalog at exactly the
@@ -1027,8 +1143,10 @@ pub async fn socket_write(
         trace_phase8_34_inotia1_page_globals(context, requested_page, "before-command30-single-page-response");
         queue_inotia1_cash_cmd30_page(0);
         queued_reason = Some("command30-complete-single-catalog");
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
+        let record_count = if emergency_prayer { 1 } else { 12 };
         tracing::info!(
-            "[PHASE8_37_INOTIA1_CASH_COMPLETE_SINGLE_CATALOG] outbound command=30 len={len} requested_page={requested_page} -> compatibility_header=[0,1] records=12 capacity=12 overflow=none all price=0"
+            "[PHASE8_38_INOTIA1_CASH_CATALOG] outbound command=30 len={len} requested_page={requested_page} emergency_prayer={emergency_prayer} -> compatibility_header=[0,1] records={record_count} capacity=12 overflow=none all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -1036,8 +1154,9 @@ pub async fn socket_write(
         // response is now safe to feed back through the same async reader wake.
         queue_inotia1_cash_cmd31_purchase_success();
         queued_reason = Some("command31-purchase");
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
         tracing::info!(
-            "[PHASE8_27_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} head={head:02x?} -> queued local success balance=0"
+            "[PHASE8_38_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} emergency_prayer={emergency_prayer} head={head:02x?} -> queued local success balance=0"
         );
     } else if head.len() >= 3 && head[2] == 0x59 {
         // Phase 8.34 — a resource-exchange ticket already present in an older save
@@ -1204,8 +1323,10 @@ pub async fn socket_read_ktf_legacy(
         *INOTIA1_CASH_CATALOG_PAGE.lock() = 0;
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
+        let record_count = if emergency_prayer { 1 } else { 12 };
         tracing::info!(
-            "[PHASE8_37_INOTIA1_FIRST_OPEN_COMPLETE_CATALOG] command-4 finalize consumed -> compatibility_header=[0,1] records=12 capacity=12 overflow=none catalog immediately pending"
+            "[PHASE8_38_INOTIA1_FIRST_OPEN_CATALOG] command-4 finalize consumed -> emergency_prayer={emergency_prayer} compatibility_header=[0,1] records={record_count} capacity=12 overflow=none catalog immediately pending"
         );
     }
 
@@ -1241,6 +1362,7 @@ pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32
         trace_inotia1_cash_reject(context, "MC_netSocketClose", Some(fd));
         reset_inotia1_cash_rx();
         reset_inotia1_cash_read_callback();
+        INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
         tracing::info!("[INOTIA1_CASH_NET] MC_netSocketClose({fd}) -> 0");
         return Ok(0);
     }
