@@ -34,6 +34,16 @@ pub enum HookKind {
     /// rewritten so it equals what the loop would have left there (i.e.,
     /// `original - bytes`), then the dispatcher jumps to `exit_pc`.
     RegInlineCopy(RegInlineCopy),
+    /// Phase 8.40 — exact Inotia1 resurrection UI callsite repair.
+    ///
+    /// The original instruction at 0x00131cb2 is `LDR R0, [SP, #0x4c]`.
+    /// The following internal call enters 0x0011dfb8, which immediately
+    /// dereferences R4+0x248/R4+0x24c. Field fault capture proves this rare
+    /// resurrection path reaches it with R4=4, while R8 is the live character
+    /// context whose +0x248/+0x24c fields were already read by the caller.
+    /// This hook emulates the replaced LDR and copies R8 into R4 before
+    /// continuing to the untouched BL instruction.
+    Inotia1RevivalBaseRepair,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -85,6 +95,7 @@ pub enum PatternHookKind {
     RegInlineCopy {
         count_offset: i32,
     },
+    Inotia1RevivalBaseRepair,
 }
 
 /// Expand static + pattern hooks into a single `Vec<Hook>` whose PCs are final
@@ -170,6 +181,7 @@ pub fn resolve_hooks(core: &mut ArmCore, entry: &Entry, scan_ranges: &[(u32, u32
                         exit_pc,
                     })
                 }
+                PatternHookKind::Inotia1RevivalBaseRepair => HookKind::Inotia1RevivalBaseRepair,
             };
             let pc = match_addr | 1;
             if installed.iter().any(|h| h.pc == pc) {
@@ -533,6 +545,43 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
             inner.engine.reg_write(spec.dst, dst.wrapping_add(count));
             inner.engine.reg_write(spec.count, count_initial.wrapping_sub(count));
             Ok(JumpTo(spec.exit_pc))
+        }
+        HookKind::Inotia1RevivalBaseRepair => {
+            // This hook is selected by an exact-title byte pattern beginning at
+            // guest 0x00131cb2. Preserve the original `LDR R0,[SP,#0x4c]`,
+            // then repair only the context register consumed by the immediately
+            // following 0x0011dfb8 call.
+            let (sp, r8, old_r4) = {
+                let inner = core.inner.lock();
+                (
+                    inner.engine.reg_read(ArmRegister::SP),
+                    inner.engine.reg_read(ArmRegister::R8),
+                    inner.engine.reg_read(ArmRegister::R4),
+                )
+            };
+            let arg0: u32 = read_generic(core, sp.wrapping_add(0x4c))?;
+
+            // Fail closed if R8 does not actually look like the structure
+            // observed by static analysis. The legacy behavior then continues
+            // unchanged and the exception-only fault trace remains available.
+            let field_248: Result<u32> = read_generic(core, r8.wrapping_add(0x248));
+            let field_24c: Result<u32> = read_generic(core, r8.wrapping_add(0x24c));
+            let repaired = field_248.is_ok() && field_24c.is_ok();
+            {
+                let mut inner = core.inner.lock();
+                inner.engine.reg_write(ArmRegister::R0, arg0);
+                if repaired {
+                    inner.engine.reg_write(ArmRegister::R4, r8);
+                }
+            }
+            tracing::info!(
+                "[PHASE8_40_INOTIA1_REVIVAL_CONTEXT_REPAIR] hook={hook_pc:#010x} lr={lr:#010x} sp={sp:#010x} arg0={arg0:#010x} old_r4={old_r4:#010x} r8={r8:#010x} field248_ok={} field24c_ok={} repaired={repaired}",
+                field_248.is_ok(),
+                field_24c.is_ok()
+            );
+
+            // The replaced Thumb instruction is exactly two bytes long.
+            Ok(JumpTo(((hook_pc & !1).wrapping_add(2)) | 1))
         }
     }
 }

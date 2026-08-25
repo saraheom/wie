@@ -1,4 +1,4 @@
-> Current TestFlight development phase: **8.39** — Inotia1 party-wipe latch recovery + exception-only blessed-revival fault trace.
+> Current TestFlight development phase: **8.40** — Inotia1 emergency prayer purchase handoff + resurrection-scroll native context repair.
 
 > **Phase 8.38 (Inotia1 party-wipe prayer recovery):** preserves the validated Phase 8.37 performance/name/12-item normal-cash baseline. When the original death UI enters native state 14 because `부활의 기도문` (item 0x219) is missing, the offline bridge exposes a one-item emergency prayer catalog. Backing out mirrors the title's own state-14 CLEAR transition back to the death prompt before command-123 cleanup, instead of leaving the outer death state stranded.
 

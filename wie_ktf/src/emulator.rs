@@ -85,7 +85,7 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
             tracing::info!(
-                "[PHASE8_39_RUNTIME_SENTINEL] WIPI Player Phase 8.39 active; Phase 8.37 performance/catalog baseline preserved; latched party-wipe cash cancel recovery; exception-only ARM fault trace"
+                "[PHASE8_40_RUNTIME_SENTINEL] WIPI Player Phase 8.40 active; Phase 8.37 performance/catalog baseline preserved; emergency purchase handoff cleanup; resurrection context repair"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -172,20 +172,23 @@ impl KtfEmulator {
 }
 
 impl KtfEmulator {
-    // Phase 8.39 — emergency-only CLEAR recovery.
+    // Phase 8.40 — emergency-only pre-purchase CLEAR recovery.
     //
     // The Phase 8.38 field log proves the missing-prayer flow is first seen in
     // native state 14, then the nested cash UI reconnects after changing that
     // outer state to 6.  Clearing the resulting cash error does not emit
     // command 123, so a protocol-only recovery never gets a chance to run.
     // This hook executes only for a CLEAR keydown while the rare state-14
-    // origin latch is active.  It writes the exact destination used by the
-    // original state-14 CLEAR handler (state 11, selection 0), then still
-    // forwards CLEAR normally so the cash overlay can dismiss itself.  There
-    // is no work at all on ordinary movement/key events beyond one atomic
-    // branch, preserving the Phase 8.37 performance baseline.
-    fn phase8_39_restore_party_wipe_prompt_on_clear(&mut self) {
-        if !wie_wipi_c::api::net::phase8_39_inotia1_emergency_prayer_cash_active() {
+    // origin latch is active *before a purchase succeeds*. Phase 8.40 retires
+    // that latch as soon as the emergency command-31 success frame is fully
+    // delivered, so CLEAR after a successful 부활의 기도문 purchase is left
+    // entirely to the original cash/death UI. Pre-purchase cancellation still
+    // writes the exact destination used by the native state-14 CLEAR handler
+    // (state 11, selection 0) and forwards CLEAR normally. There is no work on
+    // ordinary movement keys beyond one atomic branch, preserving the Phase
+    // 8.37 performance baseline.
+    fn phase8_40_restore_party_wipe_prompt_on_clear(&mut self) {
+        if !wie_wipi_c::api::net::phase8_40_inotia1_emergency_prayer_cash_active() {
             return;
         }
 
@@ -200,11 +203,11 @@ impl KtfEmulator {
         };
 
         let Some(state_ptr) = read_u32(&self.core, INOTIA1_GOT_BASE + STATE_GOT_OFFSET) else {
-            tracing::warn!("[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] state pointer unavailable; latch retained");
+            tracing::warn!("[PHASE8_40_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] state pointer unavailable; latch retained");
             return;
         };
         let Some(selection_ptr) = read_u32(&self.core, INOTIA1_GOT_BASE + SELECTION_GOT_OFFSET) else {
-            tracing::warn!("[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] selection pointer unavailable; latch retained");
+            tracing::warn!("[PHASE8_40_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] selection pointer unavailable; latch retained");
             return;
         };
         let old_state = read_u32(&self.core, state_ptr).unwrap_or(u32::MAX);
@@ -213,10 +216,10 @@ impl KtfEmulator {
         let state_ok = self.core.write_bytes(state_ptr, &11u32.to_le_bytes()).is_ok();
         let selection_ok = self.core.write_bytes(selection_ptr, &0u32.to_le_bytes()).is_ok();
         if state_ok && selection_ok {
-            wie_wipi_c::api::net::phase8_39_clear_inotia1_emergency_prayer_cash_latch();
+            wie_wipi_c::api::net::phase8_40_clear_inotia1_emergency_prayer_cash_latch();
         }
         tracing::info!(
-            "[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] CLEAR while emergency latch active: state {old_state}->11 selection {old_selection}->0 state_write={state_ok} selection_write={selection_ok}; CLEAR forwarded normally"
+            "[PHASE8_40_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] CLEAR while emergency latch active: state {old_state}->11 selection {old_selection}->0 state_write={state_ok} selection_write={selection_ok}; CLEAR forwarded normally"
         );
     }
 }
@@ -224,7 +227,7 @@ impl KtfEmulator {
 impl Emulator for KtfEmulator {
     fn handle_event(&mut self, event: Event) {
         if matches!(&event, Event::Keydown(KeyCode::CLEAR)) {
-            self.phase8_39_restore_party_wipe_prompt_on_clear();
+            self.phase8_40_restore_party_wipe_prompt_on_clear();
         }
         self.system.event_queue().push(event)
     }

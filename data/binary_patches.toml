@@ -51,6 +51,51 @@
 # generic (hash-less) entries warn and continue.
 
 [[entry]]
+name = "Inotia1 PD005362 revival context + compiler hooks"
+hash = "0d7726becf7260f4f0051779bacfdbf1"
+
+# Phase 8.40 — exact resurrection UI context repair.
+# Field fault capture identified a data access at guest 0x0011dfca through
+# R4+0x248 with R4=4. The caller at 0x00131cb2 already keeps the correct
+# character context in R8 and itself reads R8+0x248/R8+0x24c. Hook the
+# preceding 16-bit `LDR R0,[SP,#0x4c]` so the dispatcher can emulate it,
+# copy R8 -> R4, and continue into the untouched BL at 0x00131cb4.
+[[entry.hook]]
+kind = "inotia1_revival_base_repair"
+pc = 0x00131cb3
+
+# Hash-keyed entries take precedence over the generic fallback, so retain the
+# same compiler-library/performance hooks that the validated Phase 8.37
+# Inotia1 baseline receives from the generic entry.
+[[entry.hook]]
+kind = "reg_inline_copy"
+pattern = "0b00sss011 78 0b00ddd011 70 0b00ccc011 1c 01 0b00110sss 01 0b00110ddd 01 0b00111ccc 00 2b f7 dc"
+count_offset = 1
+
+[[entry.hook]]
+kind = "inline_copy"
+pattern = "3d 1c {dst} 3d 29 68 3c 1f 22 68 08 1c 13 1c 1b 78 03 70 01 32 22 60 01 31 29 60 {exit_b} {exit_b}"
+src_offset = -4
+len_offset = -12
+spill_back = true
+
+[[entry.hook]]
+kind = "memcpy"
+pattern = "78 47 00 00 01 40 2d e9 03 00 52 e3"
+
+[[entry.hook]]
+kind = "memset"
+pattern = "78 47 00 00 01 40 2d e9 04 00 52 e3"
+
+[[entry.hook]]
+kind = "strcpy"
+pattern = "70 b5 0b 1c 03 43 03 22 13 40 04 1c"
+
+[[entry.hook]]
+kind = "strlen"
+pattern = "30 b5 03 23 03 40 04 1c 00 2b"
+
+[[entry]]
 name = "Generic compiler library / inline copy patterns"
 
 # Per-frame byte-by-byte memcpy with `src/dst/count` in registers.
