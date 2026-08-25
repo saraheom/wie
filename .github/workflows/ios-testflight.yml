@@ -1,4 +1,4 @@
-name: iOS TestFlight — Phase 8.35.2
+name: iOS TestFlight — Phase 8.35.3
 
 on:
   workflow_dispatch:
@@ -568,13 +568,18 @@ jobs:
           APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")"
           APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")"
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
+          EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
           if [[ "$APP_VERSION" != "0.1.35" ]]; then
             echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.35."
             exit 1
           fi
-          if [[ "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
-            echo "::error::Final IPA build number is $APP_BUILD, expected $EXPECTED_BUILD."
+          # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
+          # (for example 0.1.35.85), rather than the bare numeric build number.
+          # Accept the composed form used by the current toolchain, while retaining
+          # compatibility with a future Tauri release that may emit the bare number.
+          if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
+            echo "::error::Final IPA build number is $APP_BUILD; expected $EXPECTED_TAURI_BUILD (or bare $EXPECTED_BUILD)."
             exit 1
           fi
           if [[ "$APP_BUNDLE_ID" != "com.jjunnyy.wieplayer" ]]; then
@@ -588,7 +593,7 @@ jobs:
       - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v7
         with:
-          name: WIPI-Player-Phase8.35.2-iOS-TestFlight
+          name: WIPI-Player-Phase8.35.3-iOS-TestFlight
           path: dist/WIPI-Player-iOS-TestFlight.ipa
           if-no-files-found: error
           retention-days: 14

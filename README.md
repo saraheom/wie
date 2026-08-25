@@ -1,6 +1,10 @@
-> **Phase 8.35.2 (Phase 8.35 runtime + TestFlight CI verification correction):** keeps the Phase 8.35 one-page 9-item Inotia1 shop and main-character `자원 교환권` → `이노티아` recovery unchanged. The workflow verifies the Phase 8.35 sentinel in the clean raw/Webpack WASM before a fresh Tauri iOS build, then verifies the final IPA bundle ID, version `0.1.35`, and build number without assuming Tauri exposes frontend assets as loose files.
+> **Phase 8.35.3 (Phase 8.35 runtime + TestFlight CFBundleVersion verification correction):** keeps the Phase 8.35 runtime unchanged. The previous run successfully exported the IPA, whose `CFBundleVersion` was `0.1.35.<build-number>`; the workflow had incorrectly expected only the bare numeric build number. Phase 8.35.3 verifies the Tauri-composed iOS build version correctly.
 
 # WIE
+
+## Phase 8.35.3 TestFlight workflow correction
+
+Phase 8.35.3 changes only the post-build IPA identity assertion. Tauri 2 currently emits `CFBundleVersion` as `<marketing-version>.<build-number>` (for example `0.1.35.85`). The workflow now validates that composed value while keeping the bundle identifier and marketing version checks strict. See `FULL_REPO_PHASE8_35_3_README.md`.
 
 ## Phase 8.35.2 TestFlight workflow correction
 
