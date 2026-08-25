@@ -1,4 +1,4 @@
-name: iOS TestFlight — Phase 8.35.1
+name: iOS TestFlight — Phase 8.35.2
 
 on:
   workflow_dispatch:
@@ -523,29 +523,6 @@ jobs:
             --build-number "${{ steps.build_number.outputs.number }}" \
             --config '{"build":{"beforeBuildCommand":""}}'
 
-      - name: Verify generated iOS assets contain the Phase 8.35 build marker
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          EXPECTED_SHA="${{ steps.phase835_web.outputs.marker_sha256 }}"
-          ASSET_ROOT="wie_app/gen/apple/assets"
-          BUILD_MARKER="$(find "$ASSET_ROOT" -type f -name 'phase8_35_build.txt' -print -quit 2>/dev/null || true)"
-
-          if [[ -z "$BUILD_MARKER" ]]; then
-            echo '::error::Generated iOS assets do not contain phase8_35_build.txt.'
-            find wie_app/gen/apple -maxdepth 4 -type f -print || true
-            exit 1
-          fi
-
-          MARKER_SHA="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
-          if [[ "$MARKER_SHA" != "$EXPECTED_SHA" ]]; then
-            echo "::error::Generated iOS build marker hash $MARKER_SHA does not match webpack marker $EXPECTED_SHA."
-            exit 1
-          fi
-
-          echo "Verified generated iOS build marker: $BUILD_MARKER"
-
       - name: Locate IPA
         id: ipa
         shell: bash
@@ -570,12 +547,11 @@ jobs:
           echo "IPA: $ipa_path"
           shasum -a 256 "dist/WIPI-Player-iOS-TestFlight.ipa"
 
-      - name: Verify Phase 8.35 build marker and version inside final IPA
+      - name: Verify Phase 8.35 package identity inside final IPA
         shell: bash
         run: |
           set -euo pipefail
 
-          EXPECTED_SHA="${{ steps.phase835_web.outputs.marker_sha256 }}"
           VERIFY_DIR="$RUNNER_TEMP/phase835-ipa"
           rm -rf "$VERIFY_DIR"
           mkdir -p "$VERIFY_DIR"
@@ -587,33 +563,32 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="$(find "$APP_DIR" -type f -name 'phase8_35_build.txt' -print -quit)"
-          if [[ -z "$BUILD_MARKER" ]]; then
-            echo '::error::Final IPA is missing the Phase 8.35 frontend build marker.'
-            find "$APP_DIR" -maxdepth 4 -type f -print || true
-            exit 1
-          fi
+          APP_PLIST="$APP_DIR/Info.plist"
+          APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")"
+          APP_BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")"
+          APP_BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")"
+          EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
 
-          MARKER_SHA="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
-          if [[ "$MARKER_SHA" != "$EXPECTED_SHA" ]]; then
-            echo "::error::Final IPA build marker hash $MARKER_SHA does not match webpack marker $EXPECTED_SHA."
-            exit 1
-          fi
-          grep -Fxq 'PHASE8_35_BUILD_SENTINEL=WIPI_PLAYER_0.1.35_SAFE_SINGLE_PAGE_MAIN_NAME' "$BUILD_MARKER"
-
-          APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DIR/Info.plist")"
           if [[ "$APP_VERSION" != "0.1.35" ]]; then
             echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.35."
             exit 1
           fi
+          if [[ "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
+            echo "::error::Final IPA build number is $APP_BUILD, expected $EXPECTED_BUILD."
+            exit 1
+          fi
+          if [[ "$APP_BUNDLE_ID" != "com.jjunnyy.wieplayer" ]]; then
+            echo "::error::Final IPA bundle identifier is $APP_BUNDLE_ID, expected com.jjunnyy.wieplayer."
+            exit 1
+          fi
 
-          echo "Verified final IPA build marker: $BUILD_MARKER"
-          echo 'Verified Phase 8.35 frontend payload and app version 0.1.35 inside final IPA.'
+          echo "Verified final IPA identity: bundle=$APP_BUNDLE_ID version=$APP_VERSION build=$APP_BUILD"
+          echo 'Phase 8.35 runtime was already verified in the clean raw and webpack-emitted WASM before the fresh Tauri iOS build.'
 
       - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v7
         with:
-          name: WIPI-Player-Phase8.35.1-iOS-TestFlight
+          name: WIPI-Player-Phase8.35.2-iOS-TestFlight
           path: dist/WIPI-Player-iOS-TestFlight.ipa
           if-no-files-found: error
           retention-days: 14

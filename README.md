@@ -1,6 +1,11 @@
-> **Phase 8.35 (Inotia1 safe single-page + main-name recovery):** uses one 9-item offline cash-shop page within the client's fixed 12-entry capacity, excludes/rejects the server-only resource-exchange ticket, focuses recovery on the main character name `자원 교환권` → `이노티아` while leaving the secondary hero untouched, and embeds a Phase 8.35 runtime sentinel verified in both the built WASM and final IPA. TestFlight app version is `0.1.35`.
+> **Phase 8.35.2 (Phase 8.35 runtime + TestFlight CI verification correction):** keeps the Phase 8.35 one-page 9-item Inotia1 shop and main-character `자원 교환권` → `이노티아` recovery unchanged. The workflow verifies the Phase 8.35 sentinel in the clean raw/Webpack WASM before a fresh Tauri iOS build, then verifies the final IPA bundle ID, version `0.1.35`, and build number without assuming Tauri exposes frontend assets as loose files.
 
 # WIE
+
+## Phase 8.35.2 TestFlight workflow correction
+
+Phase 8.35.2 keeps the Phase 8.35 runtime unchanged and removes the invalid assumption that Tauri creates `wie_app/gen/apple/assets`. The previous 8.35.1 run had already exported a signed IPA before that check failed. The corrected workflow validates the Phase 8.35 runtime in the clean raw/Webpack WASM, rebuilds a fresh Apple project, and validates the final IPA package identity directly. See `FULL_REPO_PHASE8_35_2_README.md`.
+
 
 ## Phase 8.33.1 TestFlight workflow correction
 

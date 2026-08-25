@@ -1,0 +1,7 @@
+Phase 8.35.2 TestFlight workflow fix
+
+Runtime/emulator behavior is unchanged from Phase 8.35.
+
+The Phase 8.35.1 workflow incorrectly assumed Tauri materializes frontendDist under wie_app/gen/apple/assets as loose files. Tauri embeds frontend assets into the application during the build, so that directory does not exist. The previous run therefore failed only after the IPA was already successfully exported.
+
+Phase 8.35.2 removes that invalid post-build asset-directory assertion. It retains the valid clean-build checks that verify PHASE8_35_RUNTIME_SENTINEL in both the wasm-pack output and webpack-emitted WASM before a fresh `rm -rf gen/apple` Tauri iOS build. After IPA export, it verifies the final app bundle identity directly from Info.plist: bundle ID com.jjunnyy.wieplayer, marketing version 0.1.35, and the exact requested CI build number.
