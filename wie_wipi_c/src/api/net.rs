@@ -409,10 +409,13 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
 // server-account-only resource exchange ticket and cosmetic/redundant bag
 // variants are intentionally omitted.
 //
-// Response fields: command=30, result=1, page_count=1, current_page=0,
+// Response fields: command=30, result=1, current_page=0, max_page_index=0,
 // record_count=9, then repeated { name_len, EUC-KR name, field=1, value=0 }.
+// Phase 8.35 field testing proved the Phase 8.34 byte swap was wrong: the
+// client accepted the older [current,max] ordering and rejected [1,0].  A
+// true one-page catalog therefore advertises [0,0].
 const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 174] = [
-    0x00, 0xae, 0x1e, 0x01, 0x01, 0x00, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+    0x00, 0xae, 0x1e, 0x01, 0x00, 0x00, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -989,11 +992,10 @@ pub async fn socket_write(
             "[PHASE8_18_INOTIA1_CASH_INIT_RX] command=1 request accepted -> queued 28-byte local success response (common result=1)"
         );
     } else if head.len() >= 3 && head[2] == 0x05 {
-        // Phase 8.34: this is the earliest authentic shop request after the
-        // gameplay save has been loaded, and it occurs before any local
-        // catalog strings have been copied into the guest heap. Use it as the
-        // safe one-shot opportunity to locate/repair the persisted name pair.
-        phase8_34_probe_and_repair_inotia1_names(context)?;
+        // Phase 8.36: the broad heap/GOT name probe used here in Phase 8.35
+        // was diagnostic-only and expensive.  Main-name recovery now happens
+        // only at two exact native strlen callers, so command 5 stays purely
+        // on the cash-shop protocol path.
         // Phase 8.24: command 5 requests the catalog transfer. Queue the empty
         // command-2 start; the reader automatically follows it with command 4
         // finalization so the original UI is not left in a half-transfer state.
@@ -1022,7 +1024,7 @@ pub async fn socket_write(
         queue_inotia1_cash_cmd30_page(0);
         queued_reason = Some("command30-single-page-catalog");
         tracing::info!(
-            "[PHASE8_35_INOTIA1_CASH_SINGLE_PAGE] outbound command=30 len={len} requested_page={requested_page} -> page_count=1 current_page=0 records=9 capacity=12 safety_margin=3 all price=0"
+            "[PHASE8_36_INOTIA1_CASH_SINGLE_PAGE] outbound command=30 len={len} requested_page={requested_page} -> current_page=0 max_page_index=0 records=9 capacity=12 safety_margin=3 all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -1199,7 +1201,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         tracing::info!(
-            "[PHASE8_35_INOTIA1_FIRST_OPEN_SINGLE_PAGE] command-4 finalize consumed -> page_count=1 current_page=0 records=9 capacity=12 safety_margin=3 catalog immediately pending"
+            "[PHASE8_36_INOTIA1_FIRST_OPEN_SINGLE_PAGE] command-4 finalize consumed -> current_page=0 max_page_index=0 records=9 capacity=12 safety_margin=3 catalog immediately pending"
         );
     }
 

@@ -1,6 +1,12 @@
-> **Phase 8.35.3 (Phase 8.35 runtime + TestFlight CFBundleVersion verification correction):** keeps the Phase 8.35 runtime unchanged. The previous run successfully exported the IPA, whose `CFBundleVersion` was `0.1.35.<build-number>`; the workflow had incorrectly expected only the bare numeric build number. Phase 8.35.3 verifies the Tauri-composed iOS build version correctly.
+> **Phase 8.36 (Inotia 1 cash-entry + performance cleanup + party-wipe probe):** keeps the safe one-page nine-item catalog but restores the command-30 page fields to the field-proven ordering (`current_page=0`, `max_page_index=0`). It removes the broad Phase 8.35 name scans/hot-path tracing and keeps only an exact two-caller main-name repair for `자원 교환권 -> 이노티아`. It also adds a diagnostic-only key-down PC/LR marker for reproducing the separate total-party-death stall. See `FULL_REPO_PHASE8_36_README.md`.
 
 # WIE
+
+## Phase 8.36 Inotia 1 compatibility notes
+
+Phase 8.36 fixes the Phase 8.35 cash catalog header regression and removes the expensive name-recovery instrumentation that caused whole-game lag. The nine-item single-page layout remains below the 12-record client capacity. The main-character name fix is retained with only exact callsite/string matches. A lightweight input-state probe is included for the independent all-party-dead stall.
+
+> **Phase 8.35.3 (Phase 8.35 runtime + TestFlight CFBundleVersion verification correction):** keeps the Phase 8.35 runtime unchanged. The previous run successfully exported the IPA, whose `CFBundleVersion` was `0.1.35.<build-number>`; the workflow had incorrectly expected only the bare numeric build number. Phase 8.35.3 verifies the Tauri-composed iOS build version correctly.
 
 ## Phase 8.35.3 TestFlight workflow correction
 

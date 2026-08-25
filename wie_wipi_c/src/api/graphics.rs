@@ -30,14 +30,6 @@ const INOTIA1_PID: &str = "PD005362";
 // pairs so static labels are logged once instead of once per frame. This state
 // never affects guest behavior; it only bounds diagnostic volume.
 static INOTIA1_NAME_RENDER_SEEN: Mutex<Vec<(WIPICWord, u64)>> = Mutex::new(Vec::new());
-// Phase 8.35: after save loading, the continue/character screen repaints before
-// the cash-shop network path exists. Try the safe native-data repair on only
-// the first six Inotia 1 repaint calls so the main name can be corrected before
-// the user ever enters the shop. The scan is bounded to the ~570 KiB native
-// mapping and stops permanently after success or six attempts.
-static INOTIA1_MAIN_NAME_REPAINT_ATTEMPTS: Mutex<u8> = Mutex::new(0);
-static INOTIA1_MAIN_NAME_REPAINT_DONE: Mutex<bool> = Mutex::new(false);
-
 fn inotia1_string_fingerprint(data: &[u8]) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for &byte in data {
@@ -615,7 +607,6 @@ pub async fn draw_string(
         return Ok(());
     }
 
-    trace_inotia1_name_render(context, ptr_string, x, y, &string_bytes);
 
     let framebuffer = FrameBuffer(read_generic(context, context.data_ptr(dst)?)?);
     let gctx: WIPICGraphicsContext = read_generic(context, pgc)?;
@@ -639,25 +630,6 @@ pub async fn draw_string(
 
 pub async fn repaint(context: &mut dyn WIPICContext, lcd: i32, x: i32, y: i32, width: i32, height: i32) -> Result<()> {
     tracing::debug!("MC_grpRepaint({lcd}, {x}, {y}, {width}, {height})");
-
-    let is_inotia1 = {
-        let system = context.system();
-        system.aid() == INOTIA1_AID && system.pid() == INOTIA1_PID
-    };
-    if is_inotia1 && !*INOTIA1_MAIN_NAME_REPAINT_DONE.lock() {
-        let should_try = {
-            let mut attempts = INOTIA1_MAIN_NAME_REPAINT_ATTEMPTS.lock();
-            if *attempts < 6 {
-                *attempts += 1;
-                true
-            } else {
-                false
-            }
-        };
-        if should_try && crate::api::net::phase8_35_try_repair_main_name_native(context)? {
-            *INOTIA1_MAIN_NAME_REPAINT_DONE.lock() = true;
-        }
-    }
 
     let platform = context.system().platform();
     let screen = platform.screen();

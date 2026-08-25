@@ -1,0 +1,7 @@
+WIPI Player Phase 8.36
+TestFlight app version: 0.1.36
+Runtime marker: PHASE8_36_RUNTIME_SENTINEL
+Catalog: one page, 9 records, fixed client capacity 12, header current=0/max=0
+Main name target: 자원 교환권 -> 이노티아 via exact strlen caller only
+Secondary hero name: intentionally untouched
+Party wipe: diagnostic-only input PC/LR probe; no speculative auto-revive/menu jump

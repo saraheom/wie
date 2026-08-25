@@ -30,6 +30,7 @@ impl TaskRunner for KtfTaskRunner {
 pub struct KtfEmulator {
     core: ArmCore,
     system: System,
+    is_inotia1: bool,
 }
 
 impl KtfEmulator {
@@ -85,7 +86,7 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
             tracing::info!(
-                "[PHASE8_35_RUNTIME_SENTINEL] WIPI Player Phase 8.35 active; single-page-9 catalog; main-name-only recovery"
+                "[PHASE8_36_RUNTIME_SENTINEL] WIPI Player Phase 8.36 active; compatible single-page-9 catalog; low-overhead main-name recovery; party-wipe input probe"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -131,7 +132,11 @@ impl KtfEmulator {
 
         system.spawn(async move || Self::start(&mut core_clone, &mut system_clone, jar_filename_clone, main_class_name).await);
 
-        Ok(Self { core, system })
+        Ok(Self {
+            core,
+            system,
+            is_inotia1: aid == "010100D3" && pid == "PD005362",
+        })
     }
 
     #[tracing::instrument(name = "start", skip_all)]
@@ -173,6 +178,21 @@ impl KtfEmulator {
 
 impl Emulator for KtfEmulator {
     fn handle_event(&mut self, event: Event) {
+        // Phase 8.36 — diagnostic-only party-wipe probe.  A total-party-death
+        // report showed the guest going quiet without a NATIVE_LOOP warning.
+        // Log only physical key-down events for this exact title, with the
+        // current native PC/LR, so a reproduction can tell us whether input is
+        // still reaching the emulator and which guest state owns the stalled
+        // screen.  This does not change input delivery or death behavior.
+        if self.is_inotia1 {
+            if let Event::Keydown(key) = &event {
+                if let Ok((pc, lr)) = self.core.read_pc_lr() {
+                    tracing::info!(
+                        "[PHASE8_36_INOTIA1_PARTY_WIPE_INPUT_PROBE] key={key:?} pc={pc:#010x} lr={lr:#010x}"
+                    );
+                }
+            }
+        }
         self.system.event_queue().push(event)
     }
 

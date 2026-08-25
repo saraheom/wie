@@ -356,6 +356,46 @@ const INOTIA1_CORRECT_NAME1_DISPLAY_P834: [u8; 25] = [
     0x00,
 ];
 
+
+// Phase 8.36 — low-overhead Inotia 1 main-character name recovery.
+//
+// Phase 8.35 confirmed the visible repair works, but the broad Phase 8.34
+// tracing ran on generic strcpy/strlen hot paths and made normal gameplay
+// noticeably slower.  The field log also gave us the exact Inotia 1 callers:
+//   0x0010cf29: main base-name strlen while scenario/character text is built
+//   0x0010cf5b: full "name(class)" strlen before display
+// Check only these two callers and only the exact corrupt main-character bytes.
+// No secondary-hero repair, heap scan, GOT walk, or per-call diagnostic logging.
+fn phase8_36_try_repair_inotia1_main_name_at_strlen(core: &mut ArmCore, ptr: u32, lr: u32) {
+    const MAIN_BASE_CALLER: u32 = 0x0010_cf29;
+    const MAIN_DISPLAY_CALLER: u32 = 0x0010_cf5b;
+
+    if lr == MAIN_BASE_CALLER {
+        let mut current = [0u8; 12];
+        if core.read_bytes(ptr, &mut current).is_ok() && current == INOTIA1_CORRUPT_NAME0 {
+            if core.write_bytes(ptr, &INOTIA1_CORRECT_NAME0_PADDED).is_ok() {
+                tracing::info!(
+                    "[PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR] form=base ptr={ptr:#010x} lr={lr:#010x} 자원 교환권 -> 이노티아"
+                );
+            }
+        }
+    } else if lr == MAIN_DISPLAY_CALLER {
+        let mut current = [0u8; 18];
+        if core.read_bytes(ptr, &mut current).is_ok()
+            && current == INOTIA1_CORRUPT_NAME0_DISPLAY_P834
+        {
+            if core
+                .write_bytes(ptr, &INOTIA1_CORRECT_NAME0_DISPLAY_P834)
+                .is_ok()
+            {
+                tracing::info!(
+                    "[PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR] form=display ptr={ptr:#010x} lr={lr:#010x} 자원 교환권(도적) -> 이노티아(도적)"
+                );
+            }
+        }
+    }
+}
+
 fn phase8_34_trace_inotia1_name_string(core: &mut ArmCore, kind: &str, ptr: u32, lr: u32) {
     let mut bytes = [0u8; 25];
     if core.read_bytes(ptr, &mut bytes).is_err() {
@@ -407,13 +447,6 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
         .copied()
         .ok_or_else(|| WieError::FatalError(format!("binary-patch hook fired at unregistered PC {hook_pc:#x}")))?;
 
-    // Restrict the recovery check to the exact RVCT string-helper hook sites
-    // present in this Inotia 1 native image.  The memcpy hook is a framebuffer
-    // hot path in some titles and must not pay this diagnostic/repair cost.
-    if hook_pc == 0x0015_42f1 || hook_pc == 0x0015_433d {
-        phase8_32_try_repair_inotia1_character_names(core);
-    }
-
     match kind {
         HookKind::Memcpy => {
             let (dst, src, len) = {
@@ -446,9 +479,6 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
                 let inner = core.inner.lock();
                 (inner.engine.reg_read(ArmRegister::R0), inner.engine.reg_read(ArmRegister::R1))
             };
-            if hook_pc == 0x0015_42f1 {
-                phase8_34_trace_inotia1_name_string(core, "strcpy-src", src, lr);
-            }
             tracing::trace!("hook strcpy(ptr_dst={dst:#x}, ptr_src={src:#x})");
             stdlib::strcpy(core, &mut (), dst, src).await?;
             Ok(JumpTo(lr))
@@ -456,7 +486,7 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
         HookKind::Strlen => {
             let s = core.inner.lock().engine.reg_read(ArmRegister::R0);
             if hook_pc == 0x0015_433d {
-                phase8_34_trace_inotia1_name_string(core, "strlen", s, lr);
+                phase8_36_try_repair_inotia1_main_name_at_strlen(core, s, lr);
             }
             let len = stdlib::strlen(core, &mut (), s).await?;
             tracing::trace!("hook strlen(ptr_str={s:#x}) -> {len:#x}");
@@ -567,6 +597,34 @@ mod tests {
         core.read_bytes(name1, &mut out1)?;
         assert_eq!(out0, INOTIA1_CORRECT_NAME0_PADDED);
         assert_eq!(out1, INOTIA1_CORRECT_NAME1_PADDED);
+        Ok(())
+    }
+
+    #[test]
+    fn phase8_36_main_name_callsite_repair_is_exact_and_caller_bounded() -> Result<()> {
+        let mut core = ArmCore::new(false, None)?;
+        core.map(0x20000, 0x2000)?;
+
+        let base_ptr = 0x20400u32;
+        core.write_bytes(base_ptr, &INOTIA1_CORRUPT_NAME0)?;
+        phase8_36_try_repair_inotia1_main_name_at_strlen(&mut core, base_ptr, 0x0010_cf29);
+        let mut base_out = [0xffu8; 12];
+        core.read_bytes(base_ptr, &mut base_out)?;
+        assert_eq!(base_out, INOTIA1_CORRECT_NAME0_PADDED);
+
+        let display_ptr = 0x20500u32;
+        core.write_bytes(display_ptr, &INOTIA1_CORRUPT_NAME0_DISPLAY_P834)?;
+        phase8_36_try_repair_inotia1_main_name_at_strlen(&mut core, display_ptr, 0x0010_cf5b);
+        let mut display_out = [0xffu8; 18];
+        core.read_bytes(display_ptr, &mut display_out)?;
+        assert_eq!(display_out, INOTIA1_CORRECT_NAME0_DISPLAY_P834);
+
+        let wrong_caller_ptr = 0x20600u32;
+        core.write_bytes(wrong_caller_ptr, &INOTIA1_CORRUPT_NAME0)?;
+        phase8_36_try_repair_inotia1_main_name_at_strlen(&mut core, wrong_caller_ptr, 0x0010_cf5b);
+        let mut unchanged = [0u8; 12];
+        core.read_bytes(wrong_caller_ptr, &mut unchanged)?;
+        assert_eq!(unchanged, INOTIA1_CORRUPT_NAME0);
         Ok(())
     }
 
