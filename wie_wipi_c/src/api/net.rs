@@ -507,10 +507,22 @@ static INOTIA1_CASH_RX_STATE: Mutex<Inotia1CashRxState> = Mutex::new(Inotia1Cash
 
 static INOTIA1_CASH_CATALOG_PAGE: Mutex<u8> = Mutex::new(0);
 
-// Phase 8.38: set only at a cash-protocol boundary when the original death UI
-// is in state 14 (missing-prayer purchase prompt).  No per-frame or per-key
-// instrumentation is used, preserving the Phase 8.37 performance baseline.
+// Phase 8.39: this is a latched party-wipe purchase-flow flag.  Phase 8.38
+// correctly detected native death state 14 at the first command-5 boundary,
+// but the title immediately reconnects after moving its outer state to 6.  A
+// second command-5 therefore overwrote `true` with `false` before CLEAR/back,
+// so the original death prompt could not be restored.  Once state 14 is seen,
+// preserve the latch across reconnects and socket closes until an explicit
+// cancel/cleanup restores state 11 (or the process is restarted).
 static INOTIA1_EMERGENCY_PRAYER_CASH: AtomicBool = AtomicBool::new(false);
+
+pub fn phase8_39_inotia1_emergency_prayer_cash_active() -> bool {
+    INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed)
+}
+
+pub fn phase8_39_clear_inotia1_emergency_prayer_cash_latch() {
+    INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
+}
 
 fn inotia1_cash_catalog_frame(_page: u8) -> &'static [u8] {
     if INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed) {
@@ -759,44 +771,40 @@ fn inotia1_party_wipe_state(
     Some((r10, state, substate, selection))
 }
 
-fn phase8_38_detect_emergency_prayer_cash(context: &mut dyn WIPICContext, label: &str) -> bool {
+fn phase8_39_detect_emergency_prayer_cash(context: &mut dyn WIPICContext, label: &str) -> bool {
     let Some((r10, state, substate, selection)) = inotia1_party_wipe_state(context) else {
         tracing::info!(
-            "[PHASE8_38_INOTIA1_WIPE_CASH_STATE] label={label} unavailable -> normal catalog"
+            "[PHASE8_39_INOTIA1_WIPE_CASH_STATE] label={label} unavailable -> normal catalog"
         );
         return false;
     };
     let emergency = state == 14;
     tracing::info!(
-        "[PHASE8_38_INOTIA1_WIPE_CASH_STATE] label={label} r10={r10:#010x} state={state} substate={substate} selection={selection} emergency={emergency}"
+        "[PHASE8_39_INOTIA1_WIPE_CASH_STATE] label={label} r10={r10:#010x} state={state} substate={substate} selection={selection} emergency={emergency}"
     );
     emergency
 }
 
-fn phase8_38_restore_death_prompt_after_cash_cancel(context: &mut dyn WIPICContext) {
+fn phase8_39_restore_death_prompt_after_cash_cancel(context: &mut dyn WIPICContext) {
     let Some((r10, state, substate, selection)) = inotia1_party_wipe_state(context) else {
         tracing::warn!(
-            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] state unavailable; no guest memory changed"
+            "[PHASE8_39_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] state unavailable; no guest memory changed"
         );
         return;
     };
 
-    // Mirror the title's own CLEAR branch from state 14 exactly.  Do not force
-    // a revive, consume an item, apply penalty, or touch save bytes.  Returning
-    // to state 11 lets the original two-option death prompt decide the next
-    // action.  If a prayer was bought, selecting prayer again naturally enters
-    // state 13 because the native item lookup now succeeds.
-    if state == 14 {
-        let state_ok = write_inotia1_got_u32(context, r10, 0x25c, 11);
-        let selection_ok = write_inotia1_got_u32(context, r10, 0x5f8, 0);
-        tracing::info!(
-            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] mirrored native CLEAR path state 14->11 selection {selection}->0 substate={substate} state_write={state_ok} selection_write={selection_ok}"
-        );
-    } else {
-        tracing::info!(
-            "[PHASE8_38_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] emergency session ended but current state={state}; no forced transition"
-        );
-    }
+    // The latch proves this cash flow originated from the title's native
+    // state-14 missing-prayer branch.  During the nested cash reconnect the
+    // title itself changes the outer state to 6, so requiring `state == 14`
+    // (Phase 8.38) misses the actual CLEAR/back moment.  Restore the same
+    // destination as the original state-14 CLEAR handler even when the nested
+    // overlay currently exposes state 6.  Do not revive anyone, consume an
+    // item, apply a penalty, or touch save bytes.
+    let state_ok = write_inotia1_got_u32(context, r10, 0x25c, 11);
+    let selection_ok = write_inotia1_got_u32(context, r10, 0x5f8, 0);
+    tracing::info!(
+        "[PHASE8_39_INOTIA1_WIPE_CASH_CANCEL_RECOVERY] latched emergency flow restored state {state}->11 selection {selection}->0 substate={substate} state_write={state_ok} selection_write={selection_ok}"
+    );
 }
 
 // Phase 8.34 — trace the corrected command-30 page globals. Static UI/native
@@ -1100,8 +1108,14 @@ pub async fn socket_write(
         // boundary. State 14 is the title's missing-prayer purchase prompt.
         // This replaces the old high-frequency diagnostics with three cheap
         // guest reads that occur only when the cash transfer starts.
-        let emergency_prayer = phase8_38_detect_emergency_prayer_cash(context, "command5");
-        INOTIA1_EMERGENCY_PRAYER_CASH.store(emergency_prayer, Ordering::Relaxed);
+        let detected_now = phase8_39_detect_emergency_prayer_cash(context, "command5");
+        if detected_now {
+            INOTIA1_EMERGENCY_PRAYER_CASH.store(true, Ordering::Relaxed);
+        }
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
+        tracing::info!(
+            "[PHASE8_39_INOTIA1_WIPE_CASH_LATCH] command5 detected_now={detected_now} latched={emergency_prayer}; reconnects cannot downgrade an active party-wipe flow"
+        );
         // Phase 8.36: the broad heap/GOT name probe used here in Phase 8.35
         // was diagnostic-only and expensive.  Main-name recovery now happens
         // only at two exact native strlen callers, so command 5 stays purely
@@ -1121,7 +1135,7 @@ pub async fn socket_write(
         // parked in the purchase state after its network overlay disappears.
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
         if emergency_prayer {
-            phase8_38_restore_death_prompt_after_cash_cancel(context);
+            phase8_39_restore_death_prompt_after_cash_cancel(context);
         }
         // Phase 8.34: static jump-table recovery proves command 123 has a real
         // server receive route. Replace any older pending bytes with the
@@ -1131,7 +1145,7 @@ pub async fn socket_write(
         queue_inotia1_cmd123_cleanup_success();
         queued_reason = Some("command123-cleanup");
         tracing::info!(
-            "[PHASE8_38_INOTIA1_CASH_EXIT_CLEANUP] outbound command=123 len={len} emergency_prayer={emergency_prayer} -> queued [00 04 7b 01] for native generic cleanup handler 0x001171fa"
+            "[PHASE8_39_INOTIA1_CASH_EXIT_CLEANUP] outbound command=123 len={len} emergency_prayer={emergency_prayer} -> queued [00 04 7b 01] for native generic cleanup handler 0x001171fa"
         );
         INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
     } else if head.len() >= 3 && head[2] == 0x1e {
@@ -1146,7 +1160,7 @@ pub async fn socket_write(
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
         let record_count = if emergency_prayer { 1 } else { 12 };
         tracing::info!(
-            "[PHASE8_38_INOTIA1_CASH_CATALOG] outbound command=30 len={len} requested_page={requested_page} emergency_prayer={emergency_prayer} -> compatibility_header=[0,1] records={record_count} capacity=12 overflow=none all price=0"
+            "[PHASE8_39_INOTIA1_CASH_CATALOG] outbound command=30 len={len} requested_page={requested_page} emergency_prayer={emergency_prayer} -> compatibility_header=[0,1] records={record_count} capacity=12 overflow=none all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -1156,7 +1170,7 @@ pub async fn socket_write(
         queued_reason = Some("command31-purchase");
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
         tracing::info!(
-            "[PHASE8_38_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} emergency_prayer={emergency_prayer} head={head:02x?} -> queued local success balance=0"
+            "[PHASE8_39_INOTIA1_CASH_PURCHASE] outbound command=31 len={len} emergency_prayer={emergency_prayer} head={head:02x?} -> queued local success balance=0"
         );
     } else if head.len() >= 3 && head[2] == 0x59 {
         // Phase 8.34 — a resource-exchange ticket already present in an older save
@@ -1326,7 +1340,7 @@ pub async fn socket_read_ktf_legacy(
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
         let record_count = if emergency_prayer { 1 } else { 12 };
         tracing::info!(
-            "[PHASE8_38_INOTIA1_FIRST_OPEN_CATALOG] command-4 finalize consumed -> emergency_prayer={emergency_prayer} compatibility_header=[0,1] records={record_count} capacity=12 overflow=none catalog immediately pending"
+            "[PHASE8_39_INOTIA1_FIRST_OPEN_CATALOG] command-4 finalize consumed -> emergency_prayer={emergency_prayer} compatibility_header=[0,1] records={record_count} capacity=12 overflow=none catalog immediately pending"
         );
     }
 
@@ -1362,7 +1376,10 @@ pub async fn socket_close(context: &mut dyn WIPICContext, fd: i32) -> Result<i32
         trace_inotia1_cash_reject(context, "MC_netSocketClose", Some(fd));
         reset_inotia1_cash_rx();
         reset_inotia1_cash_read_callback();
-        INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
+        let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
+        tracing::info!(
+            "[PHASE8_39_INOTIA1_WIPE_CASH_LATCH] socket close preserves emergency latch={emergency_prayer}"
+        );
         tracing::info!("[INOTIA1_CASH_NET] MC_netSocketClose({fd}) -> 0");
         return Ok(0);
     }

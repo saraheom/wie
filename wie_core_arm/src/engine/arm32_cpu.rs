@@ -55,6 +55,21 @@ impl ArmEngine for Arm32CpuEngine {
             }
 
             if pc < 0x1000 {
+                // Phase 8.39 — exception-only context capture.  A field test of
+                // 축복받은 부활주문서 faults at address 0x254, but the old error
+                // discarded the guest instruction/call context needed to tell a
+                // bad PC from a bad data pointer.  This branch runs only on an
+                // already-fatal condition and therefore adds no gameplay-path
+                // logging or measurable interpreter overhead.
+                let lr = self.cpu.reg_get(Mode::User, reg::LR);
+                let sp = self.cpu.reg_get(Mode::User, reg::SP);
+                let r0 = self.cpu.reg_get(Mode::User, 0);
+                let r1 = self.cpu.reg_get(Mode::User, 1);
+                let r2 = self.cpu.reg_get(Mode::User, 2);
+                let r3 = self.cpu.reg_get(Mode::User, 3);
+                tracing::error!(
+                    "[PHASE8_39_ARM_FAULT_CONTEXT] kind=pc-low fault={pc:#010x} pc={pc:#010x} lr={lr:#010x} sp={sp:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}"
+                );
                 return Err(WieError::InvalidMemoryAccess(pc));
             }
 
@@ -74,6 +89,20 @@ impl ArmEngine for Arm32CpuEngine {
             count -= 1;
 
             if let Some(x) = arm32cpu_memory.memory_error() {
+                // Phase 8.39 — same exception-only trace for a data-memory
+                // fault.  Capturing PC/LR here lets the next blessed-revival
+                // test identify the exact native instruction without any
+                // high-frequency probes.
+                let fault_pc = self.cpu.reg_get(Mode::User, reg::PC);
+                let lr = self.cpu.reg_get(Mode::User, reg::LR);
+                let sp = self.cpu.reg_get(Mode::User, reg::SP);
+                let r0 = self.cpu.reg_get(Mode::User, 0);
+                let r1 = self.cpu.reg_get(Mode::User, 1);
+                let r2 = self.cpu.reg_get(Mode::User, 2);
+                let r3 = self.cpu.reg_get(Mode::User, 3);
+                tracing::error!(
+                    "[PHASE8_39_ARM_FAULT_CONTEXT] kind=data-memory fault={x:#010x} pc={fault_pc:#010x} lr={lr:#010x} sp={sp:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}"
+                );
                 return Err(WieError::InvalidMemoryAccess(x));
             }
         }

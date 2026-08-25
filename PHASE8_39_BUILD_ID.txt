@@ -1,0 +1,6 @@
+WIPI Player Phase 8.39
+TestFlight app version: 0.1.39
+Runtime marker: PHASE8_39_RUNTIME_SENTINEL
+Party-wipe marker: PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY
+ARM fault marker: PHASE8_39_ARM_FAULT_CONTEXT
+Baseline: Phase 8.37 performance + 12-record catalog + main-name repair preserved

@@ -4,10 +4,10 @@ use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::
 
 use jvm::{ClassInstance, Result as JvmResult, runtime::JavaLangString};
 
-use wie_backend::{Emulator, Event, Options, Platform, System, TaskRunner};
+use wie_backend::{Emulator, Event, KeyCode, Options, Platform, System, TaskRunner};
 use wie_core_arm::{Allocator, ArmCore};
 use wie_jvm_support::JvmSupport;
-use wie_util::{Result, WieError};
+use wie_util::{ByteRead, ByteWrite, Result, WieError};
 
 use crate::{
     adf::{KtfAdf, find_client_bin},
@@ -85,7 +85,7 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
             tracing::info!(
-                "[PHASE8_38_RUNTIME_SENTINEL] WIPI Player Phase 8.38 active; Phase 8.37 performance/catalog baseline preserved; party-wipe emergency prayer cash recovery"
+                "[PHASE8_39_RUNTIME_SENTINEL] WIPI Player Phase 8.39 active; Phase 8.37 performance/catalog baseline preserved; latched party-wipe cash cancel recovery; exception-only ARM fault trace"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -171,8 +171,61 @@ impl KtfEmulator {
     }
 }
 
+impl KtfEmulator {
+    // Phase 8.39 — emergency-only CLEAR recovery.
+    //
+    // The Phase 8.38 field log proves the missing-prayer flow is first seen in
+    // native state 14, then the nested cash UI reconnects after changing that
+    // outer state to 6.  Clearing the resulting cash error does not emit
+    // command 123, so a protocol-only recovery never gets a chance to run.
+    // This hook executes only for a CLEAR keydown while the rare state-14
+    // origin latch is active.  It writes the exact destination used by the
+    // original state-14 CLEAR handler (state 11, selection 0), then still
+    // forwards CLEAR normally so the cash overlay can dismiss itself.  There
+    // is no work at all on ordinary movement/key events beyond one atomic
+    // branch, preserving the Phase 8.37 performance baseline.
+    fn phase8_39_restore_party_wipe_prompt_on_clear(&mut self) {
+        if !wie_wipi_c::api::net::phase8_39_inotia1_emergency_prayer_cash_active() {
+            return;
+        }
+
+        const INOTIA1_GOT_BASE: u32 = 0x0016_883c;
+        const STATE_GOT_OFFSET: u32 = 0x25c;
+        const SELECTION_GOT_OFFSET: u32 = 0x5f8;
+
+        let read_u32 = |core: &ArmCore, address: u32| -> Option<u32> {
+            let mut bytes = [0u8; 4];
+            core.read_bytes(address, &mut bytes).ok()?;
+            Some(u32::from_le_bytes(bytes))
+        };
+
+        let Some(state_ptr) = read_u32(&self.core, INOTIA1_GOT_BASE + STATE_GOT_OFFSET) else {
+            tracing::warn!("[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] state pointer unavailable; latch retained");
+            return;
+        };
+        let Some(selection_ptr) = read_u32(&self.core, INOTIA1_GOT_BASE + SELECTION_GOT_OFFSET) else {
+            tracing::warn!("[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] selection pointer unavailable; latch retained");
+            return;
+        };
+        let old_state = read_u32(&self.core, state_ptr).unwrap_or(u32::MAX);
+        let old_selection = read_u32(&self.core, selection_ptr).unwrap_or(u32::MAX);
+
+        let state_ok = self.core.write_bytes(state_ptr, &11u32.to_le_bytes()).is_ok();
+        let selection_ok = self.core.write_bytes(selection_ptr, &0u32.to_le_bytes()).is_ok();
+        if state_ok && selection_ok {
+            wie_wipi_c::api::net::phase8_39_clear_inotia1_emergency_prayer_cash_latch();
+        }
+        tracing::info!(
+            "[PHASE8_39_INOTIA1_WIPE_CLEAR_EVENT_RECOVERY] CLEAR while emergency latch active: state {old_state}->11 selection {old_selection}->0 state_write={state_ok} selection_write={selection_ok}; CLEAR forwarded normally"
+        );
+    }
+}
+
 impl Emulator for KtfEmulator {
     fn handle_event(&mut self, event: Event) {
+        if matches!(&event, Event::Keydown(KeyCode::CLEAR)) {
+            self.phase8_39_restore_party_wipe_prompt_on_clear();
+        }
         self.system.event_queue().push(event)
     }
 
