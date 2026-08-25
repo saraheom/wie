@@ -1,3 +1,5 @@
+> **Phase 8.37 (Inotia 1 performance rollback + complete safe cash catalog):** preserves the now-validated `자원 교환권 -> 이노티아` main-name repair, removes the Phase 8.36 per-keydown PC/LR party-wipe probe so normal movement returns to the pre-diagnostic input path, and uses all 12 validated cash-catalog slots for the essential items including the four missing equipment/cosmetic entries. The cash entry header uses the previously working Phase 8.33 `[0,1]` compatibility state; every command-30 request maps to the same 12-record physical catalog, so no item requires paging. See `FULL_REPO_PHASE8_37_README.md`.
+
 > **Phase 8.36 (Inotia 1 cash-entry + performance cleanup + party-wipe probe):** keeps the safe one-page nine-item catalog but restores the command-30 page fields to the field-proven ordering (`current_page=0`, `max_page_index=0`). It removes the broad Phase 8.35 name scans/hot-path tracing and keeps only an exact two-caller main-name repair for `자원 교환권 -> 이노티아`. It also adds a diagnostic-only key-down PC/LR marker for reproducing the separate total-party-death stall. See `FULL_REPO_PHASE8_36_README.md`.
 
 # WIE

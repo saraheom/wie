@@ -1,0 +1,7 @@
+WIPI Player Phase 8.37
+TestFlight app version: 0.1.37
+Runtime marker: PHASE8_37_RUNTIME_SENTINEL
+Catalog: one physical 12-record catalog, exact validated capacity, Phase8.33-compatible [0,1] entry metadata
+Main name target: 자원 교환권 -> 이노티아 via exact validated strlen callers only
+Performance: all Inotia1 hot-path name scans and per-keydown PC/LR party-wipe probes disabled
+Party wipe: behavior unchanged; dedicated investigation deferred

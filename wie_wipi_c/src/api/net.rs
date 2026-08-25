@@ -394,42 +394,45 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.35 — conservative one-page offline catalog.
+// Phase 8.37 — complete, fixed-capacity offline catalog.
 //
-// The original Inotia 1 client has fixed storage for 12 catalog records. The
-// Phase 8.28 18-record experiment wrote records 13/14 into the adjacent
-// character-name pointer slots and is the source of the persisted name
-// corruption we are repairing. Do not use paging as a workaround and do not
-// ever exceed that fixed storage again. This final-compatible layout uses one
-// page with only nine high-value offline items, leaving three slots of safety
-// margin. No arrow/page transition is required.
+// Field testing validates the original client's catalog table capacity as 12
+// records: Phase 8.28 corrupted adjacent character-name pointers only when
+// records 13/14 were written.  Keep every useful offline item needed for this
+// compatibility build on the first response and stop exactly at record 12.
+// This is not the old 18-record overflow.  Smaller bag variants and the normal
+// hero seal are omitted because the 16-slot bag and blessed seal supersede
+// them; the server-account-only resource exchange ticket is also omitted.
 //
-// Included: skill book, revive scroll, blessed revive scroll, chest key, hero
-// seal, blessed hero seal, 16-slot bag, skill reset, beginner hero seal. The
-// server-account-only resource exchange ticket and cosmetic/redundant bag
-// variants are intentionally omitted.
+// The all-zero page state used by Phase 8.36 lets the catalog parse only after
+// the title first presents its error UI.  Use the previously field-proven
+// Phase 8.33 page-0 compatibility bytes [0,1] on this single physical catalog.
+// Every command-30 request still maps to this exact same 12-record frame, so no
+// additional page is required and no request can expose more than 12 records.
 //
-// Response fields: command=30, result=1, current_page=0, max_page_index=0,
-// record_count=9, then repeated { name_len, EUC-KR name, field=1, value=0 }.
-// Phase 8.35 field testing proved the Phase 8.34 byte swap was wrong: the
-// client accepted the older [current,max] ordering and rejected [1,0].  A
-// true one-page catalog therefore advertises [0,0].
-const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 174] = [
-    0x00, 0xae, 0x1e, 0x01, 0x00, 0x00, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+// Included: skill book, revive scroll, blessed revive scroll, chest key,
+// blessed hero seal, 16-slot bag, skill reset, beginner hero seal, black-knight
+// helmet, reggae style, lightning style, stealth mask.
+const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 227] = [
+    0x00, 0xe3, 0x1e, 0x01, 0x00, 0x01, 0x0c, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
     0xb0, 0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00,
     0x09, 0xbb, 0xf3, 0xc0, 0xda, 0x20, 0xbf, 0xad, 0xbc, 0xe8, 0x01, 0x00,
-    0x00, 0x00, 0x00, 0x0b, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0,
-    0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x14, 0xc3, 0xe0, 0xba,
-    0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7,
-    0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31,
-    0x36, 0xc4, 0xad, 0x20, 0xb0, 0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00,
-    0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8,
-    0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf,
-    0xeb, 0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0,
-    0xe5, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x14, 0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba,
+    0x20, 0xbf, 0xeb, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5,
+    0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31, 0x36, 0xc4, 0xad, 0x20, 0xb0,
+    0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5,
+    0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8, 0xad, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb,
+    0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x0d, 0xc8, 0xe6, 0xb1, 0xe2, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc5,
+    0xf5, 0xb1, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xb7, 0xb9, 0xb0,
+    0xd4, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x0b, 0xb9, 0xf8, 0xb0, 0xb3, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0,
+    0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xda, 0xbd,
+    0xba, 0x20, 0xb0, 0xa1, 0xb8, 0xe9, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Phase 8.26 — command-31 is the title's authentic BUY request. The exact
@@ -1017,14 +1020,15 @@ pub async fn socket_write(
         );
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        // Phase 8.35 deliberately exposes only one safe catalog page. Even if
-        // a stale guest state asks for another index, return page 0 and never
-        // write more than nine records into the title's 12-slot table.
+        // Phase 8.37 exposes one complete physical catalog at exactly the
+        // title's validated 12-record capacity. Any stale/nonzero page request
+        // receives the same frame, so page navigation cannot hide items or
+        // expand the catalog beyond the fixed table.
         trace_phase8_34_inotia1_page_globals(context, requested_page, "before-command30-single-page-response");
         queue_inotia1_cash_cmd30_page(0);
-        queued_reason = Some("command30-single-page-catalog");
+        queued_reason = Some("command30-complete-single-catalog");
         tracing::info!(
-            "[PHASE8_36_INOTIA1_CASH_SINGLE_PAGE] outbound command=30 len={len} requested_page={requested_page} -> current_page=0 max_page_index=0 records=9 capacity=12 safety_margin=3 all price=0"
+            "[PHASE8_37_INOTIA1_CASH_COMPLETE_SINGLE_CATALOG] outbound command=30 len={len} requested_page={requested_page} -> compatibility_header=[0,1] records=12 capacity=12 overflow=none all price=0"
         );
     } else if head.len() >= 3 && head[2] == 0x1f {
         // The first Phase 8.25 purchase attempt provided the complete authentic
@@ -1201,7 +1205,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         tracing::info!(
-            "[PHASE8_36_INOTIA1_FIRST_OPEN_SINGLE_PAGE] command-4 finalize consumed -> current_page=0 max_page_index=0 records=9 capacity=12 safety_margin=3 catalog immediately pending"
+            "[PHASE8_37_INOTIA1_FIRST_OPEN_COMPLETE_CATALOG] command-4 finalize consumed -> compatibility_header=[0,1] records=12 capacity=12 overflow=none catalog immediately pending"
         );
     }
 
