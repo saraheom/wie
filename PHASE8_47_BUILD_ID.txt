@@ -1,0 +1,11 @@
+WIPI Player Phase 8.47
+TestFlight version: 0.1.47
+Runtime marker: PHASE8_47_RUNTIME_SENTINEL
+Diagnostic availability marker: PHASE8_47_INOTIA1_EXP_TRACE_AVAILABLE
+Manual arm marker: PHASE8_47_INOTIA1_EXP_TRACE_MANUALLY_ARMED
+Exact EXP marker: PHASE8_47_INOTIA1_EXP_EXACT_WRITE
+EXP baseline marker: PHASE8_47_INOTIA1_EXP_BASELINE
+Low-12 signature marker: PHASE8_47_INOTIA1_EXP_LOW12_SIGNATURE
+Exact main-character EXP address: 0x00171040
+Base: Phase 8.46
+Cash catalog: unchanged 10-record catalog with 힘의 조각 + 마법의 가지

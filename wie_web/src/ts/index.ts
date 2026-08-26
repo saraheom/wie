@@ -1593,11 +1593,11 @@ const initPlayerChrome = () => {
       errorFeedback("EXP trace is available only for the Inotia1 diagnostic build.");
       return;
     }
-    debugLog("EXP_TRACE", "PHASE8_46_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
+    debugLog("EXP_TRACE", "PHASE8_47_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
     const settingsPanel = element("settings-panel");
     settingsPanel.classList.remove("visible");
     settingsPanel.setAttribute("aria-hidden", "true");
-    successFeedback("EXP trace armed and reset. Kill the test monsters now.");
+    successFeedback("Exact EXP trace armed and reset. Kill the test monsters now.");
   });
 
   element("debug-view-log").addEventListener("click", openGlobalDiagnostics);
