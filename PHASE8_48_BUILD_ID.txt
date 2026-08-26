@@ -1,0 +1,11 @@
+WIPI Player Phase 8.48
+TestFlight version: 0.1.48
+Runtime marker: PHASE8_48_RUNTIME_SENTINEL
+Diagnostic availability marker: PHASE8_48_INOTIA1_EXP_TRACE_AVAILABLE
+Manual arm marker: PHASE8_48_INOTIA1_EXP_TRACE_MANUALLY_ARMED
+Exact EXP marker: PHASE8_48_INOTIA1_EXP_EXACT_WRITE
+EXP baseline marker: PHASE8_48_INOTIA1_EXP_BASELINE
+Entity reward baseline marker: PHASE8_48_INOTIA1_ENTITY_REWARD_BASELINE
+Entity reward write marker: PHASE8_48_INOTIA1_ENTITY_REWARD_WRITE
+Entity reward source marker: PHASE8_48_INOTIA1_ENTITY_REWARD_SOURCE
+Base: Phase 8.47 exact EXP watchpoint; Phase 8.46 cash catalog preserved

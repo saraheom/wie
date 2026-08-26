@@ -14,11 +14,23 @@ const INOTIA1_EXP_DIAG_CALLSITE_LIMIT: u8 = 24;
 // Suppress only the observed 16-bit writer, not its destination heap region,
 // because real player/monster structures may also live in 0x4xxxxxxx memory.
 const INOTIA1_EXP_DIAG_NOISY_RGB565_PC: u32 = 0x0010_69c2;
-// Phase 8.47 field confirmation: the user's displayed EXP 97,567 is
+// Phase 8.48 field confirmation: the user's displayed EXP 97,567 is
 // 0x00017d1f and appears repeatedly as word 0 of the live main-character
 // object at 0x00171040. Exact writes touching this 4-byte word are logged
 // independently from the broad candidate budget and callsite caps.
 const INOTIA1_MAIN_EXP_ADDR: u32 = 0x0017_1040;
+// Phase 8.48 field data shows the Inotia1 live entity array is laid out from
+// the main-character object at 0x00171040 with a 0x424-byte stride. Slot 6
+// (0x00172918) held 수호자 C44 base reward +3172, while slot 7
+// (0x00172d3c) held 수호물 K34 base reward -3035 before the final EXP
+// distribution routine. Watch word 0 of the first 32 entity slots so the
+// next map/spawn test identifies the instruction that creates those signed
+// base-reward values. Slot 0 is the player's EXP and retains its dedicated
+// exact watchpoint above; entity-reward tracing starts at slot 1.
+const INOTIA1_ENTITY_BASE_ADDR: u32 = INOTIA1_MAIN_EXP_ADDR;
+const INOTIA1_ENTITY_STRIDE: u32 = 0x424;
+const INOTIA1_ENTITY_SLOT_COUNT: u32 = 32;
+const INOTIA1_ENTITY_REWARD_EVENT_LIMIT: u32 = 512;
 
 #[derive(Clone, Copy)]
 struct Inotia1ExpCandidate {
@@ -35,6 +47,17 @@ struct Inotia1ExactExpWrite {
     store_size_bytes: u32,
     old_exp: u32,
     new_exp: u32,
+    pc_before: u32,
+}
+
+#[derive(Clone, Copy)]
+struct Inotia1EntityRewardWrite {
+    slot: u32,
+    field_addr: u32,
+    store_addr: u32,
+    store_size_bytes: u32,
+    old_value: u32,
+    new_value: u32,
     pc_before: u32,
 }
 
@@ -62,6 +85,8 @@ pub struct Arm32CpuEngine {
     inotia1_exp_diag_seen: Vec<Inotia1ExpSeenWrite>,
     inotia1_exp_diag_callsites: Vec<Inotia1ExpSeenCallsite>,
     inotia1_exact_exp_events: u32,
+    inotia1_entity_reward_events: u32,
+    inotia1_entity_reward_saturated: bool,
 }
 
 impl Arm32CpuEngine {
@@ -75,6 +100,8 @@ impl Arm32CpuEngine {
             inotia1_exp_diag_seen: Vec::new(),
             inotia1_exp_diag_callsites: Vec::new(),
             inotia1_exact_exp_events: 0,
+            inotia1_entity_reward_events: 0,
+            inotia1_entity_reward_saturated: false,
         }
     }
 
@@ -104,7 +131,7 @@ impl Arm32CpuEngine {
         let delta_s12 = Self::sign_extend_12(delta_low12);
 
         tracing::info!(
-            "[PHASE8_47_INOTIA1_EXP_EXACT_WRITE] event={event} exp_addr={:#010x} store_addr={:#010x} store_size={} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} delta_low12={:#05x} delta_s12={} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            "[PHASE8_48_INOTIA1_EXP_EXACT_WRITE] event={event} exp_addr={:#010x} store_addr={:#010x} store_size={} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} delta_low12={:#05x} delta_s12={} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
             INOTIA1_MAIN_EXP_ADDR,
             write.store_addr,
             write.store_size_bytes,
@@ -126,7 +153,7 @@ impl Arm32CpuEngine {
         let mut code = [0u8; 64];
         if self.mem.read_range(code_base, code.len(), &mut code).is_ok() {
             tracing::info!(
-                "[PHASE8_47_INOTIA1_EXP_EXACT_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+                "[PHASE8_48_INOTIA1_EXP_EXACT_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
             );
         }
 
@@ -144,7 +171,7 @@ impl Arm32CpuEngine {
         }
         if stack_ok {
             tracing::info!(
-                "[PHASE8_47_INOTIA1_EXP_EXACT_STACK] event={event} base={stack_base:#010x} words={stack:08x?}"
+                "[PHASE8_48_INOTIA1_EXP_EXACT_STACK] event={event} base={stack_base:#010x} words={stack:08x?}"
             );
         }
 
@@ -168,7 +195,7 @@ impl Arm32CpuEngine {
             Self::sign_extend_12(reg_low12[12]),
         ];
         tracing::info!(
-            "[PHASE8_47_INOTIA1_EXP_LOW12_SIGNATURE] event={event} delta={:+} r0={:#05x}/{} r1={:#05x}/{} r2={:#05x}/{} r3={:#05x}/{} r4={:#05x}/{} r5={:#05x}/{} r6={:#05x}/{} r7={:#05x}/{} r8={:#05x}/{} r9={:#05x}/{} r10={:#05x}/{} r11={:#05x}/{} r12={:#05x}/{}",
+            "[PHASE8_48_INOTIA1_EXP_LOW12_SIGNATURE] event={event} delta={:+} r0={:#05x}/{} r1={:#05x}/{} r2={:#05x}/{} r3={:#05x}/{} r4={:#05x}/{} r5={:#05x}/{} r6={:#05x}/{} r7={:#05x}/{} r8={:#05x}/{} r9={:#05x}/{} r10={:#05x}/{} r11={:#05x}/{} r12={:#05x}/{}",
             delta,
             reg_low12[0], reg_s12[0], reg_low12[1], reg_s12[1], reg_low12[2], reg_s12[2],
             reg_low12[3], reg_s12[3], reg_low12[4], reg_s12[4], reg_low12[5], reg_s12[5],
@@ -190,10 +217,107 @@ impl Arm32CpuEngine {
         }
         if player_ok {
             tracing::info!(
-                "[PHASE8_47_INOTIA1_PLAYER_OBJECT] event={event} ptr={:#010x} words={player_words:08x?}",
+                "[PHASE8_48_INOTIA1_PLAYER_OBJECT] event={event} ptr={:#010x} words={player_words:08x?}",
                 INOTIA1_MAIN_EXP_ADDR
             );
         }
+    }
+
+    fn trace_inotia1_entity_reward_write(&mut self, write: Inotia1EntityRewardWrite) {
+        if self.inotia1_entity_reward_events >= INOTIA1_ENTITY_REWARD_EVENT_LIMIT {
+            if !self.inotia1_entity_reward_saturated {
+                self.inotia1_entity_reward_saturated = true;
+                tracing::info!(
+                    "[PHASE8_48_INOTIA1_ENTITY_REWARD_TRACE_LIMIT] reached {} entity-base writes; further entity reward writes suppressed for this arm window",
+                    INOTIA1_ENTITY_REWARD_EVENT_LIMIT
+                );
+            }
+            return;
+        }
+        self.inotia1_entity_reward_events = self.inotia1_entity_reward_events.saturating_add(1);
+        let event = self.inotia1_entity_reward_events;
+        let pc_after = self.cpu.reg_get(Mode::User, reg::PC);
+        let lr = self.cpu.reg_get(Mode::User, reg::LR);
+        let sp = self.cpu.reg_get(Mode::User, reg::SP);
+        let regs = [
+            self.cpu.reg_get(Mode::User, 0), self.cpu.reg_get(Mode::User, 1),
+            self.cpu.reg_get(Mode::User, 2), self.cpu.reg_get(Mode::User, 3),
+            self.cpu.reg_get(Mode::User, 4), self.cpu.reg_get(Mode::User, 5),
+            self.cpu.reg_get(Mode::User, 6), self.cpu.reg_get(Mode::User, 7),
+            self.cpu.reg_get(Mode::User, 8), self.cpu.reg_get(Mode::User, 9),
+            self.cpu.reg_get(Mode::User, 10), self.cpu.reg_get(Mode::User, 11),
+            self.cpu.reg_get(Mode::User, 12),
+        ];
+        let old_signed = write.old_value as i32;
+        let new_signed = write.new_value as i32;
+        let old_low16 = write.old_value & 0xffff;
+        let new_low16 = write.new_value & 0xffff;
+        let old_s16 = old_low16 as u16 as i16;
+        let new_s16 = new_low16 as u16 as i16;
+
+        tracing::info!(
+            "[PHASE8_48_INOTIA1_ENTITY_REWARD_WRITE] event={event} slot={} field_addr={:#010x} store_addr={:#010x} store_size={} old={:#010x}/{} new={:#010x}/{} old_low16={:#06x}/{} new_low16={:#06x}/{} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            write.slot, write.field_addr, write.store_addr, write.store_size_bytes,
+            write.old_value, old_signed, write.new_value, new_signed,
+            old_low16, old_s16, new_low16, new_s16,
+            write.pc_before, pc_after, lr, sp,
+            regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7],
+            regs[8], regs[9], regs[10], regs[11], regs[12],
+        );
+
+        let code_base = write.pc_before.saturating_sub(32) & !1;
+        let mut code = [0u8; 80];
+        if self.mem.read_range(code_base, code.len(), &mut code).is_ok() {
+            tracing::info!(
+                "[PHASE8_48_INOTIA1_ENTITY_REWARD_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+            );
+        }
+
+        let stack_base = sp.saturating_sub(32) & !3;
+        let mut stack = [0u32; 24];
+        let mut stack_ok = true;
+        for (index, word) in stack.iter_mut().enumerate() {
+            let address = stack_base.wrapping_add(index as u32 * 4);
+            let mut bytes = [0u8; 4];
+            if self.mem.read_range(address, 4, &mut bytes).is_err() {
+                stack_ok = false;
+                break;
+            }
+            *word = u32::from_le_bytes(bytes);
+        }
+        if stack_ok {
+            tracing::info!(
+                "[PHASE8_48_INOTIA1_ENTITY_REWARD_STACK] event={event} base={stack_base:#010x} words={stack:08x?}"
+            );
+        }
+
+        let mut entity_words = [0u32; 16];
+        let mut entity_ok = true;
+        for (index, word) in entity_words.iter_mut().enumerate() {
+            let address = write.field_addr.wrapping_add(index as u32 * 4);
+            let mut bytes = [0u8; 4];
+            if self.mem.read_range(address, 4, &mut bytes).is_err() {
+                entity_ok = false;
+                break;
+            }
+            *word = u32::from_le_bytes(bytes);
+        }
+        if entity_ok {
+            tracing::info!(
+                "[PHASE8_48_INOTIA1_ENTITY_REWARD_OBJECT] event={event} slot={} ptr={:#010x} words={entity_words:08x?}",
+                write.slot, write.field_addr
+            );
+        }
+
+        // Make signed-width provenance obvious. If the bad value arrived via
+        // sign-extension from a 16-bit resource field, the exact 32-bit value
+        // or its low 16 bits should usually still be visible in a source register.
+        tracing::info!(
+            "[PHASE8_48_INOTIA1_ENTITY_REWARD_SOURCE] event={event} new={:#010x}/{} low16={:#06x}/{} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            write.new_value, new_signed, new_low16, new_s16,
+            regs[0], regs[1], regs[2], regs[3], regs[4], regs[5], regs[6], regs[7],
+            regs[8], regs[9], regs[10], regs[11], regs[12],
+        );
     }
 
     #[inline(always)]
@@ -210,7 +334,7 @@ impl Arm32CpuEngine {
             if !self.inotia1_exp_diag_saturated {
                 self.inotia1_exp_diag_saturated = true;
                 tracing::info!(
-                    "[PHASE8_47_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
+                    "[PHASE8_48_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
                     INOTIA1_EXP_DIAG_EVENT_LIMIT
                 );
             }
@@ -305,7 +429,7 @@ impl Arm32CpuEngine {
         let code_ok = self.mem.read_range(code_base, code.len(), &mut code).is_ok();
 
         tracing::info!(
-            "[PHASE8_47_INOTIA1_EXP_CANDIDATE] event={event} width={} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            "[PHASE8_48_INOTIA1_EXP_CANDIDATE] event={event} width={} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
             candidate.width_bits,
             candidate.addr,
             candidate.old,
@@ -334,13 +458,13 @@ impl Arm32CpuEngine {
 
         if around_ok {
             tracing::info!(
-                "[PHASE8_47_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                "[PHASE8_48_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                 around[0], around[1], around[2], around[3], around[4], around[5], around[6], around[7], around[8], around[9], around[10], around[11]
             );
         }
         if code_ok {
             tracing::info!(
-                "[PHASE8_47_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+                "[PHASE8_48_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
             );
         }
 
@@ -367,7 +491,7 @@ impl Arm32CpuEngine {
             }
             if ok {
                 tracing::info!(
-                    "[PHASE8_47_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                    "[PHASE8_48_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                     words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7], words[8], words[9], words[10], words[11]
                 );
                 emitted += 1;
@@ -382,6 +506,38 @@ impl Arm32CpuEngine {
         let exp_start = INOTIA1_MAIN_EXP_ADDR as u64;
         let exp_end = exp_start + 4;
         start < exp_end && end > exp_start
+    }
+
+    #[inline(always)]
+    fn inotia1_entity_reward_slot_for_write(addr: u32, size_bytes: u32) -> Option<(u32, u32)> {
+        if size_bytes == 0 {
+            return None;
+        }
+        let start = addr as u64;
+        let end = start.saturating_add(size_bytes as u64);
+        let first_field = INOTIA1_ENTITY_BASE_ADDR.wrapping_add(INOTIA1_ENTITY_STRIDE);
+        let last_field = INOTIA1_ENTITY_BASE_ADDR
+            .wrapping_add((INOTIA1_ENTITY_SLOT_COUNT - 1).wrapping_mul(INOTIA1_ENTITY_STRIDE));
+        if end <= first_field as u64 || start >= last_field as u64 + 4 {
+            return None;
+        }
+
+        // Derive the nearest slot arithmetically instead of scanning all 31
+        // slots on every guest store while the diagnostic is armed. Check the
+        // nearest slot and its neighbors so unaligned writes beginning just
+        // before a four-byte field are still detected.
+        let rel = addr.saturating_sub(INOTIA1_ENTITY_BASE_ADDR);
+        let approx = (rel / INOTIA1_ENTITY_STRIDE).clamp(1, INOTIA1_ENTITY_SLOT_COUNT - 1);
+        let first_slot = approx.saturating_sub(1).max(1);
+        let last_slot = approx.saturating_add(1).min(INOTIA1_ENTITY_SLOT_COUNT - 1);
+        for slot in first_slot..=last_slot {
+            let field_addr = INOTIA1_ENTITY_BASE_ADDR.wrapping_add(slot.wrapping_mul(INOTIA1_ENTITY_STRIDE));
+            let field_start = field_addr as u64;
+            if start < field_start + 4 && end > field_start {
+                return Some((slot, field_addr));
+            }
+        }
+        None
     }
 
     #[inline(always)]
@@ -453,7 +609,7 @@ impl ArmEngine for Arm32CpuEngine {
                 return Ok(EngineRunResult::CountExhausted);
             }
 
-            let (step_ok, memory_error, exact_exp_write, exp_candidate) = {
+            let (step_ok, memory_error, exact_exp_write, entity_reward_write, exp_candidate) = {
                 let mut arm32cpu_memory = self
                     .mem
                     .as_arm32cpu_memory(self.inotia1_exp_diag_enabled, pc);
@@ -462,6 +618,7 @@ impl ArmEngine for Arm32CpuEngine {
                     step_ok,
                     arm32cpu_memory.memory_error(),
                     arm32cpu_memory.inotia1_exact_exp_write(),
+                    arm32cpu_memory.inotia1_entity_reward_write(),
                     arm32cpu_memory.inotia1_exp_candidate(),
                 )
             };
@@ -476,6 +633,9 @@ impl ArmEngine for Arm32CpuEngine {
                 // diagnostic's event/callsite caps. Even if the generic trace
                 // saturates, every write touching 0x00171040 remains visible.
                 self.trace_inotia1_exact_exp_write(write);
+            }
+            if let Some(write) = entity_reward_write {
+                self.trace_inotia1_entity_reward_write(write);
             }
             if let Some(candidate) = exp_candidate {
                 self.trace_inotia1_exp_candidate(candidate);
@@ -522,26 +682,62 @@ impl ArmEngine for Arm32CpuEngine {
     }
 
     fn mem_write(&mut self, address: u32, data: &[u8]) -> Result<()> {
-        if !self.inotia1_exp_diag_enabled || !Self::inotia1_write_overlaps_exp(address, data.len() as u32) {
+        if !self.inotia1_exp_diag_enabled {
             return self.mem.write_range(address, data);
         }
 
-        let mut before = [0u8; 4];
-        let before_ok = self.mem.read_range(INOTIA1_MAIN_EXP_ADDR, 4, &mut before).is_ok();
+        let overlaps_exp = Self::inotia1_write_overlaps_exp(address, data.len() as u32);
+        let entity_slot = Self::inotia1_entity_reward_slot_for_write(address, data.len() as u32);
+        if !overlaps_exp && entity_slot.is_none() {
+            return self.mem.write_range(address, data);
+        }
+
+        let mut exp_before = [0u8; 4];
+        let exp_before_ok = overlaps_exp && self.mem.read_range(INOTIA1_MAIN_EXP_ADDR, 4, &mut exp_before).is_ok();
+        let mut entity_before = [0u8; 4];
+        let entity_before_ok = if let Some((_, field_addr)) = entity_slot {
+            self.mem.read_range(field_addr, 4, &mut entity_before).is_ok()
+        } else {
+            false
+        };
+
         self.mem.write_range(address, data)?;
-        let mut after = [0u8; 4];
-        if before_ok && self.mem.read_range(INOTIA1_MAIN_EXP_ADDR, 4, &mut after).is_ok() {
-            let old_exp = u32::from_le_bytes(before);
-            let new_exp = u32::from_le_bytes(after);
-            if old_exp != new_exp {
-                let write = Inotia1ExactExpWrite {
-                    store_addr: address,
-                    store_size_bytes: data.len() as u32,
-                    old_exp,
-                    new_exp,
-                    pc_before: self.cpu.reg_get(Mode::User, reg::PC),
-                };
-                self.trace_inotia1_exact_exp_write(write);
+
+        if exp_before_ok {
+            let mut after = [0u8; 4];
+            if self.mem.read_range(INOTIA1_MAIN_EXP_ADDR, 4, &mut after).is_ok() {
+                let old_exp = u32::from_le_bytes(exp_before);
+                let new_exp = u32::from_le_bytes(after);
+                if old_exp != new_exp {
+                    self.trace_inotia1_exact_exp_write(Inotia1ExactExpWrite {
+                        store_addr: address,
+                        store_size_bytes: data.len() as u32,
+                        old_exp,
+                        new_exp,
+                        pc_before: self.cpu.reg_get(Mode::User, reg::PC),
+                    });
+                }
+            }
+        }
+
+        if entity_before_ok {
+            if let Some((slot, field_addr)) = entity_slot {
+                let mut after = [0u8; 4];
+                if self.mem.read_range(field_addr, 4, &mut after).is_ok() {
+                    let old_value = u32::from_le_bytes(entity_before);
+                    let new_value = u32::from_le_bytes(after);
+                    if old_value != new_value {
+                        self.trace_inotia1_entity_reward_write(Inotia1EntityRewardWrite {
+                            slot,
+                            field_addr,
+                            store_addr: address,
+                            store_size_bytes: data.len() as u32,
+                            old_value,
+                            new_value,
+                            pc_before: self.cpu.reg_get(Mode::User, reg::PC),
+                        });
+                    }
+                }
             }
         }
         Ok(())
@@ -562,16 +758,32 @@ impl ArmEngine for Arm32CpuEngine {
         self.inotia1_exp_diag_seen.clear();
         self.inotia1_exp_diag_callsites.clear();
         self.inotia1_exact_exp_events = 0;
+        self.inotia1_entity_reward_events = 0;
+        self.inotia1_entity_reward_saturated = false;
         if enabled {
             let mut bytes = [0u8; 4];
             if self.mem.read_range(INOTIA1_MAIN_EXP_ADDR, 4, &mut bytes).is_ok() {
                 let value = u32::from_le_bytes(bytes);
                 tracing::info!(
-                    "[PHASE8_47_INOTIA1_EXP_BASELINE] addr={:#010x} value={} value_hex={:#010x}",
+                    "[PHASE8_48_INOTIA1_EXP_BASELINE] addr={:#010x} value={} value_hex={:#010x}",
                     INOTIA1_MAIN_EXP_ADDR,
                     value,
                     value
                 );
+            }
+            for slot in 1..INOTIA1_ENTITY_SLOT_COUNT {
+                let field_addr = INOTIA1_ENTITY_BASE_ADDR.wrapping_add(slot.wrapping_mul(INOTIA1_ENTITY_STRIDE));
+                let mut field = [0u8; 4];
+                if self.mem.read_range(field_addr, 4, &mut field).is_ok() {
+                    let raw = u32::from_le_bytes(field);
+                    if raw != 0 {
+                        let low16 = raw & 0xffff;
+                        tracing::info!(
+                            "[PHASE8_48_INOTIA1_ENTITY_REWARD_BASELINE] slot={} addr={:#010x} raw={:#010x}/{} low16={:#06x}/{}",
+                            slot, field_addr, raw, raw as i32, low16, low16 as u16 as i16
+                        );
+                    }
+                }
             }
         }
     }
@@ -699,6 +911,7 @@ struct Arm32CpuMemory<'a> {
     inotia1_exp_diag_enabled: bool,
     pc_before: u32,
     inotia1_exact_exp_write: Option<Inotia1ExactExpWrite>,
+    inotia1_entity_reward_write: Option<Inotia1EntityRewardWrite>,
     inotia1_exp_candidate: Option<Inotia1ExpCandidate>,
 }
 
@@ -710,6 +923,7 @@ impl<'a> Arm32CpuMemory<'a> {
             inotia1_exp_diag_enabled,
             pc_before,
             inotia1_exact_exp_write: None,
+            inotia1_entity_reward_write: None,
             inotia1_exp_candidate: None,
         }
     }
@@ -752,6 +966,55 @@ impl<'a> Arm32CpuMemory<'a> {
             new_exp,
             pc_before: self.pc_before,
         });
+    }
+
+    #[inline(always)]
+    fn inotia1_entity_reward_write(&self) -> Option<Inotia1EntityRewardWrite> {
+        self.inotia1_entity_reward_write
+    }
+
+    #[inline(always)]
+    fn read_inotia1_entity_reward_word(&mut self, field_addr: u32) -> Option<u32> {
+        let offset = (field_addr & PAGE_MASK) as usize;
+        let data = self.get_page(field_addr)?;
+        let raw = unsafe { core::ptr::read_unaligned(data.as_ptr().add(offset).cast::<u32>()) };
+        Some(u32::from_le(raw))
+    }
+
+    #[inline(always)]
+    fn capture_inotia1_entity_reward_write(
+        &mut self,
+        store_addr: u32,
+        store_size_bytes: u32,
+        old_value: Option<(u32, u32, u32)>,
+    ) {
+        if !self.inotia1_exp_diag_enabled || self.inotia1_entity_reward_write.is_some() {
+            return;
+        }
+        let Some((slot, field_addr, old_value)) = old_value else { return; };
+        let Some(new_value) = self.read_inotia1_entity_reward_word(field_addr) else { return; };
+        if old_value == new_value {
+            return;
+        }
+        self.inotia1_entity_reward_write = Some(Inotia1EntityRewardWrite {
+            slot,
+            field_addr,
+            store_addr,
+            store_size_bytes,
+            old_value,
+            new_value,
+            pc_before: self.pc_before,
+        });
+    }
+
+    #[inline(always)]
+    fn read_inotia1_entity_reward_before(&mut self, store_addr: u32, store_size_bytes: u32) -> Option<(u32, u32, u32)> {
+        if !self.inotia1_exp_diag_enabled {
+            return None;
+        }
+        let (slot, field_addr) = Arm32CpuEngine::inotia1_entity_reward_slot_for_write(store_addr, store_size_bytes)?;
+        let old_value = self.read_inotia1_entity_reward_word(field_addr)?;
+        Some((slot, field_addr, old_value))
     }
 
     #[inline(always)]
@@ -903,11 +1166,13 @@ impl Memory for Arm32CpuMemory<'_> {
         } else {
             None
         };
+        let entity_old = self.read_inotia1_entity_reward_before(addr, 1);
         let offset = (addr & PAGE_MASK) as usize;
         if let Some(data) = self.get_page(addr) {
             data[offset] = val;
         }
         self.capture_inotia1_exact_exp_write(addr, 1, exact_old);
+        self.capture_inotia1_entity_reward_write(addr, 1, entity_old);
     }
 
     #[inline(always)]
@@ -917,6 +1182,7 @@ impl Memory for Arm32CpuMemory<'_> {
         } else {
             None
         };
+        let entity_old = self.read_inotia1_entity_reward_before(addr, 2);
         let offset = (addr & PAGE_MASK) as usize;
         if offset <= PAGE_SIZE - 2 {
             if !self.inotia1_exp_diag_enabled {
@@ -937,6 +1203,7 @@ impl Memory for Arm32CpuMemory<'_> {
                 old
             };
             self.capture_inotia1_exact_exp_write(addr, 2, exact_old);
+            self.capture_inotia1_entity_reward_write(addr, 2, entity_old);
             self.consider_inotia1_exp_candidate(addr, old as u32, val as u32, 16);
             return;
         }
@@ -958,6 +1225,7 @@ impl Memory for Arm32CpuMemory<'_> {
         } else {
             None
         };
+        let entity_old = self.read_inotia1_entity_reward_before(addr, 4);
         let offset = (addr & PAGE_MASK) as usize;
         if offset <= PAGE_SIZE - 4 {
             if !self.inotia1_exp_diag_enabled {
@@ -978,6 +1246,7 @@ impl Memory for Arm32CpuMemory<'_> {
                 old
             };
             self.capture_inotia1_exact_exp_write(addr, 4, exact_old);
+            self.capture_inotia1_entity_reward_write(addr, 4, entity_old);
             self.consider_inotia1_exp_candidate(addr, old, val, 32);
             return;
         }

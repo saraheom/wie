@@ -1584,20 +1584,20 @@ const initPlayerChrome = () => {
 
   element("debug-arm-exp-trace").addEventListener("click", () => {
     if (!currentEmulator) {
-      errorFeedback("Start Inotia1 before arming the EXP trace.");
+      errorFeedback("Start Inotia1 before arming the EXP/spawn trace.");
       return;
     }
     const supported = currentEmulator.set_inotia1_exp_trace_armed(true);
     if (!supported) {
-      debugLog("EXP_TRACE", "manual arm rejected: current title is not supported Inotia1 KTF build");
-      errorFeedback("EXP trace is available only for the Inotia1 diagnostic build.");
+      debugLog("EXP_TRACE", "manual EXP/spawn arm rejected: current title is not supported Inotia1 KTF build");
+      errorFeedback("EXP/spawn trace is available only for the Inotia1 diagnostic build.");
       return;
     }
-    debugLog("EXP_TRACE", "PHASE8_47_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
+    debugLog("EXP_TRACE", "PHASE8_48_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
     const settingsPanel = element("settings-panel");
     settingsPanel.classList.remove("visible");
     settingsPanel.setAttribute("aria-hidden", "true");
-    successFeedback("Exact EXP trace armed and reset. Kill the test monsters now.");
+    successFeedback("EXP + spawn trace armed. Change maps or force the target monsters to spawn, then export the log.");
   });
 
   element("debug-view-log").addEventListener("click", openGlobalDiagnostics);
