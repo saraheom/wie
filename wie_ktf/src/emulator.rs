@@ -86,16 +86,16 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         let inotia1_exp_diag_available = aid == "010100D3" && pid == "PD005362";
         if inotia1_exp_diag_available {
-            // Phase 8.45: 8.44 proved the widened 16/32-bit watcher works, but
+            // Phase 8.46: 8.44 proved the widened 16/32-bit watcher works, but
             // startup initialization consumed all 480 events before gameplay.
             // Keep the watcher DISARMED until the player explicitly presses the
             // Arm/Reset EXP Trace button beside the in-game diagnostics tools.
             core.set_inotia1_exp_diagnostics(false);
             tracing::info!(
-                "[PHASE8_45_RUNTIME_SENTINEL] WIPI Player Phase 8.45 active; Inotia1 manual EXP-store/object diagnostic available (read-only)"
+                "[PHASE8_46_RUNTIME_SENTINEL] WIPI Player Phase 8.46 active; Inotia1 filtered manual EXP-store/object diagnostic available (read-only)"
             );
             tracing::info!(
-                "[PHASE8_45_INOTIA1_EXP_TRACE_AVAILABLE] watcher starts disarmed; press Arm/Reset EXP Trace immediately before combat to reset and begin 16/32-bit candidate capture"
+                "[PHASE8_46_INOTIA1_EXP_TRACE_AVAILABLE] watcher starts disarmed; press Arm/Reset EXP Trace immediately before combat to reset and begin 16/32-bit candidate capture"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -249,10 +249,10 @@ impl Emulator for KtfEmulator {
         self.core.set_inotia1_exp_diagnostics(armed);
         if armed {
             tracing::info!(
-                "[PHASE8_45_INOTIA1_EXP_TRACE_MANUALLY_ARMED] candidate counter/reset complete; 16/32-bit watcher active now; repeated address+callsite writes capped; event_limit=600"
+                "[PHASE8_46_INOTIA1_EXP_TRACE_MANUALLY_ARMED] candidate counter/reset complete; 16/32-bit watcher active now; known RGB565 writer suppressed; per-callsite and repeated-write caps active; event_limit=600"
             );
         } else {
-            tracing::info!("[PHASE8_45_INOTIA1_EXP_TRACE_DISARMED] watcher disabled");
+            tracing::info!("[PHASE8_46_INOTIA1_EXP_TRACE_DISARMED] watcher disabled");
         }
         true
     }

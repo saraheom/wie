@@ -395,27 +395,16 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.37 — complete, fixed-capacity offline catalog.
+// Phase 8.46 — fixed-capacity offline catalog with material resources.
 //
-// Field testing validates the original client's catalog table capacity as 12
-// records: Phase 8.28 corrupted adjacent character-name pointers only when
-// records 13/14 were written.  Keep every useful offline item needed for this
-// compatibility build on the first response and stop exactly at record 12.
-// This is not the old 18-record overflow.  Smaller bag variants and the normal
-// hero seal are omitted because the 16-slot bag and blessed seal supersede
-// them; the server-account-only resource exchange ticket is also omitted.
-//
-// The all-zero page state used by Phase 8.36 lets the catalog parse only after
-// the title first presents its error UI.  Use the previously field-proven
-// Phase 8.33 page-0 compatibility bytes [0,1] on this single physical catalog.
-// Every command-30 request still maps to this exact same 12-record frame, so no
-// additional page is required and no request can expose more than 12 records.
-//
-// Included: skill book, revive scroll, blessed revive scroll, chest key,
-// blessed hero seal, 16-slot bag, skill reset, beginner hero seal, black-knight
-// helmet, reggae style, lightning style, stealth mask.
-const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 227] = [
-    0x00, 0xe3, 0x1e, 0x01, 0x00, 0x01, 0x0c, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+// Preserve the first eight field-proven utility items from Phase 8.37, remove
+// the four cosmetic/equipment tail entries (흑기사의 투구, 레게 스타일,
+// 번개 스타일, 스텔스 가면), and expose two normal inventory material items
+// requested for offline play: 힘의 조각 and 마법의 가지. Both names are
+// recovered verbatim from the title's original EUC-KR work.bar item table.
+// This is a 10-record single page, comfortably below the native 12-record cap.
+const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 189] = [
+    0x00, 0xbd, 0x1e, 0x01, 0x00, 0x01, 0x0a, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -428,12 +417,9 @@ const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 227] = [
     0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8, 0xad, 0x01, 0x00, 0x00, 0x00,
     0x00, 0x12, 0xc3, 0xca, 0xba, 0xb8, 0xbf, 0xeb, 0x20, 0xbf, 0xeb, 0xbb,
     0xe7, 0xc0, 0xc7, 0x20, 0xc0, 0xce, 0xc0, 0xe5, 0x01, 0x00, 0x00, 0x00,
-    0x00, 0x0d, 0xc8, 0xe6, 0xb1, 0xe2, 0xbb, 0xe7, 0xc0, 0xc7, 0x20, 0xc5,
-    0xf5, 0xb1, 0xb8, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xb7, 0xb9, 0xb0,
-    0xd4, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0, 0xcf, 0x01, 0x00, 0x00, 0x00,
-    0x00, 0x0b, 0xb9, 0xf8, 0xb0, 0xb3, 0x20, 0xbd, 0xba, 0xc5, 0xb8, 0xc0,
-    0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5, 0xda, 0xbd,
-    0xba, 0x20, 0xb0, 0xa1, 0xb8, 0xe9, 0x01, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x09, 0xc8, 0xfb, 0xc0, 0xc7, 0x20, 0xc1, 0xb6, 0xb0, 0xa2, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x0b, 0xb8, 0xb6, 0xb9, 0xfd, 0xc0, 0xc7, 0x20,
+    0xb0, 0xa1, 0xc1, 0xf6, 0x01, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Phase 8.38 — party-wipe emergency prayer catalog.
@@ -441,9 +427,9 @@ const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 227] = [
 // Static recovery of the original title proves item id 0x219 (537) is
 // "부활의 기도문".  The party-wipe input state machine enters state 14 only
 // when the user selected the prayer-revival branch but does not own the item;
-// that state then launches the carrier cash shop.  Keep the normal Phase 8.37
-// 12-record catalog untouched, but while that exact death state is active,
-// expose only the missing prayer as a one-record emergency catalog.  The
+// that state then launches the carrier cash shop. Keep the current normal
+// single-page catalog separate, but while that exact death state is active,
+// expose only the missing prayer as a one-record emergency catalog. The
 // packet uses the same [0,1] compatibility metadata that field testing
 // validated for normal shop entry, and remains far below the 12-record native
 // table ceiling.
@@ -1152,15 +1138,15 @@ pub async fn socket_write(
         INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        // Phase 8.37 exposes one complete physical catalog at exactly the
-        // title's validated 12-record capacity. Any stale/nonzero page request
-        // receives the same frame, so page navigation cannot hide items or
-        // expand the catalog beyond the fixed table.
+        // Phase 8.46 exposes one 10-record physical catalog below the title's
+        // validated 12-record capacity. Any stale/nonzero page request receives
+        // the same frame, so page navigation cannot hide items or expand the
+        // catalog beyond the fixed table.
         trace_phase8_34_inotia1_page_globals(context, requested_page, "before-command30-single-page-response");
         queue_inotia1_cash_cmd30_page(0);
         queued_reason = Some("command30-complete-single-catalog");
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
-        let record_count = if emergency_prayer { 1 } else { 12 };
+        let record_count = if emergency_prayer { 1 } else { 10 };
         tracing::info!(
             "[PHASE8_40_INOTIA1_CASH_CATALOG] outbound command=30 len={len} requested_page={requested_page} emergency_prayer={emergency_prayer} -> compatibility_header=[0,1] records={record_count} capacity=12 overflow=none all price=0"
         );
@@ -1340,7 +1326,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
-        let record_count = if emergency_prayer { 1 } else { 12 };
+        let record_count = if emergency_prayer { 1 } else { 10 };
         tracing::info!(
             "[PHASE8_40_INOTIA1_FIRST_OPEN_CATALOG] command-4 finalize consumed -> emergency_prayer={emergency_prayer} compatibility_header=[0,1] records={record_count} capacity=12 overflow=none catalog immediately pending"
         );

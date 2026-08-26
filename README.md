@@ -1,3 +1,3 @@
-# Phase 8.45 note
+# Phase 8.46 note
 
-The current TestFlight workflow targets WIPI Player 0.1.45. Phase 8.45 preserves the Phase 8.42 gameplay baseline and replaces the startup-armed 8.44 EXP diagnostic with a manually armed/resettable Inotia1 trace. Load the save, move next to the target monster, then use Settings > Diagnostics > Arm/Reset EXP Trace immediately before combat. See `FULL_REPO_PHASE8_45_README.md`.
+The current TestFlight workflow targets WIPI Player 0.1.46. Phase 8.46 keeps the manually armed Inotia1 EXP diagnostic but filters the field-proven RGB565/pixel writer at guest PC `0x001069c2` and caps other callsites so the trace can survive until monster kills. The normal offline cash catalog is also revised to 10 records: the proven first eight utility items plus `힘의 조각` and `마법의 가지`, with the prior four equipment/cosmetic tail entries removed. See `FULL_REPO_PHASE8_46_README.md`.

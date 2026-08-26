@@ -1,0 +1,7 @@
+WIPI Player Phase 8.46
+TestFlight version: 0.1.46
+Runtime marker: PHASE8_46_RUNTIME_SENTINEL
+Diagnostic availability marker: PHASE8_46_INOTIA1_EXP_TRACE_AVAILABLE
+Manual arm marker: PHASE8_46_INOTIA1_EXP_TRACE_MANUALLY_ARMED
+EXP noise filter: 16-bit PC 0x001069c2 suppressed; per-callsite+width cap 24; exact address+callsite+width cap 4
+Cash catalog: 10 records; first 8 utility items + 힘의 조각 + 마법의 가지; four Phase 8.37 equipment/cosmetic tail entries removed
