@@ -1,4 +1,4 @@
-name: iOS TestFlight — Phase 8.43
+name: iOS TestFlight — Phase 8.44
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.43 WIE WebAssembly core
+      - name: Force clean Phase 8.44 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -114,8 +114,8 @@ jobs:
           grep -n 'PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_36_INOTIA1_PARTY_WIPE_INPUT_PROBE' wie_ktf/src/emulator.rs; then echo 'Phase 8.36 per-keydown party-wipe probe is still present' >&2; exit 1; fi
           grep -n '0x00, 0xe3, 0x1e, 0x01, 0x00, 0x01, 0x0c' wie_wipi_c/src/api/net.rs
-          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.43' >&2; exit 1; fi
-          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.43' >&2; exit 1; fi
+          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.44' >&2; exit 1; fi
+          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.44' >&2; exit 1; fi
           grep -n 'PHASE8_40_INOTIA1_CASH_EXIT_CLEANUP' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD123_CLEANUP_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_34_INOTIA1_PAGE_GLOBALS' wie_wipi_c/src/api/net.rs
@@ -146,11 +146,16 @@ jobs:
           grep -n 'state == 14' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x25c, 11)' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x5f8, 0)' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_43_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_43_INOTIA1_EXP_TRACE_ARMED' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_44_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_44_INOTIA1_EXP_TRACE_ARMED' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_diagnostics(true)' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_43_INOTIA1_EXP_CANDIDATE' wie_core_arm/src/engine/arm32_cpu.rs
-          grep -n 'PHASE8_43_INOTIA1_OBJECT_HEAD' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'PHASE8_44_INOTIA1_EXP_CANDIDATE' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'PHASE8_44_INOTIA1_OBJECT_HEAD' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 480' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'consider_inotia1_exp_candidate(addr, old as u32, val as u32, 16)' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'consider_inotia1_exp_candidate(addr, old, val, 32)' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'width={}' wie_core_arm/src/engine/arm32_cpu.rs
+          if grep -q 'MIN_SIGNAL_VALUE' wie_core_arm/src/engine/arm32_cpu.rs; then echo 'Obsolete Phase 8.43 >=4096 EXP floor is still present' >&2; exit 1; fi
           grep -n 'Phase 8.42: only save-slot reads retain INFO diagnostics' wie_wipi_c/src/api/database.rs
           grep -n '\[INOTIA1_SAVE_READ\]' wie_wipi_c/src/api/database.rs
           grep -n '\[INOTIA1_SAVE_COMMIT\]' wie_wipi_c/src/api/database.rs
@@ -165,10 +170,10 @@ jobs:
           grep -n 'kind = "inotia1_revival_base_repair"' data/binary_patches.toml
           grep -n 'pc = 0x00131cb3' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.43"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.43' PHASE8_43_BUILD_ID.txt
+          grep -n '"version": "0.1.44"' wie_app/tauri.conf.json
+          grep -n 'WIPI Player Phase 8.44' PHASE8_44_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
-            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.43' >&2
+            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.44' >&2
             exit 1
           fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
@@ -219,7 +224,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.43 core source was selected
+      - name: Verify Phase 8.44 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -277,8 +282,8 @@ jobs:
           grep -n 'PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_36_INOTIA1_PARTY_WIPE_INPUT_PROBE' wie_ktf/src/emulator.rs; then echo 'Phase 8.36 per-keydown party-wipe probe is still present' >&2; exit 1; fi
           grep -n '0x00, 0xe3, 0x1e, 0x01, 0x00, 0x01, 0x0c' wie_wipi_c/src/api/net.rs
-          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.43' >&2; exit 1; fi
-          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.43' >&2; exit 1; fi
+          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.44' >&2; exit 1; fi
+          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.44' >&2; exit 1; fi
           grep -n 'PHASE8_40_INOTIA1_CASH_EXIT_CLEANUP' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD123_CLEANUP_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_34_INOTIA1_PAGE_GLOBALS' wie_wipi_c/src/api/net.rs
@@ -309,11 +314,16 @@ jobs:
           grep -n 'state == 14' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x25c, 11)' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x5f8, 0)' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_43_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_43_INOTIA1_EXP_TRACE_ARMED' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_44_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_44_INOTIA1_EXP_TRACE_ARMED' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_diagnostics(true)' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_43_INOTIA1_EXP_CANDIDATE' wie_core_arm/src/engine/arm32_cpu.rs
-          grep -n 'PHASE8_43_INOTIA1_OBJECT_HEAD' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'PHASE8_44_INOTIA1_EXP_CANDIDATE' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'PHASE8_44_INOTIA1_OBJECT_HEAD' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 480' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'consider_inotia1_exp_candidate(addr, old as u32, val as u32, 16)' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'consider_inotia1_exp_candidate(addr, old, val, 32)' wie_core_arm/src/engine/arm32_cpu.rs
+          grep -n 'width={}' wie_core_arm/src/engine/arm32_cpu.rs
+          if grep -q 'MIN_SIGNAL_VALUE' wie_core_arm/src/engine/arm32_cpu.rs; then echo 'Obsolete Phase 8.43 >=4096 EXP floor is still present' >&2; exit 1; fi
           grep -n 'Phase 8.42: only save-slot reads retain INFO diagnostics' wie_wipi_c/src/api/database.rs
           grep -n '\[INOTIA1_SAVE_READ\]' wie_wipi_c/src/api/database.rs
           grep -n '\[INOTIA1_SAVE_COMMIT\]' wie_wipi_c/src/api/database.rs
@@ -328,10 +338,10 @@ jobs:
           grep -n 'kind = "inotia1_revival_base_repair"' data/binary_patches.toml
           grep -n 'pc = 0x00131cb3' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.43"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.43' PHASE8_43_BUILD_ID.txt
+          grep -n '"version": "0.1.44"' wie_app/tauri.conf.json
+          grep -n 'WIPI Player Phase 8.44' PHASE8_44_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
-            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.43' >&2
+            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.44' >&2
             exit 1
           fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
@@ -386,18 +396,18 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.43 clean WASM build completed.'
+          echo 'Phase 8.44 clean WASM build completed.'
 
 
-      - name: Verify Phase 8.43 web runtime and build marker
-        id: phase843_web
+      - name: Verify Phase 8.44 web runtime and build marker
+        id: phase844_web
         shell: bash
         run: |
           set -euo pipefail
 
           RAW_WASM="wie_web/pkg/wie_web_bg.wasm"
           test -f "$RAW_WASM"
-          grep -a -q 'PHASE8_43_RUNTIME_SENTINEL' "$RAW_WASM"
+          grep -a -q 'PHASE8_44_RUNTIME_SENTINEL' "$RAW_WASM"
 
           BUNDLED_WASM="$(find wie_web/dist -type f -name '*.wasm' -print -quit)"
           if [[ -z "$BUNDLED_WASM" ]]; then
@@ -405,24 +415,24 @@ jobs:
             find wie_web/dist -maxdepth 3 -type f -print || true
             exit 1
           fi
-          if ! grep -a -q 'PHASE8_43_RUNTIME_SENTINEL' "$BUNDLED_WASM"; then
-            echo "::error::Webpack-emitted WebAssembly is missing the Phase 8.43 runtime sentinel: $BUNDLED_WASM"
+          if ! grep -a -q 'PHASE8_44_RUNTIME_SENTINEL' "$BUNDLED_WASM"; then
+            echo "::error::Webpack-emitted WebAssembly is missing the Phase 8.44 runtime sentinel: $BUNDLED_WASM"
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_43_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_44_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.43 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.44 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_43_BUILD_SENTINEL=WIPI_PLAYER_0.1.43_INOTIA1_EXP_MONSTER_DIAGNOSTICS' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_44_BUILD_SENTINEL=WIPI_PLAYER_0.1.44_INOTIA1_EXP_STORE_DIAGNOSTICS' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.43 runtime in wasm-pack/webpack output and the copied frontend build marker.'
+          echo 'Verified Phase 8.44 runtime in wasm-pack/webpack output and the copied frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
@@ -595,12 +605,12 @@ jobs:
           echo "IPA: $ipa_path"
           shasum -a 256 "dist/WIPI-Player-iOS-TestFlight.ipa"
 
-      - name: Verify Phase 8.43 package identity inside final IPA
+      - name: Verify Phase 8.44 package identity inside final IPA
         shell: bash
         run: |
           set -euo pipefail
 
-          VERIFY_DIR="$RUNNER_TEMP/phase843-ipa"
+          VERIFY_DIR="$RUNNER_TEMP/phase844-ipa"
           rm -rf "$VERIFY_DIR"
           mkdir -p "$VERIFY_DIR"
           unzip -q "dist/WIPI-Player-iOS-TestFlight.ipa" -d "$VERIFY_DIR"
@@ -618,12 +628,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.43" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.43."
+          if [[ "$APP_VERSION" != "0.1.44" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.44."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.43.85), rather than the bare numeric build number.
+          # (for example 0.1.44.85), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
@@ -636,12 +646,12 @@ jobs:
           fi
 
           echo "Verified final IPA identity: bundle=$APP_BUNDLE_ID version=$APP_VERSION build=$APP_BUILD"
-          echo 'Phase 8.43 runtime was already verified in the clean raw and webpack-emitted WASM before the fresh Tauri iOS build.'
+          echo 'Phase 8.44 runtime was already verified in the clean raw and webpack-emitted WASM before the fresh Tauri iOS build.'
 
       - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v7
         with:
-          name: WIPI-Player-Phase8.43-iOS-TestFlight
+          name: WIPI-Player-Phase8.44-iOS-TestFlight
           path: dist/WIPI-Player-iOS-TestFlight.ipa
           if-no-files-found: error
           retention-days: 14

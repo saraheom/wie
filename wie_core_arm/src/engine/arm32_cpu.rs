@@ -6,13 +6,14 @@ use wie_util::{Result, WieError};
 
 use crate::engine::{ArmEngine, ArmRegister, EngineRunResult, MemoryPermission};
 
-const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 320;
+const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 480;
 
 #[derive(Clone, Copy)]
 struct Inotia1ExpCandidate {
     addr: u32,
     old: u32,
     new: u32,
+    width_bits: u8,
     pc_before: u32,
 }
 
@@ -40,7 +41,7 @@ impl Arm32CpuEngine {
             if !self.inotia1_exp_diag_saturated {
                 self.inotia1_exp_diag_saturated = true;
                 tracing::info!(
-                    "[PHASE8_43_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
+                    "[PHASE8_44_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
                     INOTIA1_EXP_DIAG_EVENT_LIMIT
                 );
             }
@@ -85,7 +86,8 @@ impl Arm32CpuEngine {
         let code_ok = self.mem.read_range(code_base, code.len(), &mut code).is_ok();
 
         tracing::info!(
-            "[PHASE8_43_INOTIA1_EXP_CANDIDATE] event={event} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            "[PHASE8_44_INOTIA1_EXP_CANDIDATE] event={event} width={} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            candidate.width_bits,
             candidate.addr,
             candidate.old,
             candidate.new,
@@ -113,13 +115,13 @@ impl Arm32CpuEngine {
 
         if around_ok {
             tracing::info!(
-                "[PHASE8_43_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                "[PHASE8_44_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                 around[0], around[1], around[2], around[3], around[4], around[5], around[6], around[7], around[8], around[9], around[10], around[11]
             );
         }
         if code_ok {
             tracing::info!(
-                "[PHASE8_43_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+                "[PHASE8_44_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
             );
         }
 
@@ -146,7 +148,7 @@ impl Arm32CpuEngine {
             }
             if ok {
                 tracing::info!(
-                    "[PHASE8_43_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                    "[PHASE8_44_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                     words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7], words[8], words[9], words[10], words[11]
                 );
                 emitted += 1;
@@ -157,7 +159,7 @@ impl Arm32CpuEngine {
     #[inline(always)]
     fn is_inotia1_diag_data_address(addr: u32) -> bool {
         // Include the native image/BSS/runtime-data window used by the KTF title
-        // plus WIE's global allocator. Unmapped addresses are never observed by w32.
+        // plus WIE's global allocator. Unmapped addresses are never observed by the instrumented stores.
         (0x0010_0000..0x0100_0000).contains(&addr) || (0x4000_0000..0x5000_0000).contains(&addr)
     }
 
@@ -449,7 +451,7 @@ impl<'a> Arm32CpuMemory<'a> {
     }
 
     #[inline(always)]
-    fn consider_inotia1_exp_candidate(&mut self, addr: u32, old: u32, new: u32) {
+    fn consider_inotia1_exp_candidate(&mut self, addr: u32, old: u32, new: u32, width_bits: u8) {
         if !self.inotia1_exp_diag_enabled || self.inotia1_exp_candidate.is_some() || old == new {
             return;
         }
@@ -457,32 +459,69 @@ impl<'a> Arm32CpuMemory<'a> {
             return;
         }
         // Inotia1's client.bin executes in the low 0x001xxxxx image window.
-        // Reject native/runtime helper writes so the candidate budget is spent
-        // on game-code stores around combat/reward processing.
+        // Reject runtime/helper writes so the event budget stays focused on
+        // native game-code stores.
         if !(0x0010_0000..0x0020_0000).contains(&self.pc_before) {
             return;
         }
 
-        // Broad enough for level-appropriate cumulative/current EXP, but narrow
-        // enough to exclude pointers, colors and most rendering coordinates.
-        // We intentionally keep both positive and negative changes: a normal
-        // kill provides the control path while the reported bad monsters should
-        // expose the opposite-sign path at the same address/callsite.
-        const MAX_VALUE: u32 = 50_000_000;
-        const MIN_SIGNAL_VALUE: u32 = 4_096;
-        const MAX_ABS_DELTA: u32 = 250_000;
-        if old > MAX_VALUE || new > MAX_VALUE || old < MIN_SIGNAL_VALUE || new < MIN_SIGNAL_VALUE {
+        // Phase 8.44 widens the 8.43 probe to both STRH (16-bit) and STR
+        // (32-bit) stores and intentionally removes the old >=4096 signal
+        // floor. The first field log proved that floor/width combination could
+        // miss the real EXP update entirely. Keep startup/render noise bounded
+        // with structural filters instead of assuming EXP must be large.
+        if old == 0 || new == 0 {
             return;
         }
         let delta = old.abs_diff(new);
-        if delta == 0 || delta > MAX_ABS_DELTA {
+        if delta <= 1 {
             return;
+        }
+
+        // Ignore tiny state/animation counters while retaining observed EXP
+        // changes such as ~150 and negative changes of similar magnitude.
+        if old <= 31 && new <= 31 {
+            return;
+        }
+
+        // The field log shows the guest stack around 0x400ffxxx. Stack-local
+        // temporaries change too frequently to be useful as persistent EXP.
+        if (0x400f_0000..0x4010_0000).contains(&addr) {
+            return;
+        }
+
+        match width_bits {
+            16 => {
+                if delta > 30_000 {
+                    return;
+                }
+            }
+            32 => {
+                const MAX_VALUE: u32 = 50_000_000;
+                const MAX_ABS_DELTA: u32 = 250_000;
+                if old > MAX_VALUE || new > MAX_VALUE || delta > MAX_ABS_DELTA {
+                    return;
+                }
+
+                // Pointer-to-pointer bookkeeping can look like a numeric delta
+                // in the 32-bit watcher. Skip it when both values are aligned
+                // plausible guest pointers; actual EXP values remain eligible.
+                if old & 3 == 0
+                    && new & 3 == 0
+                    && Arm32CpuEngine::is_inotia1_diag_data_address(old)
+                    && Arm32CpuEngine::is_inotia1_diag_data_address(new)
+                {
+                    return;
+                }
+            }
+            _ => return,
         }
 
         self.inotia1_exp_candidate = Some(Inotia1ExpCandidate {
             addr,
             old,
             new,
+            width_bits,
             pc_before: self.pc_before,
         });
     }
@@ -560,15 +599,35 @@ impl Memory for Arm32CpuMemory<'_> {
     fn w16(&mut self, addr: u32, val: u16) {
         let offset = (addr & PAGE_MASK) as usize;
         if offset <= PAGE_SIZE - 2 {
-            let Some(data) = self.get_page(addr) else { return; };
-            unsafe {
-                core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u16>(), val.to_le());
+            if !self.inotia1_exp_diag_enabled {
+                let Some(data) = self.get_page(addr) else { return; };
+                unsafe {
+                    core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u16>(), val.to_le());
+                }
+                return;
             }
+
+            let old = {
+                let Some(data) = self.get_page(addr) else { return; };
+                let raw = unsafe { core::ptr::read_unaligned(data.as_ptr().add(offset).cast::<u16>()) };
+                let old = u16::from_le(raw);
+                unsafe {
+                    core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u16>(), val.to_le());
+                }
+                old
+            };
+            self.consider_inotia1_exp_candidate(addr, old as u32, val as u32, 16);
             return;
         }
 
+        // Rare page-crossing halfword store. Capture the old value before the
+        // byte-wise fallback so the widened diagnostic still sees STRH here.
+        let old = if self.inotia1_exp_diag_enabled { Some(self.r16(addr)) } else { None };
         self.w8(addr, val as u8);
         self.w8(addr.wrapping_add(1), (val >> 8) as u8);
+        if let Some(old) = old {
+            self.consider_inotia1_exp_candidate(addr, old as u32, val as u32, 16);
+        }
     }
 
     #[inline(always)]
@@ -592,14 +651,20 @@ impl Memory for Arm32CpuMemory<'_> {
                 }
                 old
             };
-            self.consider_inotia1_exp_candidate(addr, old, val);
+            self.consider_inotia1_exp_candidate(addr, old, val, 32);
             return;
         }
 
+        // Rare page-crossing word store; preserve visibility in the diagnostic
+        // instead of silently falling through to four uninstrumented byte writes.
+        let old = if self.inotia1_exp_diag_enabled { Some(self.r32(addr)) } else { None };
         self.w8(addr, val as u8);
         self.w8(addr.wrapping_add(1), (val >> 8) as u8);
         self.w8(addr.wrapping_add(2), (val >> 16) as u8);
         self.w8(addr.wrapping_add(3), (val >> 24) as u8);
+        if let Some(old) = old {
+            self.consider_inotia1_exp_candidate(addr, old, val, 32);
+        }
     }
 }
 

@@ -84,16 +84,15 @@ impl KtfEmulator {
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
-            // Phase 8.43: short-lived diagnostic build for the reported EXP
-            // decrease after specific monster kills.  Observe plausible guest
-            // stat writes only for this exact title; no guest values are
-            // modified by the probe.
+            // Phase 8.44: widened read-only diagnostic after the first 8.43 field
+            // test produced no EXP candidates. Observe both 16-bit and 32-bit
+            // guest stat stores for this exact title; no guest value is modified.
             core.set_inotia1_exp_diagnostics(true);
             tracing::info!(
-                "[PHASE8_43_RUNTIME_SENTINEL] WIPI Player Phase 8.43 active; based on Phase 8.42; Inotia1 EXP-candidate/object diagnostic enabled (read-only)"
+                "[PHASE8_44_RUNTIME_SENTINEL] WIPI Player Phase 8.44 active; widened Inotia1 16/32-bit EXP-store/object diagnostic enabled (read-only)"
             );
             tracing::info!(
-                "[PHASE8_43_INOTIA1_EXP_TRACE_ARMED] 32-bit candidate watcher active; captures +/- stat changes, native callsite, surrounding words, and up to four live object heads; event_limit=320"
+                "[PHASE8_44_INOTIA1_EXP_TRACE_ARMED] 16/32-bit candidate watcher active; old >=4096 floor removed; captures width, +/- stat changes, native callsite, surrounding words, and up to four live object heads; event_limit=480"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {

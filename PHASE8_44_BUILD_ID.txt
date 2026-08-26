@@ -1,0 +1,6 @@
+WIPI Player Phase 8.44
+TestFlight version: 0.1.44
+Runtime marker: PHASE8_44_RUNTIME_SENTINEL
+Diagnostic marker: PHASE8_44_INOTIA1_EXP_TRACE_ARMED
+Candidate widths: 16-bit + 32-bit
+Base gameplay behavior: Phase 8.42
