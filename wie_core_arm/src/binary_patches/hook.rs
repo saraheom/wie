@@ -44,6 +44,18 @@ pub enum HookKind {
     /// This hook emulates the replaced LDR and copies R8 into R4 before
     /// continuing to the untouched BL instruction.
     Inotia1RevivalBaseRepair,
+    /// Phase 8.41 — one-shot, exact Inotia1 Continue-position rescue.
+    ///
+    /// Field logs for the damaged 2026-08-26 save prove the Continue loader
+    /// reaches 0x0011d008 with packed position X=21/Y=27 while the active map
+    /// is 16x18. The following pathfinder search then degenerates into the
+    /// repeated 0x0013adcc native loop. This hook replaces only the 16-bit
+    /// `ADDS R0,R5,#0` immediately before the call, emulates it, and—only for
+    /// that exact out-of-bounds tuple on that exact map—clamps the runtime
+    /// position to X=15/Y=17. It also repairs the matching live character
+    /// fields and packed coordinate global when those exact values are still
+    /// present, allowing the game's own later save path to persist recovery.
+    Inotia1ContinuePositionRescue,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -96,6 +108,7 @@ pub enum PatternHookKind {
         count_offset: i32,
     },
     Inotia1RevivalBaseRepair,
+    Inotia1ContinuePositionRescue,
 }
 
 /// Expand static + pattern hooks into a single `Vec<Hook>` whose PCs are final
@@ -182,6 +195,7 @@ pub fn resolve_hooks(core: &mut ArmCore, entry: &Entry, scan_ranges: &[(u32, u32
                     })
                 }
                 PatternHookKind::Inotia1RevivalBaseRepair => HookKind::Inotia1RevivalBaseRepair,
+                PatternHookKind::Inotia1ContinuePositionRescue => HookKind::Inotia1ContinuePositionRescue,
             };
             let pc = match_addr | 1;
             if installed.iter().any(|h| h.pc == pc) {
@@ -581,6 +595,121 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
             );
 
             // The replaced Thumb instruction is exactly two bytes long.
+            Ok(JumpTo(((hook_pc & !1).wrapping_add(2)) | 1))
+        }
+        HookKind::Inotia1ContinuePositionRescue => {
+            // Replaces guest 0x0011d008: `ADDS R0, R5, #0`. Always emulate
+            // that instruction first. The following instructions set R3=10
+            // and R2=0 before BL 0x0013ad04, so R5/R1 are the X/Y arguments.
+            let (r5, old_y, r10) = {
+                let inner = core.inner.lock();
+                (
+                    inner.engine.reg_read(ArmRegister::R5),
+                    inner.engine.reg_read(ArmRegister::R1),
+                    inner.engine.reg_read(ArmRegister::SL),
+                )
+            };
+            core.inner.lock().engine.reg_write(ArmRegister::R0, r5);
+
+            const BAD_X: u32 = 21;
+            const BAD_Y: u32 = 27;
+            const EXPECTED_WIDTH: u32 = 16;
+            const EXPECTED_HEIGHT: u32 = 18;
+            const GOT_COORD_PTR: u32 = 0x55c;
+            const GOT_CHAR_BASE: u32 = 0x264;
+            const GOT_SELECTED_INDEX_PTR: u32 = 0x280;
+            const GOT_MAP_WIDTH_PTR: u32 = 0x690;
+            const GOT_MAP_HEIGHT_PTR: u32 = 0x6cc;
+            const CHAR_STRIDE: u32 = 0x424;
+            const CHAR_X_OFFSET: u32 = 0x23c;
+            const CHAR_Y_OFFSET: u32 = 0x240;
+
+            let mut applied = false;
+            let mut packed_repaired = false;
+            let mut char_repaired = false;
+            let mut width = None;
+            let mut height = None;
+            let mut packed_before = None;
+            let mut selected_index = None;
+            let mut char_x = None;
+            let mut char_y = None;
+
+            // Fail closed on every pointer/global validation. The only
+            // unconditional behavior is the emulated original ADDS above.
+            if r5 == BAD_X && old_y == BAD_Y {
+                let map_dims = (|| -> Result<(u32, u32)> {
+                    let width_ptr: u32 = read_generic(core, r10.wrapping_add(GOT_MAP_WIDTH_PTR))?;
+                    let height_ptr: u32 = read_generic(core, r10.wrapping_add(GOT_MAP_HEIGHT_PTR))?;
+                    let w: u32 = read_generic(core, width_ptr)?;
+                    let h: u32 = read_generic(core, height_ptr)?;
+                    Ok((w, h))
+                })();
+
+                if let Ok((w, h)) = map_dims {
+                    width = Some(w);
+                    height = Some(h);
+                    if w == EXPECTED_WIDTH && h == EXPECTED_HEIGHT {
+                        let rescue_x = w - 1;
+                        let rescue_y = h - 1;
+
+                        // Repair the packed 12-bit coordinate word when it
+                        // still exactly represents the bad tuple.
+                        if let Ok(coord_ptr) = read_generic::<u32, _>(core, r10.wrapping_add(GOT_COORD_PTR)) {
+                            if let Ok(packed) = read_generic::<u32, _>(core, coord_ptr) {
+                                packed_before = Some(packed);
+                                let px = (packed >> 6) & 0x3f;
+                                let py = packed & 0x3f;
+                                if px == BAD_X && py == BAD_Y {
+                                    let repaired = (packed & !0x0fff) | ((rescue_x & 0x3f) << 6) | (rescue_y & 0x3f);
+                                    if core.write_bytes(coord_ptr, &repaired.to_le_bytes()).is_ok() {
+                                        packed_repaired = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Repair the selected character's live position only
+                        // when both fields exactly match the damaged tuple.
+                        if let (Ok(char_base), Ok(index_ptr)) = (
+                            read_generic::<u32, _>(core, r10.wrapping_add(GOT_CHAR_BASE)),
+                            read_generic::<u32, _>(core, r10.wrapping_add(GOT_SELECTED_INDEX_PTR)),
+                        ) {
+                            if let Ok(index) = read_generic::<u32, _>(core, index_ptr) {
+                                selected_index = Some(index);
+                                if index < 16 {
+                                    let char_ptr = char_base.wrapping_add(index.wrapping_mul(CHAR_STRIDE));
+                                    let cx = read_generic::<u32, _>(core, char_ptr.wrapping_add(CHAR_X_OFFSET));
+                                    let cy = read_generic::<u32, _>(core, char_ptr.wrapping_add(CHAR_Y_OFFSET));
+                                    if let (Ok(cx), Ok(cy)) = (cx, cy) {
+                                        char_x = Some(cx);
+                                        char_y = Some(cy);
+                                        if cx == BAD_X && cy == BAD_Y {
+                                            let wx = core.write_bytes(char_ptr.wrapping_add(CHAR_X_OFFSET), &rescue_x.to_le_bytes());
+                                            let wy = core.write_bytes(char_ptr.wrapping_add(CHAR_Y_OFFSET), &rescue_y.to_le_bytes());
+                                            char_repaired = wx.is_ok() && wy.is_ok();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Most importantly, repair the arguments to the exact
+                        // pathfinder call that is hanging during Continue.
+                        {
+                            let mut inner = core.inner.lock();
+                            inner.engine.reg_write(ArmRegister::R0, rescue_x);
+                            inner.engine.reg_write(ArmRegister::R1, rescue_y);
+                        }
+                        applied = true;
+                    }
+                }
+            }
+
+            tracing::info!(
+                "[PHASE8_41_INOTIA1_CONTINUE_POSITION_RESCUE] hook={hook_pc:#010x} lr={lr:#010x} r10={r10:#010x} input=({r5},{old_y}) width={width:?} height={height:?} packed_before={packed_before:?} selected_index={selected_index:?} char_before=({char_x:?},{char_y:?}) applied={applied} packed_repaired={packed_repaired} char_repaired={char_repaired}"
+            );
+
+            // Continue at guest 0x0011d00a (MOVS R3,#10).
             Ok(JumpTo(((hook_pc & !1).wrapping_add(2)) | 1))
         }
     }

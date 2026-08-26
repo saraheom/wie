@@ -1,0 +1,7 @@
+WIPI Player Phase 8.41
+TestFlight version: 0.1.41
+Runtime marker: PHASE8_41_RUNTIME_SENTINEL
+Recovery marker: PHASE8_41_INOTIA1_CONTINUE_POSITION_RESCUE
+Baseline: Phase 8.37 normal gameplay/performance/catalog + Phase 8.40 prayer handoff/revival context fixes
+Purpose: exact recovery of the field-observed Inotia1 Continue X=21/Y=27 on a 16x18 map; clamp to X=15/Y=17 and repair matching live state.
+Inotia2 runtime paths unchanged.
