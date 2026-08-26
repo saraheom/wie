@@ -64,14 +64,6 @@ hash = "0d7726becf7260f4f0051779bacfdbf1"
 kind = "inotia1_revival_base_repair"
 pc = 0x00131cb3
 
-# Phase 8.41 — exact Continue loader rescue for the damaged save observed in
-# field logs. 0x0011d008 is `ADDS R0,R5,#0` immediately before the
-# 0x0013ad04 local-position search. The dispatcher emulates the instruction and
-# only clamps the exact X=21/Y=27 + 16x18-map tuple to X=15/Y=17.
-[[entry.hook]]
-kind = "inotia1_continue_position_rescue"
-pc = 0x0011d009
-
 # Hash-keyed entries take precedence over the generic fallback, so retain the
 # same compiler-library/performance hooks that the validated Phase 8.37
 # Inotia1 baseline receives from the generic entry.

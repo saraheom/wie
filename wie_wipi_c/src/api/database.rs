@@ -278,7 +278,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
 
     let system = context.system();
     if pid == "PD005362" {
-        tracing::info!("[PHASE7_21] Inotia1 KTF record-length seek-return fix active");
+        tracing::debug!("[PHASE7_21] Inotia1 KTF record-length seek-return fix active");
     }
 
     if pid == "PD007974" {
@@ -327,7 +327,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
             let old_len = db.get(1).await.map(|x| x.len()).unwrap_or(0);
 
             if pid == "PD005362" {
-                tracing::info!(
+                tracing::debug!(
                     "[INOTIA1_SAVE] OPEN db={name} mode=CREATE existing={old_len} -> truncate"
                 );
             }
@@ -348,7 +348,7 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
             Vec::new()
         } else if let Some(data) = db.get(1).await {
             if pid == "PD005362" {
-                tracing::info!(
+                tracing::debug!(
                     "[INOTIA1_SAVE] OPEN db={name} mode={mode} existing={} -> preserve",
                     data.len()
                 );
@@ -1042,7 +1042,7 @@ pub async fn seek_record_single(context: &mut dyn WIPICContext, db_id: i32, offs
     };
     let position = (base + offset as i64).clamp(0, handle.buffer_len as i64) as u32;
     if context.system().pid() == "PD005362" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA1_SAVE] SEEK db={} offset={offset} origin={origin} old_read={} old_write={} -> {position} len={}",
             handle_name(&handle),
             handle.read_cursor,
@@ -1171,10 +1171,17 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     };
 
     if pid == "PD005362" {
-        tracing::info!(
-            "[INOTIA1_SAVE] WRITE begin db={db_name} offset={} len={buf_len} old_len={old_len}",
-            handle.write_cursor
-        );
+        if db_name.starts_with("save") {
+            tracing::info!(
+                "[INOTIA1_SAVE_COMMIT] WRITE begin db={db_name} offset={} len={buf_len} old_len={old_len}",
+                handle.write_cursor
+            );
+        } else {
+            tracing::debug!(
+                "[INOTIA1_SAVE] WRITE begin db={db_name} offset={} len={buf_len} old_len={old_len}",
+                handle.write_cursor
+            );
+        }
     }
     if pid == "PD007974" {
         let mut head = vec![0u8; (buf_len as usize).min(16)];
@@ -1301,23 +1308,22 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
 
     if pid == "PD005362" {
-        let head_end = snapshot.len().min(16);
-        let tail_start = snapshot.len().saturating_sub(16);
-        let head = &snapshot[..head_end];
-        let tail = &snapshot[tail_start..];
-        let fp = inotia_fingerprint(&snapshot);
-        let first320_len = snapshot.len().min(320);
-        let first320_fp = inotia_fingerprint(&snapshot[..first320_len]);
-        let extra = if snapshot.len() > 320 { &snapshot[320..] } else { &snapshot[0..0] };
-        tracing::info!(
-            "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={} fnv64={fp:016x} first320_len={first320_len} first320_fnv64={first320_fp:016x} extra_len={} extra={:02x?} head={:02x?} tail={:02x?}",
-            snapshot.len(),
-            handle.write_cursor,
-            extra.len(),
-            extra,
-            head,
-            tail
-        );
+        if db_name.starts_with("save") {
+            let fp = inotia_fingerprint(&snapshot);
+            let first320_len = snapshot.len().min(320);
+            let first320_fp = inotia_fingerprint(&snapshot[..first320_len]);
+            tracing::info!(
+                "[INOTIA1_SAVE_COMMIT] WRITE commit db={db_name} final_len={} cursor={} fnv64={fp:016x} first320_len={first320_len} first320_fnv64={first320_fp:016x}",
+                snapshot.len(),
+                handle.write_cursor
+            );
+        } else {
+            tracing::debug!(
+                "[INOTIA1_SAVE] WRITE commit db={db_name} final_len={} cursor={}",
+                snapshot.len(),
+                handle.write_cursor
+            );
+        }
     }
 
     Ok(buf_len as _)
@@ -1335,7 +1341,7 @@ pub async fn delete_record(context: &mut dyn WIPICContext, db_id: i32, rec_id: i
         return Ok(-25);
     };
     if context.system().pid() == "PD005362" {
-        tracing::info!(
+        tracing::debug!(
             "[INOTIA1_SAVE] DELETE_RECORD db={} rec_id={rec_id}",
             handle_name(&handle)
         );
@@ -1503,16 +1509,15 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     handle.read_cursor += take;
     write_generic(context, db_id as _, handle)?;
 
-    if context.system().pid() == "PD005362" {
+    if context.system().pid() == "PD005362" && handle_name(&handle).starts_with("save") {
+        // Phase 8.42: only save-slot reads retain INFO diagnostics. Resource
+        // databases (char/map/tile/mon/pattern/etc.) are hot-path data and no
+        // longer pay fingerprint/format/log costs on every stream read.
         // `data` is exactly what the guest received.  For save files, also
         // fingerprint the complete backing record so a 320-byte Continue
         // read can be correlated with a 324-byte persisted generation without
         // changing the bytes or cursor semantics.
         let returned = &data[..];
-        let head_end = returned.len().min(16);
-        let tail_start = returned.len().saturating_sub(16);
-        let head = &returned[..head_end];
-        let tail = &returned[tail_start..];
         let fp = inotia_fingerprint(returned);
         let remaining = handle.buffer_len.saturating_sub(handle.read_cursor);
 
@@ -1524,97 +1529,17 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
             let backing_fp = inotia_fingerprint(&backing);
             let first320_len = backing.len().min(320);
             let first320_fp = inotia_fingerprint(&backing[..first320_len]);
-            let extra = if backing.len() > 320 { &backing[320..] } else { &backing[0..0] };
             tracing::info!(
-                "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} returned_fnv64={fp:016x} backing_fnv64={backing_fp:016x} backing_first320_len={first320_len} backing_first320_fnv64={first320_fp:016x} backing_extra_len={} backing_extra={:02x?} head={:02x?} tail={:02x?}",
+                "[INOTIA1_SAVE_READ] db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} returned_fnv64={fp:016x} backing_fnv64={backing_fp:016x} backing_first320_len={first320_len} backing_first320_fnv64={first320_fp:016x}",
                 handle_name(&handle),
                 old_cursor,
                 handle.read_cursor,
-                handle.buffer_len,
-                extra.len(),
-                extra,
-                head,
-                tail
+                handle.buffer_len
             );
 
-            // Phase 7.21 retains the Phase 7.19 observational ARM trace. Capture the exact
-            // guest ARM caller state at the Continue-screen save0 read.  The
-            // snapshot is observational only: no registers or guest memory are
-            // changed.  LR plus the R7 frame chain should identify the native
-            // validation routine that accepts the 320-byte pre-Terry payload
-            // but rejects the post-Terry payload.
-            if handle_name(&handle) == "save0.dat" && old_cursor == 0 && take == 320 {
-                if let Some(regs) = context.debug_cpu_context() {
-                    let sp = regs[13];
-                    let lr = regs[14];
-                    let pc = regs[15];
-                    let cpsr = regs[16];
-
-                    let mut stack = [0u8; 64];
-                    let stack_read = context.read_bytes(sp, &mut stack).unwrap_or(0);
-
-                    // The SVC stub normally preserves the guest LR.  Dump code
-                    // around both LR and PC when mapped; failed reads simply
-                    // report zero bytes rather than affecting emulation.
-                    let lr_code_base = (lr & !1).saturating_sub(32);
-                    let mut lr_code = [0u8; 64];
-                    let lr_code_read = context.read_bytes(lr_code_base, &mut lr_code).unwrap_or(0);
-
-                    let pc_code_base = (pc & !1).saturating_sub(16);
-                    let mut pc_code = [0u8; 32];
-                    let pc_code_read = context.read_bytes(pc_code_base, &mut pc_code).unwrap_or(0);
-
-                    // Walk the conventional Thumb R7 frame chain used elsewhere
-                    // by wie_core_arm's profiler: [previous_r7, saved_lr].
-                    let mut frames: Vec<u32> = Vec::new();
-                    let mut frame_r7 = regs[7];
-                    for _ in 0..12 {
-                        if frame_r7 == 0 {
-                            break;
-                        }
-                        let prev_r7: u32 = match read_generic(context, frame_r7) {
-                            Ok(v) => v,
-                            Err(_) => break,
-                        };
-                        let saved_lr: u32 = match read_generic(context, frame_r7 + 4) {
-                            Ok(v) => v,
-                            Err(_) => break,
-                        };
-                        if saved_lr == 0 {
-                            break;
-                        }
-                        frames.push(saved_lr);
-                        if prev_r7 <= frame_r7 {
-                            break;
-                        }
-                        frame_r7 = prev_r7;
-                    }
-
-                    tracing::info!(
-                        "[INOTIA1_ARM] save0_read offset={old_cursor} returned={take} record_len={} remaining={remaining} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x} sp={sp:#010x} lr={lr:#010x} pc={pc:#010x} cpsr={cpsr:#010x} frames={:08x?} stack_read={stack_read} stack={:02x?} lr_code_base={lr_code_base:#010x} lr_code_read={lr_code_read} lr_code={:02x?} pc_code_base={pc_code_base:#010x} pc_code_read={pc_code_read} pc_code={:02x?}",
-                        handle.buffer_len,
-                        regs[0], regs[1], regs[2], regs[3],
-                        regs[4], regs[5], regs[6], regs[7],
-                        regs[8], regs[9], regs[10], regs[11], regs[12],
-                        frames,
-                        &stack[..stack_read.min(stack.len())],
-                        &lr_code[..lr_code_read.min(lr_code.len())],
-                        &pc_code[..pc_code_read.min(pc_code.len())],
-                    );
-                } else {
-                    tracing::info!("[INOTIA1_ARM] save0_read CPU snapshot unavailable");
-                }
-            }
-        } else {
-            tracing::info!(
-                "[INOTIA1_SAVE] READ db={} offset={} request={buf_len} returned={take} final_cursor={} record_len={} remaining={remaining} fnv64={fp:016x} head={:02x?} tail={:02x?}",
-                handle_name(&handle),
-                old_cursor,
-                handle.read_cursor,
-                handle.buffer_len,
-                head,
-                tail
-            );
+            // Legacy Phase 7.19 CPU/frame snapshots were removed in Phase 8.42.
+            // Phase 7.21 save-length behavior is already field-validated, and
+            // those stack/code reads are unnecessary on the gameplay path.
         }
     }
 
@@ -1958,7 +1883,7 @@ pub async fn select_record_ktf(context: &mut dyn WIPICContext, db_id: i32, rec_i
         let db_name = handle_name(&handle).to_owned();
 
         if pid == "PD005362" {
-            tracing::info!(
+            tracing::debug!(
                 "[INOTIA1_SAVE] SELECT/SEEK db={} offset={offset} mode={mode:#x} old_read={} old_write={} len={}",
                 db_name,
                 handle.read_cursor,

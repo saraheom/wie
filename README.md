@@ -1,4 +1,8 @@
-> Current TestFlight development phase: **8.41** — Inotia1 exact Continue-position rescue for the preserved 2026-08-26 progress backup; Phase 8.40 prayer/revival fixes and the Phase 8.37 gameplay/catalog baseline are preserved. See `FULL_REPO_PHASE8_41_README.md`.
+# Phase 8.42 note
+
+The current TestFlight workflow targets WIPI Player 0.1.42. Phase 8.42 is based directly on Phase 8.40 and quiets legacy Inotia1 database diagnostics that were still running at INFO level during resource reads. See `FULL_REPO_PHASE8_42_README.md`.
+
+> Current TestFlight development phase: **8.40** — Inotia1 emergency prayer purchase handoff + resurrection-scroll native context repair.
 
 > **Phase 8.38 (Inotia1 party-wipe prayer recovery):** preserves the validated Phase 8.37 performance/name/12-item normal-cash baseline. When the original death UI enters native state 14 because `부활의 기도문` (item 0x219) is missing, the offline bridge exposes a one-item emergency prayer catalog. Backing out mirrors the title's own state-14 CLEAR transition back to the death prompt before command-123 cleanup, instead of leaving the outer death state stranded.
 

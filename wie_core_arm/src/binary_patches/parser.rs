@@ -66,7 +66,6 @@ enum KindTag {
     InlineCopy,
     RegInlineCopy,
     Inotia1RevivalBaseRepair,
-    Inotia1ContinuePositionRescue,
 }
 
 impl RawEntry {
@@ -236,7 +235,6 @@ fn pc_kind(raw: &RawHook, entry_name: &str) -> HookKind {
         }),
         KindTag::RegInlineCopy => panic!("entry {entry_name}: reg_inline_copy must be pattern-based, not pc-based"),
         KindTag::Inotia1RevivalBaseRepair => HookKind::Inotia1RevivalBaseRepair,
-        KindTag::Inotia1ContinuePositionRescue => HookKind::Inotia1ContinuePositionRescue,
     }
 }
 
@@ -265,7 +263,6 @@ fn pattern_template(raw: &RawHook, tokens: &[PatternToken], entry_name: &str) ->
             }
         }
         KindTag::Inotia1RevivalBaseRepair => PatternHookKind::Inotia1RevivalBaseRepair,
-        KindTag::Inotia1ContinuePositionRescue => PatternHookKind::Inotia1ContinuePositionRescue,
         KindTag::InlineCopy => {
             let exit_cap = tokens.iter().any(|t| matches!(t, PatternToken::Capture(CaptureName::ExitB)));
             if !exit_cap && raw.exit_pc.is_none() {

@@ -1,0 +1,10 @@
+WIPI Player Phase 8.42
+TestFlight version: 0.1.42
+Runtime marker: PHASE8_42_RUNTIME_SENTINEL
+Performance change: Inotia1 char/map/tile/mon/pattern database open/read/seek/select diagnostics removed from INFO hot path
+Save diagnostics: concise save0/save1 read/write fingerprints retained
+Inherited prayer handoff marker: PHASE8_40_INOTIA1_PRAYER_PURCHASE_HANDOFF
+Inherited resurrection fault repair marker: PHASE8_40_INOTIA1_REVIVAL_CONTEXT_REPAIR
+Inherited exception fallback marker: PHASE8_39_ARM_FAULT_CONTEXT
+Normal Inotia1 catalog: Phase 8.37 single-page 12/12 baseline unchanged
+Inotia2: unchanged

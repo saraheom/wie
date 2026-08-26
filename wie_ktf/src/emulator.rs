@@ -85,7 +85,7 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
             tracing::info!(
-                "[PHASE8_41_RUNTIME_SENTINEL] WIPI Player Phase 8.41 active; Phase 8.37 performance/catalog baseline preserved; Phase 8.40 prayer/revival fixes preserved; exact Continue-position rescue active"
+                "[PHASE8_42_RUNTIME_SENTINEL] WIPI Player Phase 8.42 active; Phase 8.40 resurrection/cash behavior preserved; hot Inotia1 database diagnostics quieted for gameplay performance"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
