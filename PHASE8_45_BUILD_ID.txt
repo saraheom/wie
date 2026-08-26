@@ -1,0 +1,6 @@
+WIPI Player Phase 8.45
+TestFlight version: 0.1.45
+Runtime marker: PHASE8_45_RUNTIME_SENTINEL
+Diagnostic availability marker: PHASE8_45_INOTIA1_EXP_TRACE_AVAILABLE
+Manual arm marker: PHASE8_45_INOTIA1_EXP_TRACE_MANUALLY_ARMED
+Behavior: Phase 8.42 gameplay baseline + read-only manual-arm Inotia1 16/32-bit EXP-store diagnostic

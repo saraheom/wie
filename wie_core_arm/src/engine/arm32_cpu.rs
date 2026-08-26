@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, format, vec};
+use alloc::{boxed::Box, format, vec, vec::Vec};
 
 use arm32_cpu::{Cpu, Memory, Mode, reg};
 
@@ -6,7 +6,8 @@ use wie_util::{Result, WieError};
 
 use crate::engine::{ArmEngine, ArmRegister, EngineRunResult, MemoryPermission};
 
-const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 480;
+const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 600;
+const INOTIA1_EXP_DIAG_REPEAT_LIMIT: u8 = 4;
 
 #[derive(Clone, Copy)]
 struct Inotia1ExpCandidate {
@@ -17,12 +18,21 @@ struct Inotia1ExpCandidate {
     pc_before: u32,
 }
 
+#[derive(Clone, Copy)]
+struct Inotia1ExpSeenWrite {
+    addr: u32,
+    pc_before: u32,
+    width_bits: u8,
+    count: u8,
+}
+
 pub struct Arm32CpuEngine {
     cpu: Cpu,
     mem: EmulatedMemory,
     inotia1_exp_diag_enabled: bool,
     inotia1_exp_diag_events: u32,
     inotia1_exp_diag_saturated: bool,
+    inotia1_exp_diag_seen: Vec<Inotia1ExpSeenWrite>,
 }
 
 impl Arm32CpuEngine {
@@ -33,19 +43,46 @@ impl Arm32CpuEngine {
             inotia1_exp_diag_enabled: false,
             inotia1_exp_diag_events: 0,
             inotia1_exp_diag_saturated: false,
+            inotia1_exp_diag_seen: Vec::new(),
         }
     }
 
     fn trace_inotia1_exp_candidate(&mut self, candidate: Inotia1ExpCandidate) {
+        // Once saturated, return before even touching the repeat-history table;
+        // the temporary diagnostic must not keep accumulating bookkeeping while
+        // normal gameplay continues after the capture window.
         if self.inotia1_exp_diag_events >= INOTIA1_EXP_DIAG_EVENT_LIMIT {
             if !self.inotia1_exp_diag_saturated {
                 self.inotia1_exp_diag_saturated = true;
                 tracing::info!(
-                    "[PHASE8_44_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
+                    "[PHASE8_45_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
                     INOTIA1_EXP_DIAG_EVENT_LIMIT
                 );
             }
             return;
+        }
+
+        // Phase 8.45 manual-arm noise guard. During the 8.44 field run, repeated
+        // state/initialization stores exhausted the trace in under one second.
+        // Keep up to four observations for each exact address+callsite+width so
+        // repeated EXP changes remain comparable while hot animation counters
+        // cannot monopolize the session budget.
+        if let Some(seen) = self.inotia1_exp_diag_seen.iter_mut().find(|seen| {
+            seen.addr == candidate.addr
+                && seen.pc_before == candidate.pc_before
+                && seen.width_bits == candidate.width_bits
+        }) {
+            if seen.count >= INOTIA1_EXP_DIAG_REPEAT_LIMIT {
+                return;
+            }
+            seen.count += 1;
+        } else {
+            self.inotia1_exp_diag_seen.push(Inotia1ExpSeenWrite {
+                addr: candidate.addr,
+                pc_before: candidate.pc_before,
+                width_bits: candidate.width_bits,
+                count: 1,
+            });
         }
         self.inotia1_exp_diag_events += 1;
         let event = self.inotia1_exp_diag_events;
@@ -86,7 +123,7 @@ impl Arm32CpuEngine {
         let code_ok = self.mem.read_range(code_base, code.len(), &mut code).is_ok();
 
         tracing::info!(
-            "[PHASE8_44_INOTIA1_EXP_CANDIDATE] event={event} width={} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            "[PHASE8_45_INOTIA1_EXP_CANDIDATE] event={event} width={} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
             candidate.width_bits,
             candidate.addr,
             candidate.old,
@@ -115,13 +152,13 @@ impl Arm32CpuEngine {
 
         if around_ok {
             tracing::info!(
-                "[PHASE8_44_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                "[PHASE8_45_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                 around[0], around[1], around[2], around[3], around[4], around[5], around[6], around[7], around[8], around[9], around[10], around[11]
             );
         }
         if code_ok {
             tracing::info!(
-                "[PHASE8_44_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+                "[PHASE8_45_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
             );
         }
 
@@ -148,7 +185,7 @@ impl Arm32CpuEngine {
             }
             if ok {
                 tracing::info!(
-                    "[PHASE8_44_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                    "[PHASE8_45_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
                     words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7], words[8], words[9], words[10], words[11]
                 );
                 emitted += 1;
@@ -302,6 +339,7 @@ impl ArmEngine for Arm32CpuEngine {
         self.inotia1_exp_diag_enabled = enabled;
         self.inotia1_exp_diag_events = 0;
         self.inotia1_exp_diag_saturated = false;
+        self.inotia1_exp_diag_seen.clear();
     }
 }
 
@@ -465,7 +503,7 @@ impl<'a> Arm32CpuMemory<'a> {
             return;
         }
 
-        // Phase 8.44 widens the 8.43 probe to both STRH (16-bit) and STR
+        // Phase 8.45 retains the 8.44 widened probe to both STRH (16-bit) and STR
         // (32-bit) stores and intentionally removes the old >=4096 signal
         // floor. The first field log proved that floor/width combination could
         // miss the real EXP update entirely. Keep startup/render noise bounded

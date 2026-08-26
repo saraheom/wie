@@ -30,6 +30,7 @@ impl TaskRunner for KtfTaskRunner {
 pub struct KtfEmulator {
     core: ArmCore,
     system: System,
+    inotia1_exp_diag_available: bool,
 }
 
 impl KtfEmulator {
@@ -83,16 +84,18 @@ impl KtfEmulator {
         mut options: Options,
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
-        if aid == "010100D3" && pid == "PD005362" {
-            // Phase 8.44: widened read-only diagnostic after the first 8.43 field
-            // test produced no EXP candidates. Observe both 16-bit and 32-bit
-            // guest stat stores for this exact title; no guest value is modified.
-            core.set_inotia1_exp_diagnostics(true);
+        let inotia1_exp_diag_available = aid == "010100D3" && pid == "PD005362";
+        if inotia1_exp_diag_available {
+            // Phase 8.45: 8.44 proved the widened 16/32-bit watcher works, but
+            // startup initialization consumed all 480 events before gameplay.
+            // Keep the watcher DISARMED until the player explicitly presses the
+            // Arm/Reset EXP Trace button beside the in-game diagnostics tools.
+            core.set_inotia1_exp_diagnostics(false);
             tracing::info!(
-                "[PHASE8_44_RUNTIME_SENTINEL] WIPI Player Phase 8.44 active; widened Inotia1 16/32-bit EXP-store/object diagnostic enabled (read-only)"
+                "[PHASE8_45_RUNTIME_SENTINEL] WIPI Player Phase 8.45 active; Inotia1 manual EXP-store/object diagnostic available (read-only)"
             );
             tracing::info!(
-                "[PHASE8_44_INOTIA1_EXP_TRACE_ARMED] 16/32-bit candidate watcher active; old >=4096 floor removed; captures width, +/- stat changes, native callsite, surrounding words, and up to four live object heads; event_limit=480"
+                "[PHASE8_45_INOTIA1_EXP_TRACE_AVAILABLE] watcher starts disarmed; press Arm/Reset EXP Trace immediately before combat to reset and begin 16/32-bit candidate capture"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -138,7 +141,7 @@ impl KtfEmulator {
 
         system.spawn(async move || Self::start(&mut core_clone, &mut system_clone, jar_filename_clone, main_class_name).await);
 
-        Ok(Self { core, system })
+        Ok(Self { core, system, inotia1_exp_diag_available })
     }
 
     #[tracing::instrument(name = "start", skip_all)]
@@ -237,6 +240,21 @@ impl Emulator for KtfEmulator {
             self.phase8_40_restore_party_wipe_prompt_on_clear();
         }
         self.system.event_queue().push(event)
+    }
+
+    fn set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool {
+        if !self.inotia1_exp_diag_available {
+            return false;
+        }
+        self.core.set_inotia1_exp_diagnostics(armed);
+        if armed {
+            tracing::info!(
+                "[PHASE8_45_INOTIA1_EXP_TRACE_MANUALLY_ARMED] candidate counter/reset complete; 16/32-bit watcher active now; repeated address+callsite writes capped; event_limit=600"
+            );
+        } else {
+            tracing::info!("[PHASE8_45_INOTIA1_EXP_TRACE_DISARMED] watcher disabled");
+        }
+        true
     }
 
     fn tick(&mut self) -> Result<()> {

@@ -37,6 +37,12 @@ use wie_util::{Result, WieError};
 pub trait Emulator {
     fn handle_event(&mut self, event: Event);
     fn tick(&mut self) -> Result<()>;
+
+    /// Optional testing-only hook used by WIPI Player's Inotia1 diagnostics.
+    /// Non-KTF/non-Inotia titles keep the default no-op behavior.
+    fn set_inotia1_exp_trace_armed(&mut self, _armed: bool) -> bool {
+        false
+    }
 }
 
 pub struct ProfileSample {

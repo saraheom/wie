@@ -233,6 +233,12 @@ impl WieWeb {
     pub fn set_pcm_volume(&self, volume: f32) {
         self.player.set_volume(volume);
     }
+
+    /// Testing-only Phase 8.45 control. Returns true only for the exact
+    /// Inotia1 KTF title that exposes the native EXP diagnostic.
+    pub fn set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool {
+        self.emulator.set_inotia1_exp_trace_armed(armed)
+    }
 }
 
 #[wasm_bindgen(start)]

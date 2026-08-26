@@ -147,7 +147,7 @@ impl ArmCore {
         self.inner.lock().native_loop_trace_chunks = chunks.max(1);
     }
 
-    /// Phase 8.44 diagnostic switch. This is deliberately enabled by the KTF
+    /// Phase 8.45 manual-arm diagnostic switch. This is deliberately enabled by the KTF
     /// frontend only for the known Inotia1 AID/PID, so every other title keeps
     /// the Phase 8.42 memory hot path unchanged.
     pub fn set_inotia1_exp_diagnostics(&mut self, enabled: bool) {
