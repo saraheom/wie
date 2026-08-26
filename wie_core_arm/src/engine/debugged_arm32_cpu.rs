@@ -516,6 +516,10 @@ impl ArmEngine for DebuggedArm32CpuEngine {
     fn is_mapped(&self, address: u32, size: usize) -> bool {
         self.debug.cpu.lock().is_mapped(address, size)
     }
+
+    fn set_inotia1_exp_diagnostics(&mut self, enabled: bool) {
+        self.debug.cpu.lock().set_inotia1_exp_diagnostics(enabled)
+    }
 }
 
 #[cfg(test)]

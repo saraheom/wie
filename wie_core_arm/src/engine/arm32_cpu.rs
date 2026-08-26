@@ -6,9 +6,22 @@ use wie_util::{Result, WieError};
 
 use crate::engine::{ArmEngine, ArmRegister, EngineRunResult, MemoryPermission};
 
+const INOTIA1_EXP_DIAG_EVENT_LIMIT: u32 = 320;
+
+#[derive(Clone, Copy)]
+struct Inotia1ExpCandidate {
+    addr: u32,
+    old: u32,
+    new: u32,
+    pc_before: u32,
+}
+
 pub struct Arm32CpuEngine {
     cpu: Cpu,
     mem: EmulatedMemory,
+    inotia1_exp_diag_enabled: bool,
+    inotia1_exp_diag_events: u32,
+    inotia1_exp_diag_saturated: bool,
 }
 
 impl Arm32CpuEngine {
@@ -16,7 +29,136 @@ impl Arm32CpuEngine {
         Self {
             cpu: Cpu::new(),
             mem: EmulatedMemory::new(),
+            inotia1_exp_diag_enabled: false,
+            inotia1_exp_diag_events: 0,
+            inotia1_exp_diag_saturated: false,
         }
+    }
+
+    fn trace_inotia1_exp_candidate(&mut self, candidate: Inotia1ExpCandidate) {
+        if self.inotia1_exp_diag_events >= INOTIA1_EXP_DIAG_EVENT_LIMIT {
+            if !self.inotia1_exp_diag_saturated {
+                self.inotia1_exp_diag_saturated = true;
+                tracing::info!(
+                    "[PHASE8_43_INOTIA1_EXP_TRACE_LIMIT] reached {} candidate writes; further EXP-candidate logging suppressed for this session",
+                    INOTIA1_EXP_DIAG_EVENT_LIMIT
+                );
+            }
+            return;
+        }
+        self.inotia1_exp_diag_events += 1;
+        let event = self.inotia1_exp_diag_events;
+
+        let pc_after = self.cpu.reg_get(Mode::User, reg::PC);
+        let lr = self.cpu.reg_get(Mode::User, reg::LR);
+        let sp = self.cpu.reg_get(Mode::User, reg::SP);
+        let r0 = self.cpu.reg_get(Mode::User, 0);
+        let r1 = self.cpu.reg_get(Mode::User, 1);
+        let r2 = self.cpu.reg_get(Mode::User, 2);
+        let r3 = self.cpu.reg_get(Mode::User, 3);
+        let r4 = self.cpu.reg_get(Mode::User, 4);
+        let r5 = self.cpu.reg_get(Mode::User, 5);
+        let r6 = self.cpu.reg_get(Mode::User, 6);
+        let r7 = self.cpu.reg_get(Mode::User, 7);
+        let r8 = self.cpu.reg_get(Mode::User, 8);
+        let r9 = self.cpu.reg_get(Mode::User, 9);
+        let r10 = self.cpu.reg_get(Mode::User, 10);
+        let r11 = self.cpu.reg_get(Mode::User, 11);
+        let r12 = self.cpu.reg_get(Mode::User, 12);
+        let delta = candidate.new as i64 - candidate.old as i64;
+
+        let mut around = [0u32; 12];
+        let around_base = candidate.addr.saturating_sub(20) & !3;
+        let mut around_ok = true;
+        for (index, word) in around.iter_mut().enumerate() {
+            let address = around_base.wrapping_add(index as u32 * 4);
+            let mut bytes = [0u8; 4];
+            if self.mem.read_range(address, 4, &mut bytes).is_err() {
+                around_ok = false;
+                break;
+            }
+            *word = u32::from_le_bytes(bytes);
+        }
+
+        let code_base = candidate.pc_before.saturating_sub(8) & !1;
+        let mut code = [0u8; 20];
+        let code_ok = self.mem.read_range(code_base, code.len(), &mut code).is_ok();
+
+        tracing::info!(
+            "[PHASE8_43_INOTIA1_EXP_CANDIDATE] event={event} addr={:#010x} old={} new={} delta={:+} old_hex={:#010x} new_hex={:#010x} pc_before={:#010x} pc_after={:#010x} lr={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} r8={:#010x} r9={:#010x} r10={:#010x} r11={:#010x} r12={:#010x}",
+            candidate.addr,
+            candidate.old,
+            candidate.new,
+            delta,
+            candidate.old,
+            candidate.new,
+            candidate.pc_before,
+            pc_after,
+            lr,
+            sp,
+            r0,
+            r1,
+            r2,
+            r3,
+            r4,
+            r5,
+            r6,
+            r7,
+            r8,
+            r9,
+            r10,
+            r11,
+            r12,
+        );
+
+        if around_ok {
+            tracing::info!(
+                "[PHASE8_43_INOTIA1_EXP_AROUND] event={event} base={around_base:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                around[0], around[1], around[2], around[3], around[4], around[5], around[6], around[7], around[8], around[9], around[10], around[11]
+            );
+        }
+        if code_ok {
+            tracing::info!(
+                "[PHASE8_43_INOTIA1_EXP_CODE] event={event} base={code_base:#010x} bytes={code:02x?}"
+            );
+        }
+
+        // At the actual EXP store, one of the live registers often still
+        // carries the player or defeated-monster object pointer. Emit compact
+        // object heads for plausible guest pointers so repeated monster-family
+        // identifiers can be compared without tracing every memory access.
+        let regs = [r0, r1, r2, r3, r4, r5, r6, r7, r8, r9, r10, r11, r12];
+        let mut emitted = 0u32;
+        for (index, ptr) in regs.into_iter().enumerate() {
+            if emitted >= 4 || !Self::is_inotia1_diag_data_address(ptr) || ptr & 3 != 0 {
+                continue;
+            }
+            let mut words = [0u32; 12];
+            let mut ok = true;
+            for (word_index, word) in words.iter_mut().enumerate() {
+                let address = ptr.wrapping_add(word_index as u32 * 4);
+                let mut bytes = [0u8; 4];
+                if self.mem.read_range(address, 4, &mut bytes).is_err() {
+                    ok = false;
+                    break;
+                }
+                *word = u32::from_le_bytes(bytes);
+            }
+            if ok {
+                tracing::info!(
+                    "[PHASE8_43_INOTIA1_OBJECT_HEAD] event={event} reg=r{index} ptr={ptr:#010x} words=[{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x},{:#010x}]",
+                    words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7], words[8], words[9], words[10], words[11]
+                );
+                emitted += 1;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn is_inotia1_diag_data_address(addr: u32) -> bool {
+        // Include the native image/BSS/runtime-data window used by the KTF title
+        // plus WIE's global allocator. Unmapped addresses are never observed by w32.
+        (0x0010_0000..0x0100_0000).contains(&addr) || (0x4000_0000..0x5000_0000).contains(&addr)
     }
 
     fn read_svc_result(&mut self) -> Result<EngineRunResult> {
@@ -81,14 +223,28 @@ impl ArmEngine for Arm32CpuEngine {
                 return Ok(EngineRunResult::CountExhausted);
             }
 
-            let mut arm32cpu_memory = self.mem.as_arm32cpu_memory();
+            let (step_ok, memory_error, exp_candidate) = {
+                let mut arm32cpu_memory = self
+                    .mem
+                    .as_arm32cpu_memory(self.inotia1_exp_diag_enabled, pc);
+                let step_ok = self.cpu.step(&mut arm32cpu_memory);
+                (
+                    step_ok,
+                    arm32cpu_memory.memory_error(),
+                    arm32cpu_memory.inotia1_exp_candidate(),
+                )
+            };
 
-            if !(self.cpu.step(&mut arm32cpu_memory)) {
+            if !step_ok {
                 return Err(WieError::FatalError("Undefined instruction".into()));
             }
             count -= 1;
 
-            if let Some(x) = arm32cpu_memory.memory_error() {
+            if let Some(candidate) = exp_candidate {
+                self.trace_inotia1_exp_candidate(candidate);
+            }
+
+            if let Some(x) = memory_error {
                 // Phase 8.39 — same exception-only trace for a data-memory
                 // fault.  Capturing PC/LR here lets the next blessed-revival
                 // test identify the exact native instruction without any
@@ -139,6 +295,12 @@ impl ArmEngine for Arm32CpuEngine {
     fn is_mapped(&self, address: u32, size: usize) -> bool {
         self.mem.is_mapped(address, size)
     }
+
+    fn set_inotia1_exp_diagnostics(&mut self, enabled: bool) {
+        self.inotia1_exp_diag_enabled = enabled;
+        self.inotia1_exp_diag_events = 0;
+        self.inotia1_exp_diag_saturated = false;
+    }
 }
 
 impl ArmRegister {
@@ -180,8 +342,8 @@ impl EmulatedMemory {
         }
     }
 
-    fn as_arm32cpu_memory(&mut self) -> Arm32CpuMemory<'_> {
-        Arm32CpuMemory::new(self)
+    fn as_arm32cpu_memory(&mut self, inotia1_exp_diag_enabled: bool, pc_before: u32) -> Arm32CpuMemory<'_> {
+        Arm32CpuMemory::new(self, inotia1_exp_diag_enabled, pc_before)
     }
 
     fn map(&mut self, address: u32, size: usize) {
@@ -260,19 +422,69 @@ struct Arm32CpuMemory<'a> {
     // mutability is unnecessary. Keeping the error slot as a plain Option
     // removes RefCell borrow checks from every guest memory access.
     memory_error: Option<u32>,
+    inotia1_exp_diag_enabled: bool,
+    pc_before: u32,
+    inotia1_exp_candidate: Option<Inotia1ExpCandidate>,
 }
 
 impl<'a> Arm32CpuMemory<'a> {
-    fn new(emulated_memory: &'a mut EmulatedMemory) -> Self {
+    fn new(emulated_memory: &'a mut EmulatedMemory, inotia1_exp_diag_enabled: bool, pc_before: u32) -> Self {
         Self {
             emulated_memory,
             memory_error: None,
+            inotia1_exp_diag_enabled,
+            pc_before,
+            inotia1_exp_candidate: None,
         }
     }
 
     #[inline(always)]
     fn memory_error(&self) -> Option<u32> {
         self.memory_error
+    }
+
+    #[inline(always)]
+    fn inotia1_exp_candidate(&self) -> Option<Inotia1ExpCandidate> {
+        self.inotia1_exp_candidate
+    }
+
+    #[inline(always)]
+    fn consider_inotia1_exp_candidate(&mut self, addr: u32, old: u32, new: u32) {
+        if !self.inotia1_exp_diag_enabled || self.inotia1_exp_candidate.is_some() || old == new {
+            return;
+        }
+        if !Arm32CpuEngine::is_inotia1_diag_data_address(addr) {
+            return;
+        }
+        // Inotia1's client.bin executes in the low 0x001xxxxx image window.
+        // Reject native/runtime helper writes so the candidate budget is spent
+        // on game-code stores around combat/reward processing.
+        if !(0x0010_0000..0x0020_0000).contains(&self.pc_before) {
+            return;
+        }
+
+        // Broad enough for level-appropriate cumulative/current EXP, but narrow
+        // enough to exclude pointers, colors and most rendering coordinates.
+        // We intentionally keep both positive and negative changes: a normal
+        // kill provides the control path while the reported bad monsters should
+        // expose the opposite-sign path at the same address/callsite.
+        const MAX_VALUE: u32 = 50_000_000;
+        const MIN_SIGNAL_VALUE: u32 = 4_096;
+        const MAX_ABS_DELTA: u32 = 250_000;
+        if old > MAX_VALUE || new > MAX_VALUE || old < MIN_SIGNAL_VALUE || new < MIN_SIGNAL_VALUE {
+            return;
+        }
+        let delta = old.abs_diff(new);
+        if delta == 0 || delta > MAX_ABS_DELTA {
+            return;
+        }
+
+        self.inotia1_exp_candidate = Some(Inotia1ExpCandidate {
+            addr,
+            old,
+            new,
+            pc_before: self.pc_before,
+        });
     }
 
     #[inline(always)]
@@ -363,10 +575,24 @@ impl Memory for Arm32CpuMemory<'_> {
     fn w32(&mut self, addr: u32, val: u32) {
         let offset = (addr & PAGE_MASK) as usize;
         if offset <= PAGE_SIZE - 4 {
-            let Some(data) = self.get_page(addr) else { return; };
-            unsafe {
-                core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u32>(), val.to_le());
+            if !self.inotia1_exp_diag_enabled {
+                let Some(data) = self.get_page(addr) else { return; };
+                unsafe {
+                    core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u32>(), val.to_le());
+                }
+                return;
             }
+
+            let old = {
+                let Some(data) = self.get_page(addr) else { return; };
+                let raw = unsafe { core::ptr::read_unaligned(data.as_ptr().add(offset).cast::<u32>()) };
+                let old = u32::from_le(raw);
+                unsafe {
+                    core::ptr::write_unaligned(data.as_mut_ptr().add(offset).cast::<u32>(), val.to_le());
+                }
+                old
+            };
+            self.consider_inotia1_exp_candidate(addr, old, val);
             return;
         }
 
@@ -410,7 +636,7 @@ mod tests {
         memory.read_range(0x10900, 0x1000, &mut buf).unwrap();
         assert_eq!(buf, [100; 0x1000]);
 
-        let mut arm32cpu_memory = memory.as_arm32cpu_memory();
+        let mut arm32cpu_memory = memory.as_arm32cpu_memory(false, 0);
 
         let r8 = arm32cpu_memory.r8(0x10000);
         assert_eq!(r8, 123);
@@ -439,7 +665,7 @@ mod tests {
         let mut memory = EmulatedMemory::new();
         memory.map(0x10000, 0x20000);
 
-        let mut arm32cpu_memory = memory.as_arm32cpu_memory();
+        let mut arm32cpu_memory = memory.as_arm32cpu_memory(false, 0);
         arm32cpu_memory.w16(0x1ffff, 0x1234);
         assert_eq!(arm32cpu_memory.r16(0x1ffff), 0x1234);
 

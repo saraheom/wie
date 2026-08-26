@@ -147,6 +147,13 @@ impl ArmCore {
         self.inner.lock().native_loop_trace_chunks = chunks.max(1);
     }
 
+    /// Phase 8.43 diagnostic switch. This is deliberately enabled by the KTF
+    /// frontend only for the known Inotia1 AID/PID, so every other title keeps
+    /// the Phase 8.42 memory hot path unchanged.
+    pub fn set_inotia1_exp_diagnostics(&mut self, enabled: bool) {
+        self.inner.lock().engine.set_inotia1_exp_diagnostics(enabled);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn debug_inner(&self) -> Option<Arc<DebugInner>> {
         let inner = self.inner.lock();

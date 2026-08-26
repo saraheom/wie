@@ -84,8 +84,16 @@ impl KtfEmulator {
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         if aid == "010100D3" && pid == "PD005362" {
+            // Phase 8.43: short-lived diagnostic build for the reported EXP
+            // decrease after specific monster kills.  Observe plausible guest
+            // stat writes only for this exact title; no guest values are
+            // modified by the probe.
+            core.set_inotia1_exp_diagnostics(true);
             tracing::info!(
-                "[PHASE8_42_RUNTIME_SENTINEL] WIPI Player Phase 8.42 active; Phase 8.40 resurrection/cash behavior preserved; hot Inotia1 database diagnostics quieted for gameplay performance"
+                "[PHASE8_43_RUNTIME_SENTINEL] WIPI Player Phase 8.43 active; based on Phase 8.42; Inotia1 EXP-candidate/object diagnostic enabled (read-only)"
+            );
+            tracing::info!(
+                "[PHASE8_43_INOTIA1_EXP_TRACE_ARMED] 32-bit candidate watcher active; captures +/- stat changes, native callsite, surrounding words, and up to four live object heads; event_limit=320"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {

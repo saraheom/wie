@@ -24,6 +24,11 @@ pub trait ArmEngine: Send + AsAny {
     fn mem_write(&mut self, address: u32, data: &[u8]) -> Result<()>;
     fn mem_read(&mut self, address: u32, size: usize, result: &mut [u8]) -> Result<usize>;
     fn is_mapped(&self, address: u32, size: usize) -> bool;
+
+    /// Enable/disable the narrow Inotia1 EXP-candidate write diagnostic.
+    /// Engines that do not support instruction-local write observation may
+    /// leave the default no-op implementation in place.
+    fn set_inotia1_exp_diagnostics(&mut self, _enabled: bool) {}
 }
 
 #[allow(clippy::enum_variant_names)]
