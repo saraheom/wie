@@ -44,6 +44,13 @@ pub enum HookKind {
     /// This hook emulates the replaced LDR and copies R8 into R4 before
     /// continuing to the untouched BL instruction.
     Inotia1RevivalBaseRepair,
+    /// Phase 8.49 — replace Inotia1 monster base-reward arithmetic with the
+    /// same formula evaluated using wide intermediates. The original Thumb
+    /// helper at 0x001281ec uses 32-bit MULS before signed division; higher
+    /// monster parameters can wrap the numerator negative (or back positive).
+    /// This hook preserves the original result unless the constructor caller
+    /// (LR=0x00126245) diverges from the mathematically equivalent wide result.
+    Inotia1RewardWideMathRepair,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -448,6 +455,63 @@ fn phase8_34_trace_inotia1_name_string(core: &mut ArmCore, kind: &str, ptr: u32,
     }
 }
 
+
+/// Exact reconstruction of the original Inotia1 helper at guest 0x001281ec.
+/// All multiplies/adds wrap to 32 bits and the final division is signed,
+/// matching the Thumb code and its signed division helper.
+fn inotia1_reward_original_wrapped(a: u32, _b: u32, c: u32, d: u32, e: u32, f: u32) -> Option<i32> {
+    let hundred_minus_f = 100u32.wrapping_sub(f);
+
+    let x = d
+        .wrapping_add(a.wrapping_mul(100))
+        .wrapping_add(1000);
+    let mut numerator = c.wrapping_mul(hundred_minus_f).wrapping_mul(x);
+
+    let y = a
+        .wrapping_mul(50)
+        .wrapping_add(d)
+        .wrapping_mul(2)
+        .wrapping_add(1000);
+    numerator = numerator.wrapping_add(y.wrapping_mul(f));
+    numerator = numerator.wrapping_add(e.wrapping_mul(hundred_minus_f).wrapping_mul(y));
+
+    let denominator = hundred_minus_f.wrapping_mul(y);
+    let signed_denominator = denominator as i32 as i64;
+    if signed_denominator == 0 {
+        return None;
+    }
+    let signed_numerator = numerator as i32 as i64;
+    Some((signed_numerator / signed_denominator) as i32)
+}
+
+/// Mathematically equivalent reward formula using wide, non-wrapping
+/// intermediates. Returns None for inputs outside the constructor's sensible
+/// domain or if the final reward cannot be represented as a positive i32.
+fn inotia1_reward_wide(a: u32, _b: u32, c: u32, d: u32, e: u32, f: u32) -> Option<(i32, u128, u128)> {
+    if f >= 100 {
+        return None;
+    }
+    let a = a as u128;
+    let c = c as u128;
+    let d = d as u128;
+    let e = e as u128;
+    let f = f as u128;
+    let hundred_minus_f = 100u128 - f;
+
+    let x = d + a * 100 + 1000;
+    let y = (a * 50 + d) * 2 + 1000;
+    let numerator = c * hundred_minus_f * x + y * f + e * hundred_minus_f * y;
+    let denominator = hundred_minus_f * y;
+    if denominator == 0 {
+        return None;
+    }
+    let reward = numerator / denominator;
+    if reward > i32::MAX as u128 {
+        return None;
+    }
+    Some((reward as i32, numerator, denominator))
+}
+
 async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) -> Result<JumpTo> {
     let (pc, lr) = core.read_pc_lr()?;
     // PC on entry is the address right after the patched 2-byte SVC. Drop any
@@ -545,6 +609,75 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
             inner.engine.reg_write(spec.dst, dst.wrapping_add(count));
             inner.engine.reg_write(spec.count, count_initial.wrapping_sub(count));
             Ok(JumpTo(spec.exit_pc))
+        }
+        HookKind::Inotia1RewardWideMathRepair => {
+            // ABI at entry to 0x001281ec:
+            //   r0=a, r1=b (unused by the original helper), r2=c, r3=d,
+            //   [sp]=e, [sp+4]=f.  The monster constructor calls from
+            //   LR=0x00126245 and immediately stores R0 to entity+0x00.
+            let (a, b, c, d, sp) = {
+                let inner = core.inner.lock();
+                (
+                    inner.engine.reg_read(ArmRegister::R0),
+                    inner.engine.reg_read(ArmRegister::R1),
+                    inner.engine.reg_read(ArmRegister::R2),
+                    inner.engine.reg_read(ArmRegister::R3),
+                    inner.engine.reg_read(ArmRegister::SP),
+                )
+            };
+            let e: u32 = read_generic(core, sp)?;
+            let f: u32 = read_generic(core, sp.wrapping_add(4))?;
+            let original = inotia1_reward_original_wrapped(a, b, c, d, e, f);
+            let wide = inotia1_reward_wide(a, b, c, d, e, f);
+
+            // This helper may theoretically be reused elsewhere. Repair only
+            // the exact monster-constructor caller discovered in Phase 8.48;
+            // for any other caller, faithfully return the original wrapped
+            // result reconstructed above.
+            const INOTIA1_MONSTER_REWARD_CALLER_LR: u32 = 0x0012_6245;
+            let constructor_call = lr == INOTIA1_MONSTER_REWARD_CALLER_LR;
+            let original_value = original.unwrap_or(0);
+            let mut applied_value = original_value;
+            let mut repaired = false;
+            let mut wide_numerator = 0u128;
+            let mut wide_denominator = 0u128;
+            let mut corrected_value = original_value;
+
+            if let Some((corrected, numerator, denominator)) = wide {
+                corrected_value = corrected;
+                wide_numerator = numerator;
+                wide_denominator = denominator;
+                if constructor_call && original == Some(original_value) && corrected != original_value {
+                    applied_value = corrected;
+                    repaired = true;
+                }
+            }
+
+            core.inner
+                .lock()
+                .engine
+                .reg_write(ArmRegister::R0, applied_value as u32);
+
+            tracing::info!(
+                "[PHASE8_49_INOTIA1_REWARD_WIDE_MATH] hook={hook_pc:#010x} lr={lr:#010x} constructor_call={constructor_call} a={a} b={b} c={c} d={d} e={e} f={f} original={} corrected={} applied={} wide_numerator={} wide_denominator={} repaired={repaired}",
+                original_value,
+                corrected_value,
+                applied_value,
+                wide_numerator,
+                wide_denominator,
+            );
+            if repaired {
+                tracing::info!(
+                    "[PHASE8_49_INOTIA1_REWARD_OVERFLOW_REPAIR] lr={lr:#010x} original={} corrected={} original_hex={:#010x} corrected_hex={:#010x} wide_numerator={} wide_denominator={} a={a} b={b} c={c} d={d} e={e} f={f}",
+                    original_value,
+                    corrected_value,
+                    original_value as u32,
+                    corrected_value as u32,
+                    wide_numerator,
+                    wide_denominator,
+                );
+            }
+            Ok(JumpTo(lr))
         }
         HookKind::Inotia1RevivalBaseRepair => {
             // This hook is selected by an exact-title byte pattern beginning at
@@ -675,6 +808,35 @@ mod tests {
         core.read_bytes(wrong_caller_ptr, &mut unchanged)?;
         assert_eq!(unchanged, INOTIA1_CORRUPT_NAME0);
         Ok(())
+    }
+
+    #[test]
+    fn phase8_49_inotia1_reward_wide_math_preserves_non_overflowing_monster() {
+        // 수호자 C44, captured by Phase 8.48.
+        let original = inotia1_reward_original_wrapped(38, 233, 3690, 960, 10, 3);
+        let wide = inotia1_reward_wide(38, 233, 3690, 960, 10, 3);
+        assert_eq!(original, Some(3172));
+        assert_eq!(wide.map(|v| v.0), Some(3172));
+    }
+
+    #[test]
+    fn phase8_49_inotia1_reward_wide_math_repairs_overflowing_monster() {
+        // 수호물 K34, captured by Phase 8.48. Original signed 32-bit arithmetic
+        // wraps the numerator to -1,978,494,016 and produces -3035. Wide math
+        // preserves the intended positive numerator and produces 3553.
+        let original = inotia1_reward_original_wrapped(38, 212, 4132, 960, 12, 3);
+        let wide = inotia1_reward_wide(38, 212, 4132, 960, 12, 3);
+        assert_eq!(original, Some(-3035));
+        assert_eq!(wide, Some((3553, 2_316_473_280, 651_840)));
+    }
+
+    #[test]
+    fn phase8_49_inotia1_reward_wide_math_repairs_second_overflow_family() {
+        // Another overflow family observed in the same Phase 8.48 spawn log.
+        let original = inotia1_reward_original_wrapped(41, 239, 4789, 1020, 12, 3);
+        let wide = inotia1_reward_wide(41, 239, 4789, 1020, 12, 3);
+        assert_eq!(original, Some(-2084));
+        assert_eq!(wide.map(|v| v.0), Some(4116));
     }
 
     #[test]

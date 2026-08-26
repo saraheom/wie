@@ -1593,7 +1593,7 @@ const initPlayerChrome = () => {
       errorFeedback("EXP/spawn trace is available only for the Inotia1 diagnostic build.");
       return;
     }
-    debugLog("EXP_TRACE", "PHASE8_48_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
+    debugLog("EXP_TRACE", "PHASE8_49_INOTIA1_EXP_TRACE_UI_ARMED", `game=${currentGame?.name ?? "unknown"}`);
     const settingsPanel = element("settings-panel");
     settingsPanel.classList.remove("visible");
     settingsPanel.setAttribute("aria-hidden", "true");

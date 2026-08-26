@@ -1,0 +1,21 @@
+Phase 8.49 offline formula validation against Phase 8.48 spawn trace
+Captured entity reward writes checked: 43
+Original 32-bit formula reproduced every captured reward: YES
+
+Observed original -> wide reward families (count):
+  3172 -> 3172  (3)
+  2413 -> 2413  (4)
+  1734 -> 1734  (4)
+  1658 -> 1658  (14)
+     1 -> 1     (2)
+ -3035 -> 3553  (10)
+ -2084 -> 4116  (6)
+
+Known pair:
+  수호자 C44 inputs: a=38 b=233 c=3690 d=960 e=10 f=3
+    original/wide = 3172/3172
+    wide numerator/denominator = 2068215360/651840
+  수호물 K34 inputs: a=38 b=212 c=4132 d=960 e=12 f=3
+    original/wide = -3035/3553
+    wrapped signed numerator = -1978494016
+    wide numerator/denominator = 2316473280/651840

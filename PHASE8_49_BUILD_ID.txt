@@ -1,0 +1,11 @@
+WIPI Player Phase 8.49
+TestFlight version: 0.1.49
+Runtime marker: PHASE8_49_RUNTIME_SENTINEL
+Automatic repair marker: PHASE8_49_INOTIA1_REWARD_REPAIR_ACTIVE
+Per-call reward marker: PHASE8_49_INOTIA1_REWARD_WIDE_MATH
+Overflow repair marker: PHASE8_49_INOTIA1_REWARD_OVERFLOW_REPAIR
+Optional manual arm marker: PHASE8_49_INOTIA1_EXP_TRACE_MANUALLY_ARMED
+Exact EXP marker: PHASE8_49_INOTIA1_EXP_EXACT_WRITE
+Entity reward write marker: PHASE8_49_INOTIA1_ENTITY_REWARD_WRITE
+Base: Phase 8.48 diagnostics; Phase 8.46 10-item cash catalog preserved
+Repair scope: all monsters using the verified Inotia1 reward-constructor callsite (LR 0x00126245 -> helper 0x001281ec)

@@ -86,16 +86,19 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         let inotia1_exp_diag_available = aid == "010100D3" && pid == "PD005362";
         if inotia1_exp_diag_available {
-            // Phase 8.48: field testing identified both the exact player EXP word and the
+            // Phase 8.49: field testing identified both the exact player EXP word and the
             // entity-array reward field. Keep diagnostics disarmed until the player
             // arms them; then preserve the exact EXP watchpoint while also watching
             // word 0 of 0x424-byte entity slots during map/spawn initialization.
             core.set_inotia1_exp_diagnostics(false);
             tracing::info!(
-                "[PHASE8_48_RUNTIME_SENTINEL] WIPI Player Phase 8.48 active; Inotia1 exact EXP + entity base-reward spawn diagnostic available (read-only)"
+                "[PHASE8_49_RUNTIME_SENTINEL] WIPI Player Phase 8.49 active; global Inotia1 monster reward overflow repair + exact EXP/spawn diagnostics available"
             );
             tracing::info!(
-                "[PHASE8_48_INOTIA1_EXP_TRACE_AVAILABLE] watcher starts disarmed; press Arm/Reset EXP + Spawn Trace before changing maps to snapshot entity reward fields and capture their creation writes"
+                "[PHASE8_49_INOTIA1_REWARD_REPAIR_ACTIVE] automatic global monster reward wide-math repair enabled for the verified Inotia1 constructor path; diagnostics remain manually armed"
+            );
+            tracing::info!(
+                "[PHASE8_49_INOTIA1_EXP_TRACE_AVAILABLE] optional verification watcher starts disarmed; press Arm/Reset EXP + Spawn Trace to capture EXP/entity writes while testing the repair"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {
@@ -249,10 +252,10 @@ impl Emulator for KtfEmulator {
         self.core.set_inotia1_exp_diagnostics(armed);
         if armed {
             tracing::info!(
-                "[PHASE8_48_INOTIA1_EXP_TRACE_MANUALLY_ARMED] exact EXP watchpoint active at 0x00171040; entity slot-base reward watcher active for slots 1..31 at stride 0x424; filtered context watcher reset; exp_event_limit=600 entity_event_limit=512"
+                "[PHASE8_49_INOTIA1_EXP_TRACE_MANUALLY_ARMED] exact EXP watchpoint active at 0x00171040; entity slot-base reward watcher active for slots 1..31 at stride 0x424; filtered context watcher reset; exp_event_limit=600 entity_event_limit=512"
             );
         } else {
-            tracing::info!("[PHASE8_48_INOTIA1_EXP_TRACE_DISARMED] watcher disabled");
+            tracing::info!("[PHASE8_49_INOTIA1_EXP_TRACE_DISARMED] watcher disabled");
         }
         true
     }

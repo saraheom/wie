@@ -64,6 +64,16 @@ hash = "0d7726becf7260f4f0051779bacfdbf1"
 kind = "inotia1_revival_base_repair"
 pc = 0x00131cb3
 
+# Phase 8.49 — global Inotia1 monster base-reward overflow repair.
+# The original helper at 0x001281ec evaluates the reward formula with 32-bit
+# MULS and then signed division. Higher monster parameters overflow the signed
+# numerator (e.g. 수호물 K34 -> -3035). The hook reconstructs the exact
+# original result and the same formula with wide intermediates, substituting
+# only for the exact monster-constructor caller when the two diverge.
+[[entry.hook]]
+kind = "inotia1_reward_wide_math_repair"
+pc = 0x001281ed
+
 # Hash-keyed entries take precedence over the generic fallback, so retain the
 # same compiler-library/performance hooks that the validated Phase 8.37
 # Inotia1 baseline receives from the generic entry.
