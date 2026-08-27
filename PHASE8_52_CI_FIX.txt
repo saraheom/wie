@@ -1,0 +1,15 @@
+WIPI Player Phase 8.52 — TestFlight CI identity fix
+
+Runtime/gameplay version remains 0.1.52.
+
+Fixes only stale Phase 8.51 identity references in the Phase 8.52 GitHub Actions workflow/build metadata:
+- PHASE8_51_BUILD_ID.txt -> PHASE8_52_BUILD_ID.txt in both source guard blocks
+- PHASE8_51_BUILD_SENTINEL -> PHASE8_52_BUILD_SENTINEL
+- expected frontend sentinel synchronized with wie_web/public/phase8_52_build.txt
+
+Gameplay behavior remains the Phase 8.52 configuration:
+- 무기강화 주문서 x10
+- 방어구강화 주문서 x10
+- 힘의 조각 x10
+- 마법의 가지 x10
+- global Inotia1 reward overflow repair retained

@@ -7,7 +7,7 @@ c826ba51db549ceaecbf7fe3e446f9f996965f17e2dbcdc459762df87c3c40fc  ./.github/work
 ce9e8466bfc09c59cd4800943589fa666f7b4b893ae73a6f1c4699bc78097e7d  ./.github/workflows/dependabot.yaml
 2e11b933bd8beca769fe80103159e689d0120fc7b2b157626be9186c9c28809b  ./.github/workflows/ios-device-adhoc.yml
 e1aa08146478b2b2c1e031d2b309bbdae2155093e9a96920813b38687d5eb5de  ./.github/workflows/ios-smoke.yml
-3fd5c35e3fa91604c4fbde5dfa208dd0ddd2f1e9742fd06042b20a338fe2b59f  ./.github/workflows/ios-testflight.yml
+1bb0533be5f071b678e3d7d898971ae8ad98a8f138aec3ec898a8b2e5d78455a  ./.github/workflows/ios-testflight.yml
 a5139941b8d5c6f08f8386ba8478a9c2ef5a9b6b603d20fe0727a5f346b1032b  ./.github/workflows/release.yaml
 feb53fcebdd4eeeaf12f2da124e6f72e562035a9ec670901d2ade3f33f7d7322  ./.github/workflows/rust-audit.yaml
 c1cb491d8fbae300b0eb33a254897412c605424ccebff97eace2b506c2717484  ./.github/workflows/rust.yml
@@ -77,7 +77,8 @@ ac15e399e7569c61221bc5acc052465ec2f88e375146c5d8d4ad1dc0308f1987  ./PHASE8_40_BU
 e3d79e689234aacb778cb1cf321aed36d3ad56aa69f860499abd9f8c5806669a  ./PHASE8_47_BUILD_ID.txt
 488c47ab023919e661891e0881d2dddc66bc57b55e37014ec6440d0bbc4678f6  ./PHASE8_49_BUILD_ID.txt
 380cc8397363787549ff392e1d69c667bc9817cb0efe59183d08f09b1386a8b2  ./PHASE8_49_REWARD_FORMULA_VALIDATION.txt
-71c0d733e2c6ee3515698361555576af627884dfc8ad124ff5c1b5996bf44ef9  ./PHASE8_52_BUILD_ID.txt
+74d33f3329f37d9f31412dc33189411825b67d5bd5391ecc079e90ea40d5d9b7  ./PHASE8_52_BUILD_ID.txt
+9b87aa018ba0b2efddb8a1a8e5bc6da0e6cfb576869187c6e212e95cdf1e4f7f  ./PHASE8_52_CI_FIX.txt
 692ed1cb41317a13704607a60faa750ff334087e90be165d38ba34c2e0d40d34  ./PHASE8_9_1_METHOD_TABLE_COMPILE_FIX.diff
 5c6dad9508e044767beba81f9e99c7eba67f958f0debc3b4ce31c6506b938cb3  ./PHASE8_9_METHOD_TABLE.diff
 4ef6d901dd8f7d1d663411299246733da911ff47d48a0b494c3a7fbe9679fa0a  ./README.md
@@ -431,7 +432,7 @@ bc40dd03d69f762439be114721bf73d78bbdc1b7c13592cf3b01a5ef514fdc25  ./wie_wipi_c/s
 35962094969f7b070dade5526b161684d21272b801487bd0215b806672b7d1d1  ./wie_wipi_c/src/api/kernel.rs
 20c3dd99afd96ef818aa8cfdb5a4120a061fd6616939bfa5210448875f29a199  ./wie_wipi_c/src/api/media.rs
 6249ebca1557b5868ad7b9ada89180aa80a4bd3c059a08fa537870c75139ef0a  ./wie_wipi_c/src/api/misc.rs
-2efb7d4bade2b9dbcca406f0c6d9be4849c816a54f421c56a66784f81a9735a5  ./wie_wipi_c/src/api/net.rs
+2d73d783b45f660d964ff2b83356ebf834caa9761443e98c470f918676cad238  ./wie_wipi_c/src/api/net.rs
 82e15112715dd0973b93ea6970912483ccb9d4ae4b5c8f7a2c6db4a0f00524e3  ./wie_wipi_c/src/api/uic.rs
 6c2b7a289ac51fff8b8e1a3a16bb1c1b701c655c7b4285da184a411a7dbab0c2  ./wie_wipi_c/src/api/util.rs
 5eb5cb40e9e00ca1ddcf1ed178d14f83241fabe214a51e83b0ed4f3fcdfd06a5  ./wie_wipi_c/src/api.rs

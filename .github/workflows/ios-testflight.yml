@@ -194,7 +194,7 @@ jobs:
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
           grep -n '"version": "0.1.52"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.52' PHASE8_51_BUILD_ID.txt
+          grep -n 'WIPI Player Phase 8.52' PHASE8_52_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.52' >&2
             exit 1
@@ -385,7 +385,7 @@ jobs:
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
           grep -n '"version": "0.1.52"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.52' PHASE8_51_BUILD_ID.txt
+          grep -n 'WIPI Player Phase 8.52' PHASE8_52_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.52' >&2
             exit 1
@@ -481,7 +481,7 @@ jobs:
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_51_BUILD_SENTINEL=WIPI_PLAYER_0.1.52_STABLE_REWARD_REPAIR_ENHANCEMENT_SCROLLS_BULK_RESOURCES' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_52_BUILD_SENTINEL=WIPI_PLAYER_0.1.52_STABLE_REWARD_REPAIR_BULK_ENHANCEMENT_SCROLLS_BULK_RESOURCES' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"

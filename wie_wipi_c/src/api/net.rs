@@ -1139,7 +1139,7 @@ pub async fn socket_write(
         INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        // Phase 8.51 exposes one 11-record physical catalog below the title's
+        // Phase 8.52 exposes one 11-record physical catalog below the title's
         // validated 12-record capacity. Any stale/nonzero page request receives
         // the same frame, so page navigation cannot hide items or expand the
         // catalog beyond the fixed table.
