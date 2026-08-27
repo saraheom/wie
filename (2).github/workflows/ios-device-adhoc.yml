@@ -1,0 +1,211 @@
+name: iOS Device Ad Hoc IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_number:
+        description: "Optional iOS build number (leave blank to use the GitHub run number)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-device-adhoc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build signed iPhone IPA
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios
+
+      - name: Install Rust build tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,tauri-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build WIE WebAssembly frontend
+        run: npm run build:prod
+
+      - name: Install Apple project tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            arch -arm64 brew install xcodegen
+          fi
+
+          if ! command -v idevice_id >/dev/null 2>&1; then
+            arch -arm64 brew install libimobiledevice
+          fi
+
+          xcodegen --version
+          pod --version
+          idevice_id --version || true
+
+      - name: Validate Apple signing secrets
+        shell: bash
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+          for name in IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION APPLE_DEVELOPMENT_TEAM; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required GitHub Actions secret: $name"
+              missing=1
+            fi
+          done
+
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
+          echo "All required Apple signing secrets are present."
+
+      - name: Inspect provisioning profile metadata
+        shell: bash
+        env:
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+        run: |
+          set -euo pipefail
+
+          profile="$RUNNER_TEMP/WIPIPlayer.mobileprovision"
+          plist="$RUNNER_TEMP/WIPIPlayer-profile.plist"
+
+          printf '%s' "$IOS_MOBILE_PROVISION" | base64 --decode > "$profile"
+          security cms -D -i "$profile" > "$plist"
+
+          echo "Provisioning profile: $(/usr/libexec/PlistBuddy -c 'Print :Name' "$plist")"
+          echo "Team ID: $(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' "$plist")"
+          echo "App identifier: $(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$plist")"
+          echo "Expiration: $(/usr/libexec/PlistBuddy -c 'Print :ExpirationDate' "$plist")"
+
+          get_task_allow="$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:get-task-allow' "$plist" 2>/dev/null || true)"
+          provisioned_devices="$(/usr/libexec/PlistBuddy -c 'Print :ProvisionedDevices' "$plist" 2>/dev/null || true)"
+
+          if [[ -n "$get_task_allow" ]]; then
+            echo "get-task-allow: $get_task_allow"
+          fi
+
+          if [[ -n "$provisioned_devices" ]]; then
+            echo "Provisioned devices are present (UDIDs intentionally not printed)."
+          else
+            echo "::warning::No ProvisionedDevices array found. For direct iPhone installation, use an Ad Hoc provisioning profile that contains your registered device."
+          fi
+
+      - name: Generate the Tauri Apple project
+        working-directory: wie_app
+        env:
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: cargo tauri ios init --ci
+
+      - name: Resolve build number
+        id: build_number
+        shell: bash
+        env:
+          REQUESTED_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          if [[ -n "${REQUESTED_BUILD_NUMBER:-}" ]]; then
+            number="$REQUESTED_BUILD_NUMBER"
+          else
+            number="${GITHUB_RUN_NUMBER}"
+          fi
+
+          if [[ ! "$number" =~ ^[0-9]+$ ]]; then
+            echo "::error::Build number must contain digits only."
+            exit 1
+          fi
+
+          echo "number=$number" >> "$GITHUB_OUTPUT"
+          echo "Using iOS build number: $number"
+
+      - name: Build signed Ad Hoc IPA
+        working-directory: wie_app
+        shell: bash
+        env:
+          IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+          RUST_BACKTRACE: "1"
+        run: |
+          set -euo pipefail
+
+          cargo tauri ios build \
+            --target aarch64 \
+            --ci \
+            --export-method ad-hoc \
+            --build-number "${{ steps.build_number.outputs.number }}" \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Locate and package IPA
+        id: ipa
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Searching for generated IPA..."
+          find wie_app/gen/apple/build -type f -name '*.ipa' -print || true
+
+          ipa_path="$(find wie_app/gen/apple/build -type f -name '*.ipa' -print -quit)"
+
+          if [[ -z "$ipa_path" ]]; then
+            echo "::error::No IPA was produced."
+            find wie_app/gen/apple/build -maxdepth 7 -type f -print || true
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$ipa_path" "dist/WIPI-Player-iOS-AdHoc.ipa"
+
+          echo "source=$ipa_path" >> "$GITHUB_OUTPUT"
+          echo "IPA packaged: $ipa_path"
+          shasum -a 256 "dist/WIPI-Player-iOS-AdHoc.ipa"
+
+      - name: Upload signed IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-AdHoc
+          path: dist/WIPI-Player-iOS-AdHoc.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Apple project diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-Device-Diagnostics
+          path: |
+            wie_app/gen/apple
+            ${{ runner.temp }}/WIPIPlayer-profile.plist
+          if-no-files-found: ignore
+          retention-days: 7

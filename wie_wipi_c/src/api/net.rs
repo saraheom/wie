@@ -395,16 +395,15 @@ const INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: [u8; 7] = [
     0x00, // final flag
 ];
 
-// Phase 8.50 — stabilized offline catalog with bulk material purchases.
+// Phase 8.52 — stabilized offline catalog with bulk enhancement scrolls + bulk materials.
 //
-// Keep the proven utility entries, remove 초보용 용사의 인장 from the
-// normal cash shop, and retain the two material resources.  The command-30
-// record field is carried verbatim into the authentic command-31 BUY request;
-// use 10 for 힘의 조각 / 마법의 가지 so one purchase requests ten units while
-// every other item keeps the historical field value 1.  Prices remain zero.
-// This stays on one physical page and below the native 12-record capacity.
-const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 165] = [
-    0x00, 0xa5, 0x1e, 0x01, 0x00, 0x01, 0x09, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
+// Keep the Phase 8.50 utility/catalog behavior, add the two native enhancement
+// scroll items resolved from the title's original work.bar, and retain x10 for
+// 힘의 조각 / 마법의 가지.  The two enhancement scrolls and the two material items each use quantity 10; all other records keep quantity 1 and price 0.
+// Eleven records remain below the native 12-record capacity, so both
+// 부활주문서 and 축복받은 부활주문서 can remain available.
+const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 209] = [
+    0x00, 0xd1, 0x1e, 0x01, 0x00, 0x01, 0x0b, 0x06, 0xbd, 0xba, 0xc5, 0xb3,
     0xba, 0xcf, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0a, 0xba, 0xce, 0xc8, 0xb0,
     0xc1, 0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x01, 0x00, 0x00, 0x00, 0x00, 0x13,
     0xc3, 0xe0, 0xba, 0xb9, 0xb9, 0xde, 0xc0, 0xba, 0x20, 0xba, 0xce, 0xc8,
@@ -415,9 +414,13 @@ const INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: [u8; 165] = [
     0x01, 0x00, 0x00, 0x00, 0x00, 0x09, 0x31, 0x36, 0xc4, 0xad, 0x20, 0xb0,
     0xa1, 0xb9, 0xe6, 0x01, 0x00, 0x00, 0x00, 0x00, 0x0b, 0xbd, 0xba, 0xc5,
     0xb3, 0x20, 0xc3, 0xca, 0xb1, 0xe2, 0xc8, 0xad, 0x01, 0x00, 0x00, 0x00,
-    0x00, 0x09, 0xc8, 0xfb, 0xc0, 0xc7, 0x20, 0xc1, 0xb6, 0xb0, 0xa2, 0x0a,
-    0x00, 0x00, 0x00, 0x00, 0x0b, 0xb8, 0xb6, 0xb9, 0xfd, 0xc0, 0xc7, 0x20,
-    0xb0, 0xa1, 0xc1, 0xf6, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x0f, 0xb9, 0xab, 0xb1, 0xe2, 0xb0, 0xad, 0xc8, 0xad, 0x20, 0xc1,
+    0xd6, 0xb9, 0xae, 0xbc, 0xad, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x11, 0xb9,
+    0xe6, 0xbe, 0xee, 0xb1, 0xb8, 0xb0, 0xad, 0xc8, 0xad, 0x20, 0xc1, 0xd6,
+    0xb9, 0xae, 0xbc, 0xad, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x09, 0xc8, 0xfb,
+    0xc0, 0xc7, 0x20, 0xc1, 0xb6, 0xb0, 0xa2, 0x0a, 0x00, 0x00, 0x00, 0x00,
+    0x0b, 0xb8, 0xb6, 0xb9, 0xfd, 0xc0, 0xc7, 0x20, 0xb0, 0xa1, 0xc1, 0xf6,
+    0x0a, 0x00, 0x00, 0x00, 0x00,
 ];
 
 // Phase 8.38 — party-wipe emergency prayer catalog.
@@ -1136,7 +1139,7 @@ pub async fn socket_write(
         INOTIA1_EMERGENCY_PRAYER_CASH.store(false, Ordering::Relaxed);
     } else if head.len() >= 3 && head[2] == 0x1e {
         let requested_page = head.last().copied().unwrap_or(0);
-        // Phase 8.50 exposes one 9-record physical catalog below the title's
+        // Phase 8.51 exposes one 11-record physical catalog below the title's
         // validated 12-record capacity. Any stale/nonzero page request receives
         // the same frame, so page navigation cannot hide items or expand the
         // catalog beyond the fixed table.
@@ -1144,7 +1147,7 @@ pub async fn socket_write(
         queue_inotia1_cash_cmd30_page(0);
         queued_reason = Some("command30-complete-single-catalog");
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
-        let record_count = if emergency_prayer { 1 } else { 9 };
+        let record_count = if emergency_prayer { 1 } else { 11 };
         tracing::info!(
             "[PHASE8_40_INOTIA1_CASH_CATALOG] outbound command=30 len={len} requested_page={requested_page} emergency_prayer={emergency_prayer} -> compatibility_header=[0,1] records={record_count} capacity=12 overflow=none all price=0"
         );
@@ -1324,7 +1327,7 @@ pub async fn socket_read_ktf_legacy(
         state.phase = CASH_RX_CMD30_REENTRY;
         state.offset = 0;
         let emergency_prayer = INOTIA1_EMERGENCY_PRAYER_CASH.load(Ordering::Relaxed);
-        let record_count = if emergency_prayer { 1 } else { 9 };
+        let record_count = if emergency_prayer { 1 } else { 11 };
         tracing::info!(
             "[PHASE8_40_INOTIA1_FIRST_OPEN_CATALOG] command-4 finalize consumed -> emergency_prayer={emergency_prayer} compatibility_header=[0,1] records={record_count} capacity=12 overflow=none catalog immediately pending"
         );

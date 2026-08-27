@@ -1,0 +1,7 @@
+WIPI Player Phase 8.52
+TestFlight marketing version: 0.1.52
+Build sentinel: PHASE8_51_BUILD_SENTINEL=WIPI_PLAYER_0.1.52_STABLE_REWARD_REPAIR_ENHANCEMENT_SCROLLS_BULK_RESOURCES
+Runtime sentinel: PHASE8_52_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_52_INOTIA1_REWARD_OVERFLOW_REPAIR
+Cash catalog: 11 normal records; 무기강화 주문서 x10; 방어구강화 주문서 x10; 힘의 조각 x10; 마법의 가지 x10; 초보용 용사의 인장 removed
+Cleanup: manual EXP/spawn arm UI remains removed; normal reward-calculation logs remain suppressed

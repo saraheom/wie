@@ -1,0 +1,169 @@
+name: iOS Simulator Smoke Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - ios-port
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios-smoke.yml"
+  pull_request:
+    paths:
+      - "wie_app/**"
+      - "wie_web/**"
+      - "wie_backend/**"
+      - "wie_*/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/ios-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulator:
+    name: Build unsigned iOS Simulator app
+    runs-on: macos-15
+    timeout-minutes: 90
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown,aarch64-apple-ios-sim
+
+      - name: Install Rust build tools
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack,tauri-cli
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build WIE WebAssembly frontend
+        run: npm run build:prod
+
+      - name: Install Apple project tools
+        run: |
+          export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+      
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            arch -arm64 brew install xcodegen
+          fi
+      
+          if ! command -v idevice_id >/dev/null 2>&1; then
+            arch -arm64 brew install libimobiledevice
+          fi
+      
+          command -v xcodegen
+          command -v idevice_id
+          xcodegen --version
+          pod --version
+
+      - name: Generate the Tauri Apple project
+        working-directory: wie_app
+        run: cargo tauri ios init --ci
+
+      - name: Build iPhone Simulator app
+        working-directory: wie_app
+        shell: bash
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          set +e
+
+          cargo tauri ios build \
+            --target aarch64-sim \
+            --ci \
+            --debug \
+            --config '{"build":{"beforeBuildCommand":""}}'
+
+          tauri_status=$?
+
+          echo "Tauri command exited with status: $tauri_status"
+
+          app_path="$(find "$HOME/Library/Developer/Xcode/DerivedData" \
+            -type d \
+            -path '*Build/Products/debug-iphonesimulator/*.app' \
+            -print \
+            -quit)"
+
+          if [[ -z "$app_path" ]]; then
+            echo "The simulator app was not produced."
+            exit "$tauri_status"
+          fi
+
+          echo "Simulator app successfully produced at:"
+          echo "$app_path"
+
+          echo "SIMULATOR_APP_PATH=$app_path" >> "$GITHUB_ENV"
+
+      - name: Package simulator application
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SIMULATOR_APP_PATH:-}" ]]; then
+            echo "SIMULATOR_APP_PATH was not set."
+            exit 1
+          fi
+
+          if [[ ! -d "$SIMULATOR_APP_PATH" ]]; then
+            echo "Simulator app does not exist:"
+            echo "$SIMULATOR_APP_PATH"
+            exit 1
+          fi
+
+          mkdir -p dist
+
+          ditto -c -k \
+            --sequesterRsrc \
+            --keepParent \
+            "$SIMULATOR_APP_PATH" \
+            dist/WIPI-Player-iOS-Simulator.zip
+
+          echo "Packaged simulator app:"
+          echo "$SIMULATOR_APP_PATH"
+
+      - name: Upload simulator build
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-iOS-Simulator
+          path: dist/WIPI-Player-iOS-Simulator.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload generated Apple project on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: WIPI-Player-Apple-Project-Diagnostics
+          path: wie_app/gen/apple
+          if-no-files-found: ignore
+          retention-days: 7
