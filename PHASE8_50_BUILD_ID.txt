@@ -1,0 +1,8 @@
+WIPI Player Phase 8.50
+TestFlight marketing version: 0.1.50
+Build sentinel: PHASE8_50_BUILD_SENTINEL=WIPI_PLAYER_0.1.50_STABLE_REWARD_REPAIR_BULK_RESOURCES
+Runtime sentinel: PHASE8_50_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_50_INOTIA1_REWARD_OVERFLOW_REPAIR
+Cash catalog: 9 normal records; 힘의 조각 x10; 마법의 가지 x10; 초보용 용사의 인장 removed
+Cleanup: manual EXP/spawn arm UI removed; normal reward-calculation logs suppressed
+Gold: 100000-gold synthetic entry deferred until a game-native currency path is verified

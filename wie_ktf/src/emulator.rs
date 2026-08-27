@@ -86,19 +86,16 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         let inotia1_exp_diag_available = aid == "010100D3" && pid == "PD005362";
         if inotia1_exp_diag_available {
-            // Phase 8.49: field testing identified both the exact player EXP word and the
-            // entity-array reward field. Keep diagnostics disarmed until the player
-            // arms them; then preserve the exact EXP watchpoint while also watching
-            // word 0 of 0x424-byte entity slots during map/spawn initialization.
+            // Phase 8.50 stabilization: keep the proven EXP/entity diagnostic engine
+            // disarmed and retain it only as dormant internal support. Production UI
+            // no longer exposes the manual arm control. The automatic reward overflow
+            // repair remains independently active through the verified binary hook.
             core.set_inotia1_exp_diagnostics(false);
             tracing::info!(
-                "[PHASE8_49_RUNTIME_SENTINEL] WIPI Player Phase 8.49 active; global Inotia1 monster reward overflow repair + exact EXP/spawn diagnostics available"
+                "[PHASE8_50_RUNTIME_SENTINEL] WIPI Player Phase 8.50 active; stabilized global Inotia1 reward overflow repair + bulk resource cash catalog"
             );
             tracing::info!(
-                "[PHASE8_49_INOTIA1_REWARD_REPAIR_ACTIVE] automatic global monster reward wide-math repair enabled for the verified Inotia1 constructor path; diagnostics remain manually armed"
-            );
-            tracing::info!(
-                "[PHASE8_49_INOTIA1_EXP_TRACE_AVAILABLE] optional verification watcher starts disarmed; press Arm/Reset EXP + Spawn Trace to capture EXP/entity writes while testing the repair"
+                "[PHASE8_50_INOTIA1_REWARD_REPAIR_ACTIVE] automatic global monster reward wide-math repair enabled for the verified Inotia1 constructor path"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {

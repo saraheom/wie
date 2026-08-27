@@ -1,9 +1,9 @@
-# Phase 8.49 note
+# WIPI Player
 
-The current TestFlight workflow targets WIPI Player 0.1.49. Phase 8.49 is based directly on Phase 8.48 and preserves the confirmed Inotia1 cash-shop catalog (including `힘의 조각` and `마법의 가지`), save/revival compatibility, Inotia2 behavior, and the optional exact EXP/entity diagnostics.
+The current TestFlight workflow targets **WIPI Player 0.1.50 (Phase 8.50)**. This stabilization build is based directly on Phase 8.49 and preserves the verified Inotia1 global monster-reward overflow repair, save/revival compatibility, the established offline cash-shop protocol, and the existing Inotia2 compatibility/performance work.
 
-Phase 8.49 adds the first actual Inotia1 EXP repair. The original monster base-reward helper at guest `0x001281ec` performs its intermediate multiplications in signed 32-bit arithmetic. Higher monster parameters can overflow the numerator before the final signed division. The repair replaces that helper for the verified monster-constructor caller (`LR=0x00126245`) with the same formula evaluated using wide intermediates. It is global to the constructor path: it is not keyed to `수호물 K34`, a monster name, or a specific entity slot.
+Phase 8.50 cleans up the temporary EXP/spawn diagnostic UI and reduces reward logging to actual overflow repairs only. The normal Inotia1 cash catalog is now 9 records: the proven utility items plus `힘의 조각` and `마법의 가지`; `초보용 용사의 인장` has been removed. Each purchase of either material requests **10 units** through the game's authentic command-31 quantity byte.
 
-The hook always reconstructs the original wrapped result and the wide result. If they agree, the original value is returned unchanged. If they diverge, the wide result is returned and `PHASE8_49_INOTIA1_REWARD_OVERFLOW_REPAIR` is logged. The optional Arm/Reset EXP + Spawn Trace button remains available for verification, but the repair itself is automatic and does not require arming.
+A synthetic `100000 골드` entry is intentionally **not** included in this stabilization build. Gold is not represented as an ordinary cash-catalog inventory item, and a safe game-native currency update path has not yet been verified.
 
-See `FULL_REPO_PHASE8_49_README.md` for test instructions and the reconstructed formula.
+The iOS workflow builds the WIE WebAssembly core, packages the Tauri iOS application, signs it with the configured Apple credentials, verifies the final IPA metadata, and uploads it to TestFlight.

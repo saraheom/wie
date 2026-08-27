@@ -19,7 +19,7 @@ const en: Dict = {
   'player.display.note': "Screen size changes presentation only. The game's internal WIPI framebuffer remains unchanged.",
   'player.controls.note': 'Move and resize the D-pad and number pad. Portrait and landscape layouts are saved separately for this game.',
   'player.save.note': "Back up, restore, export, import, or erase this game's normal in-game save data.",
-  'diagnostics.title': 'Diagnostics (testing only)', 'diagnostics.armExp': 'Arm/Reset EXP + Spawn Trace', 'diagnostics.view': 'View Log', 'diagnostics.export': 'Export Log', 'diagnostics.clear': 'Clear',
+  'diagnostics.title': 'Diagnostics (testing only)', 'diagnostics.view': 'View Log', 'diagnostics.export': 'Export Log', 'diagnostics.clear': 'Clear',
   'controls.edit': 'Edit Controls', 'controls.hint': 'Drag the D-pad or number pad directly on the game screen.', 'controls.dpad': 'D-pad', 'controls.numpad': 'Number pad',
   'controls.size': 'Size', 'controls.spacing': 'Spacing', 'controls.opacity': 'Opacity', 'controls.starting': 'Starting layouts', 'controls.classic': 'Classic', 'controls.spacious': 'Spacious', 'controls.compact': 'Compact', 'controls.reset': 'Reset', 'controls.visible': 'Visible keys',
   'game.edit': 'Edit Game', 'game.displayName': 'Display name', 'game.cover': '🖼 Choose Custom Cover', 'game.saveChanges': 'Save Changes',
@@ -48,7 +48,7 @@ const ko: Dict = {
   'player.display.note': '화면 크기는 표시 크기만 변경하며 게임 내부 WIPI 프레임버퍼는 변경하지 않습니다.',
   'player.controls.note': '방향키와 숫자 키패드를 이동하고 크기를 조정할 수 있습니다. 세로/가로 레이아웃은 게임별로 따로 저장됩니다.',
   'player.save.note': '게임의 일반 세이브 데이터를 백업, 복원, 내보내기, 가져오기 또는 삭제할 수 있습니다.',
-  'diagnostics.title': '진단 로그 (테스트 전용)', 'diagnostics.armExp': 'EXP + 생성 추적 시작/초기화', 'diagnostics.view': '로그 보기', 'diagnostics.export': '로그 내보내기', 'diagnostics.clear': '지우기',
+  'diagnostics.title': '진단 로그 (테스트 전용)', 'diagnostics.view': '로그 보기', 'diagnostics.export': '로그 내보내기', 'diagnostics.clear': '지우기',
   'controls.edit': '조작키 편집', 'controls.hint': '게임 화면에서 방향키 또는 숫자 키패드를 직접 드래그하세요.', 'controls.dpad': '방향키', 'controls.numpad': '숫자 키패드',
   'controls.size': '크기', 'controls.spacing': '간격', 'controls.opacity': '투명도', 'controls.starting': '기본 레이아웃', 'controls.classic': '기본', 'controls.spacious': '넓게', 'controls.compact': '좁게', 'controls.reset': '초기화', 'controls.visible': '표시할 키',
   'game.edit': '게임 편집', 'game.displayName': '표시 이름', 'game.cover': '🖼 커버 이미지 선택', 'game.saveChanges': '변경 저장',
@@ -88,7 +88,7 @@ export const applyTranslations = () => {
   setOption('#game-display-mode option[value="native"]','display.native'); setOption('#game-display-mode option[value="compact"]','display.compact'); setOption('#game-display-mode option[value="fit"]','display.fit'); setOption('#game-display-mode option[value="large"]','display.large'); setOption('#game-display-mode option[value="max"]','display.max');
   setText('#customize-controls','player.customize'); setText('#manage-saves','player.manageSaves');
   const playerNotes = document.querySelectorAll<HTMLElement>('#settings-panel .settings-note'); if(playerNotes[0]) playerNotes[0].textContent=t('player.display.note'); if(playerNotes[1]) playerNotes[1].textContent=t('player.controls.note'); if(playerNotes[2]) playerNotes[2].textContent=t('player.save.note');
-  setText('#debug-arm-exp-trace','diagnostics.armExp'); setText('#debug-view-log','diagnostics.view'); setText('#debug-export-log','diagnostics.export'); setText('#debug-clear-log','diagnostics.clear');
+  setText('#debug-view-log','diagnostics.view'); setText('#debug-export-log','diagnostics.export'); setText('#debug-clear-log','diagnostics.clear');
   setText('#control-editor .control-editor-header strong','controls.edit'); setText('.control-editor-hint','controls.hint'); setText('#control-pad-direction','controls.dpad'); setText('#control-pad-number','controls.numpad'); setText('.control-editor-presets > span','controls.starting'); setText('#control-preset-classic','controls.classic'); setText('#control-preset-spacious','controls.spacious'); setText('#control-preset-compact','controls.compact'); setText('#control-reset','controls.reset'); setText('.control-key-visibility-details summary','controls.visible'); setText('#control-editor-done','common.done');
   setText('#game-editor-title','game.edit'); setText('.editor-field > span','game.displayName'); setText('#game-editor-cover','game.cover'); setText('#game-editor-cancel','common.cancel'); setText('#game-editor-save','game.saveChanges');
   setText('#action-play','actions.play'); setText('#action-edit','actions.edit'); setText('#action-favorite','actions.favorite'); setText('#action-display','actions.display'); setText('#action-controls','actions.controls'); setText('#action-saves','actions.saves'); setText('#action-cover','actions.cover'); setText('#action-export-game','actions.export'); setText('#action-delete','actions.delete');
