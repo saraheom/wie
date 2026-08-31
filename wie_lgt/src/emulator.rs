@@ -96,8 +96,9 @@ impl LgtEmulator {
         // semantics are unchanged.
         if aid == "00026DBF" && pid == "PD112525" {
             core.set_native_loop_trace_chunks(256);
+            core.set_oz_svc_hang_diagnostics(true);
             tracing::info!(
-                "[PHASE8_62_OZ_HANG_PROBE] native_loop_trace_chunks=256 run_slice_instructions=1000 (~256k instructions before one-shot trace)"
+                "[PHASE8_63_OZ_HANG_PROBE] native_loop_trace_chunks=256 run_slice_instructions=1000 svc_boundary_trace=true"
             );
         }
         let system = System::new(platform, pid, aid, LgtTaskRunner { core: core.clone() });

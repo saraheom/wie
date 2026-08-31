@@ -54,6 +54,8 @@ pub(crate) struct ArmCoreInner {
     // the quiet 16,384-chunk production value; exact-title diagnostics may
     // lower it temporarily without changing execution semantics.
     native_loop_trace_chunks: u32,
+    // Phase 8.63: exact-title OZ host/SVC boundary tracer.
+    oz_svc_hang_diagnostics: bool,
 }
 
 impl Drop for ArmCoreInner {
@@ -111,6 +113,7 @@ impl ArmCore {
             run_slice_instructions: 1000,
             log_thread_lifecycle: true,
             native_loop_trace_chunks: 16_384,
+            oz_svc_hang_diagnostics: false,
         };
 
         let result = Self {
@@ -145,6 +148,12 @@ impl ArmCore {
     /// scheduling, or guest-visible timing APIs.
     pub fn set_native_loop_trace_chunks(&mut self, chunks: u32) {
         self.inner.lock().native_loop_trace_chunks = chunks.max(1);
+    }
+
+    /// Phase 8.63: trace host/SVC boundaries for the exact OZ LGT title.
+    /// Logging only; no guest-visible execution semantics are changed.
+    pub fn set_oz_svc_hang_diagnostics(&mut self, enabled: bool) {
+        self.inner.lock().oz_svc_hang_diagnostics = enabled;
     }
 
     /// Phase 8.46 manual-arm diagnostic switch. This is deliberately enabled by the KTF
@@ -369,11 +378,23 @@ impl ArmCore {
                 }
                 EngineRunResult::Svc { category, lr, spsr } => {
                     consecutive_count_exhausted = 0;
-                    {
+                    let oz_svc_hang_diagnostics = {
                         let mut inner = self.inner.lock();
                         // Restore the pre-exception execution state before running the Rust SVC handler.
                         inner.engine.reg_write(ArmRegister::Cpsr, spsr);
                         inner.engine.reg_write(ArmRegister::PC, lr);
+                        inner.oz_svc_hang_diagnostics
+                    };
+
+                    if oz_svc_hang_diagnostics {
+                        let pc = self.read_pc_lr().map(|x| x.0).unwrap_or(0);
+                        let r0 = self.read_param(0).unwrap_or(0);
+                        let r1 = self.read_param(1).unwrap_or(0);
+                        let r2 = self.read_param(2).unwrap_or(0);
+                        let r3 = self.read_param(3).unwrap_or(0);
+                        tracing::info!(
+                            "[PHASE8_63_OZ_SVC_ENTRY] category={category:#x} svc_lr={lr:#010x} pc={pc:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}"
+                        );
                     }
 
                     let function = {
@@ -386,7 +407,15 @@ impl ArmCore {
                     };
 
                     let mut self1 = self.clone();
-                    if let Err(error) = function.call(&mut self1).await {
+                    let svc_result = function.call(&mut self1).await;
+                    if oz_svc_hang_diagnostics {
+                        let (pc, current_lr) = self1.read_pc_lr().unwrap_or((0, 0));
+                        tracing::info!(
+                            "[PHASE8_63_OZ_SVC_RETURN] category={category:#x} svc_lr={lr:#010x} pc={pc:#010x} lr={current_lr:#010x} ok={}",
+                            svc_result.is_ok()
+                        );
+                    }
+                    if let Err(error) = svc_result {
                         if matches!(&error, WieError::InvalidMemoryAccess(_)) {
                             let (pc, current_lr) = self1.read_pc_lr().unwrap_or((0, 0));
                             let r0 = self1.read_param(0).unwrap_or(0);
