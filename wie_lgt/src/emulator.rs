@@ -98,7 +98,7 @@ impl LgtEmulator {
             core.set_native_loop_trace_chunks(256);
             core.set_oz_svc_hang_diagnostics(true);
             tracing::info!(
-                "[PHASE8_64_OZ_JAVA_DISPATCH_PROBE] dynamic_java_method_names=true svc_boundary_trace=debug"
+                "[PHASE8_65_OZ_FIND_RESOURCE_PROBE] urlclassloader_findresource=true url_getfile_return_probe=true object_word_snapshots=true"
             );
         }
         let system = System::new(platform, pid, aid, LgtTaskRunner { core: core.clone() });
