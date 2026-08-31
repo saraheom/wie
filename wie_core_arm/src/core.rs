@@ -386,7 +386,20 @@ impl ArmCore {
                     };
 
                     let mut self1 = self.clone();
-                    function.call(&mut self1).await?;
+                    if let Err(error) = function.call(&mut self1).await {
+                        if matches!(&error, WieError::InvalidMemoryAccess(_)) {
+                            let (pc, current_lr) = self1.read_pc_lr().unwrap_or((0, 0));
+                            let r0 = self1.read_param(0).unwrap_or(0);
+                            let r1 = self1.read_param(1).unwrap_or(0);
+                            let r2 = self1.read_param(2).unwrap_or(0);
+                            let r3 = self1.read_param(3).unwrap_or(0);
+                            tracing::error!(
+                                "[PHASE8_57_ARM_SVC_FAULT] category={category:#x} svc_lr={lr:#010x} error={} pc={pc:#010x} lr={current_lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}",
+                                error
+                            );
+                        }
+                        return Err(error);
+                    }
                 }
             }
         }

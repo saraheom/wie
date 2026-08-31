@@ -52,7 +52,7 @@ pub fn get_java_interface_method(core: &mut ArmCore, function_index: u32) -> Res
         0xe2 => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::GetStringArrayClass)?,
         0xfa => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::StoreReferenceArrayUnchecked)?,
         _ => {
-            tracing::error!("[PHASE8_56_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
+            tracing::error!("[PHASE8_57_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
             return Err(WieError::FatalError(format!("Unknown lgt java import: {function_index:#x}")));
         }
     })
@@ -498,7 +498,7 @@ async fn link_class_members(
 
     if link.interface_method_count != 0 {
         tracing::info!(
-            "[PHASE8_56_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
+            "[PHASE8_57_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
             link.interface_method_count,
             link.interface_method_offset,
             link.interface_method_offset + link.interface_method_count
@@ -508,7 +508,7 @@ async fn link_class_members(
         let (name, descriptor) = read_member_name_and_descriptor(core, interface_method_imports, index)?;
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
         tracing::info!(
-            "[PHASE8_56_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
+            "[PHASE8_57_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
         );
         write_generic(core, interface_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
     }

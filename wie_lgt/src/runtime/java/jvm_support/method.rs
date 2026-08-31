@@ -85,7 +85,31 @@ impl JavaMethod {
         let codec = JavaValueCodec::new(&self.core);
         let raw_args = encode_method_arguments(&codec, &args);
 
-        let result: JavaMethodRunResult = self.core.clone().run_function(raw.ptr_method, &raw_args).await?;
+        let method_name = self.name();
+        let method_descriptor = self.descriptor();
+        let mut run_core = self.core.clone();
+        let result: JavaMethodRunResult = match run_core.run_function(raw.ptr_method, &raw_args).await {
+            Ok(result) => result,
+            Err(error) => {
+                if matches!(&error, WieError::InvalidMemoryAccess(_)) {
+                    let (pc, lr) = run_core.read_pc_lr().unwrap_or((0, 0));
+                    let r0 = run_core.read_param(0).unwrap_or(0);
+                    let r1 = run_core.read_param(1).unwrap_or(0);
+                    let r2 = run_core.read_param(2).unwrap_or(0);
+                    let r3 = run_core.read_param(3).unwrap_or(0);
+                    let code_base = pc.saturating_sub(16) & !3;
+                    let code_words = (0..12)
+                        .map(|index| read_generic::<u32, _>(&run_core, code_base + index * 4).unwrap_or(0))
+                        .collect::<Vec<_>>();
+                    tracing::error!(
+                        "[PHASE8_57_LGT_AOT_METHOD_FAULT] method={method_name}{method_descriptor} entry={:#010x} error={} pc={pc:#010x} lr={lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x} raw_args={raw_args:?} code_base={code_base:#010x} code_words={code_words:x?}",
+                        raw.ptr_method,
+                        error
+                    );
+                }
+                return Err(error);
+            }
+        };
 
         if matches!(return_type, JavaType::Double | JavaType::Long) {
             Ok(codec.decode_wide(result.low, result.high, &return_type))
