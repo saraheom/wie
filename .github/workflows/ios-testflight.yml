@@ -149,9 +149,9 @@ jobs:
           grep -n 'PHASE8_60_LGT_CLASS_INIT_REENTRANT' wie_lgt/src/runtime/java/interface.rs
           grep -n 'PHASE8_61_LGT_IS_ASSIGNABLE_ENTRY' wie_lgt/src/runtime/java/interface.rs
           grep -n 'PHASE8_61_LGT_THROW_EXCEPTION' wie_lgt/src/runtime/java/interface.rs
-          grep -n 'PHASE8_63_OZ_HANG_PROBE' wie_lgt/src/emulator.rs
-          grep -n 'PHASE8_63_OZ_SVC_ENTRY' wie_core_arm/src/core.rs
-          grep -n 'PHASE8_63_OZ_SVC_RETURN' wie_core_arm/src/core.rs
+          grep -n 'PHASE8_64_OZ_JAVA_DISPATCH_PROBE' wie_lgt/src/emulator.rs
+          grep -n 'PHASE8_64_OZ_JAVA_CALL_ENTRY' wie_lgt/src/runtime/java.rs
+          grep -n 'PHASE8_64_OZ_JAVA_CALL_RETURN' wie_lgt/src/runtime/java.rs
           grep -n 'PHASE8_62_OZ_NETWORK_CONNECT' wie_wipi_java/src/classes/org/kwis/msf/io/network.rs
           grep -n 'CLASS_STATE_INITIALIZING: i32 = 4' wie_lgt/src/runtime/java/interface.rs
           grep -n 'PHASE8_60_LGT_LINK_CLASS_BEGIN' wie_lgt/src/runtime/java/interface.rs
@@ -229,7 +229,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.63"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.64"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -450,7 +450,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.63"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.64"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -526,8 +526,8 @@ jobs:
           grep -a -q 'PHASE8_60_LGT_CLASS_INIT_REENTRANT' "$RAW_WASM"
           grep -a -q 'PHASE8_61_LGT_IS_ASSIGNABLE_ENTRY' "$RAW_WASM"
           grep -a -q 'PHASE8_61_LGT_THROW_EXCEPTION' "$RAW_WASM"
-          grep -a -q 'PHASE8_63_OZ_HANG_PROBE' "$RAW_WASM"
-          grep -a -q 'PHASE8_63_OZ_SVC_ENTRY' "$RAW_WASM"
+          grep -a -q 'PHASE8_64_OZ_JAVA_DISPATCH_PROBE' "$RAW_WASM"
+          grep -a -q 'PHASE8_64_OZ_JAVA_CALL_ENTRY' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
@@ -554,8 +554,8 @@ jobs:
           grep -a -q 'PHASE8_60_LGT_CLASS_INIT_REENTRANT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-init re-entrancy marker.'; exit 1; }
           grep -a -q 'PHASE8_61_LGT_IS_ASSIGNABLE_ENTRY' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.61 LGT assignability marker.'; exit 1; }
           grep -a -q 'PHASE8_61_LGT_THROW_EXCEPTION' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.61 LGT throw marker.'; exit 1; }
-          grep -a -q 'PHASE8_63_OZ_HANG_PROBE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.63 OZ hang marker.'; exit 1; }
-          grep -a -q 'PHASE8_63_OZ_SVC_ENTRY' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.63 OZ SVC marker.'; exit 1; }
+          grep -a -q 'PHASE8_64_OZ_JAVA_DISPATCH_PROBE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.64 OZ Java dispatch marker.'; exit 1; }
+          grep -a -q 'PHASE8_64_OZ_JAVA_CALL_ENTRY' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.64 OZ Java-call marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-link localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT vtable localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
@@ -569,19 +569,19 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_63_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_64_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.63 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.64 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_63_BUILD_SENTINEL=WIPI_PLAYER_0.1.63_OZ_LGT_SVC_HANG_LOCALIZATION' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_64_BUILD_SENTINEL=WIPI_PLAYER_0.1.64_OZ_LGT_JAVA_DISPATCH_LOCALIZATION' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.63 OZ SVC-hang localization runtime and frontend build marker.'
+          echo 'Verified Phase 8.64 OZ Java-dispatch localization runtime and frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
@@ -777,12 +777,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.63" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.63."
+          if [[ "$APP_VERSION" != "0.1.64" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.64."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.63.85), rather than the bare numeric build number.
+          # (for example 0.1.64.85), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then

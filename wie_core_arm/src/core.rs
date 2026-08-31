@@ -392,7 +392,7 @@ impl ArmCore {
                         let r1 = self.read_param(1).unwrap_or(0);
                         let r2 = self.read_param(2).unwrap_or(0);
                         let r3 = self.read_param(3).unwrap_or(0);
-                        tracing::info!(
+                        tracing::debug!(
                             "[PHASE8_63_OZ_SVC_ENTRY] category={category:#x} svc_lr={lr:#010x} pc={pc:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}"
                         );
                     }
@@ -410,7 +410,7 @@ impl ArmCore {
                     let svc_result = function.call(&mut self1).await;
                     if oz_svc_hang_diagnostics {
                         let (pc, current_lr) = self1.read_pc_lr().unwrap_or((0, 0));
-                        tracing::info!(
+                        tracing::debug!(
                             "[PHASE8_63_OZ_SVC_RETURN] category={category:#x} svc_lr={lr:#010x} pc={pc:#010x} lr={current_lr:#010x} ok={}",
                             svc_result.is_ok()
                         );
