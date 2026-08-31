@@ -1,4 +1,4 @@
-name: iOS TestFlight — Phase 8.53
+name: iOS TestFlight — Phase 8.54
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Force clean Phase 8.53 WIE WebAssembly core
+      - name: Force clean Phase 8.54 WIE WebAssembly core
         shell: bash
         run: |
           set -euo pipefail
@@ -114,8 +114,8 @@ jobs:
           grep -n 'PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_36_INOTIA1_PARTY_WIPE_INPUT_PROBE' wie_ktf/src/emulator.rs; then echo 'Phase 8.36 per-keydown party-wipe probe is still present' >&2; exit 1; fi
           grep -n '0x00, 0xd1, 0x1e, 0x01, 0x00, 0x01, 0x0b' wie_wipi_c/src/api/net.rs
-          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.53' >&2; exit 1; fi
-          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.53' >&2; exit 1; fi
+          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.54' >&2; exit 1; fi
+          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.54' >&2; exit 1; fi
           grep -n 'PHASE8_40_INOTIA1_CASH_EXIT_CLEANUP' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD123_CLEANUP_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_34_INOTIA1_PAGE_GLOBALS' wie_wipi_c/src/api/net.rs
@@ -141,21 +141,24 @@ jobs:
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: \[u8; 209\]' wie_wipi_c/src/api/net.rs
           grep -n 'let record_count = if emergency_prayer { 1 } else { 11 };' wie_wipi_c/src/api/net.rs
-          python3 tools/verify_phase8_53_catalog.py
-          grep -n 'PHASE8_53_LGT_INTERFACE_LINK' wie_lgt/src/runtime/java/interface.rs
+          python3 tools/verify_phase8_54_catalog.py
+          grep -n 'PHASE8_54_LGT_INTERFACE_LINK' wie_lgt/src/runtime/java/interface.rs
+          grep -n 'JavaMethodProto::new("getCurrentMode", "()I"' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
+          grep -n 'JavaFieldProto::new("currentMode", "I"' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
+          grep -n 'PHASE8_54_WIPI_INPUT_METHOD_MODE' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
           grep -n 'for index in link.interface_method_offset..link.interface_method_offset + link.interface_method_count' wie_lgt/src/runtime/java/interface.rs
           if grep -Fq 'Interface method linking is not implemented' wie_lgt/src/runtime/java/interface.rs; then echo '::error::Old fatal LGT interface-method guard is still present.'; exit 1; fi
-          grep -n 'PHASE8_53_LGT_STARTUP_ERROR' wie_lgt/src/emulator.rs
-          grep -n 'PHASE8_53_LGT_INITIALIZER_ERROR' wie_lgt/src/runtime/init.rs
-          grep -n 'PHASE8_53_LGT_UNSUPPORTED_JAVA_IMPORT' wie_lgt/src/runtime/java/interface.rs
+          grep -n 'PHASE8_54_LGT_STARTUP_ERROR' wie_lgt/src/emulator.rs
+          grep -n 'PHASE8_54_LGT_INITIALIZER_ERROR' wie_lgt/src/runtime/init.rs
+          grep -n 'PHASE8_54_LGT_UNSUPPORTED_JAVA_IMPORT' wie_lgt/src/runtime/java/interface.rs
           grep -n 'INOTIA1_CASH_CMD30_EMERGENCY_PRAYER_FREE: \[u8; 26\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_WIPE_CASH_STATE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_WIPE_CASH_CANCEL_RECOVERY' wie_wipi_c/src/api/net.rs
           grep -n 'state == 14' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x25c, 11)' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x5f8, 0)' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_53_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_53_INOTIA1_REWARD_REPAIR_ACTIVE' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_54_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_54_INOTIA1_REWARD_REPAIR_ACTIVE' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_diagnostics(false)' wie_ktf/src/emulator.rs
           grep -n 'fn set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool' wie_web/src/rust/lib.rs
@@ -189,7 +192,7 @@ jobs:
           grep -n 'PHASE8_39_ARM_FAULT_CONTEXT' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'PHASE8_40_INOTIA1_PRAYER_PURCHASE_HANDOFF' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_REVIVAL_CONTEXT_REPAIR' wie_core_arm/src/binary_patches/hook.rs
-          grep -n 'PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR' wie_core_arm/src/binary_patches/hook.rs
+          grep -n 'PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_49_INOTIA1_REWARD_WIDE_MATH' wie_core_arm/src/binary_patches/hook.rs; then echo 'Noisy Phase 8.49 per-spawn reward logging is still enabled' >&2; exit 1; fi
           if grep -R -q 'debug-arm-exp-trace\|diagnostics.armExp' wie_web/src; then echo 'Temporary manual EXP/spawn arm UI is still present' >&2; exit 1; fi
           grep -n 'inotia1_reward_original_wrapped' wie_core_arm/src/binary_patches/hook.rs
@@ -199,10 +202,10 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.53"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.53' PHASE8_53_BUILD_ID.txt
+          grep -n '"version": "0.1.54"' wie_app/tauri.conf.json
+          grep -n 'WIPI Player Phase 8.54' PHASE8_54_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
-            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.53' >&2
+            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.54' >&2
             exit 1
           fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
@@ -253,7 +256,7 @@ jobs:
       - name: Build WIE WebAssembly frontend
         run: npm run build:prod
 
-      - name: Verify Phase 8.53 core source was selected
+      - name: Verify Phase 8.54 core source was selected
         shell: bash
         run: |
           set -euo pipefail
@@ -311,8 +314,8 @@ jobs:
           grep -n 'PHASE8_36_INOTIA1_MAIN_NAME_CALLSITE_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_36_INOTIA1_PARTY_WIPE_INPUT_PROBE' wie_ktf/src/emulator.rs; then echo 'Phase 8.36 per-keydown party-wipe probe is still present' >&2; exit 1; fi
           grep -n '0x00, 0xd1, 0x1e, 0x01, 0x00, 0x01, 0x0b' wie_wipi_c/src/api/net.rs
-          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.53' >&2; exit 1; fi
-          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.53' >&2; exit 1; fi
+          if grep -Fq '        phase8_34_probe_and_repair_inotia1_names(context)?;' wie_wipi_c/src/api/net.rs; then echo 'Broad Phase 8.34 heap/GOT name scan is still called in Phase 8.54' >&2; exit 1; fi
+          if grep -Fq 'crate::api::net::phase8_35_try_repair_main_name_native(context)?' wie_wipi_c/src/api/graphics.rs; then echo 'Phase 8.35 repaint-time native name scan is still called in Phase 8.54' >&2; exit 1; fi
           grep -n 'PHASE8_40_INOTIA1_CASH_EXIT_CLEANUP' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CMD123_CLEANUP_SUCCESS: \[u8; 4\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_34_INOTIA1_PAGE_GLOBALS' wie_wipi_c/src/api/net.rs
@@ -338,21 +341,24 @@ jobs:
           grep -n 'INOTIA1_CASH_CMD5_STAGE4_FINALIZE_EMPTY: \[u8; 7\]' wie_wipi_c/src/api/net.rs
           grep -n 'INOTIA1_CASH_CMD30_CATALOG_SINGLE_PAGE_FREE: \[u8; 209\]' wie_wipi_c/src/api/net.rs
           grep -n 'let record_count = if emergency_prayer { 1 } else { 11 };' wie_wipi_c/src/api/net.rs
-          python3 tools/verify_phase8_53_catalog.py
-          grep -n 'PHASE8_53_LGT_INTERFACE_LINK' wie_lgt/src/runtime/java/interface.rs
+          python3 tools/verify_phase8_54_catalog.py
+          grep -n 'PHASE8_54_LGT_INTERFACE_LINK' wie_lgt/src/runtime/java/interface.rs
+          grep -n 'JavaMethodProto::new("getCurrentMode", "()I"' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
+          grep -n 'JavaFieldProto::new("currentMode", "I"' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
+          grep -n 'PHASE8_54_WIPI_INPUT_METHOD_MODE' wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
           grep -n 'for index in link.interface_method_offset..link.interface_method_offset + link.interface_method_count' wie_lgt/src/runtime/java/interface.rs
           if grep -Fq 'Interface method linking is not implemented' wie_lgt/src/runtime/java/interface.rs; then echo '::error::Old fatal LGT interface-method guard is still present.'; exit 1; fi
-          grep -n 'PHASE8_53_LGT_STARTUP_ERROR' wie_lgt/src/emulator.rs
-          grep -n 'PHASE8_53_LGT_INITIALIZER_ERROR' wie_lgt/src/runtime/init.rs
-          grep -n 'PHASE8_53_LGT_UNSUPPORTED_JAVA_IMPORT' wie_lgt/src/runtime/java/interface.rs
+          grep -n 'PHASE8_54_LGT_STARTUP_ERROR' wie_lgt/src/emulator.rs
+          grep -n 'PHASE8_54_LGT_INITIALIZER_ERROR' wie_lgt/src/runtime/init.rs
+          grep -n 'PHASE8_54_LGT_UNSUPPORTED_JAVA_IMPORT' wie_lgt/src/runtime/java/interface.rs
           grep -n 'INOTIA1_CASH_CMD30_EMERGENCY_PRAYER_FREE: \[u8; 26\]' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_WIPE_CASH_STATE' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_WIPE_CASH_CANCEL_RECOVERY' wie_wipi_c/src/api/net.rs
           grep -n 'state == 14' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x25c, 11)' wie_wipi_c/src/api/net.rs
           grep -n 'write_inotia1_got_u32(context, r10, 0x5f8, 0)' wie_wipi_c/src/api/net.rs
-          grep -n 'PHASE8_53_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
-          grep -n 'PHASE8_53_INOTIA1_REWARD_REPAIR_ACTIVE' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_54_RUNTIME_SENTINEL' wie_ktf/src/emulator.rs
+          grep -n 'PHASE8_54_INOTIA1_REWARD_REPAIR_ACTIVE' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_diagnostics(false)' wie_ktf/src/emulator.rs
           grep -n 'fn set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool' wie_ktf/src/emulator.rs
           grep -n 'set_inotia1_exp_trace_armed(&mut self, armed: bool) -> bool' wie_web/src/rust/lib.rs
@@ -386,7 +392,7 @@ jobs:
           grep -n 'PHASE8_39_ARM_FAULT_CONTEXT' wie_core_arm/src/engine/arm32_cpu.rs
           grep -n 'PHASE8_40_INOTIA1_PRAYER_PURCHASE_HANDOFF' wie_wipi_c/src/api/net.rs
           grep -n 'PHASE8_40_INOTIA1_REVIVAL_CONTEXT_REPAIR' wie_core_arm/src/binary_patches/hook.rs
-          grep -n 'PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR' wie_core_arm/src/binary_patches/hook.rs
+          grep -n 'PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR' wie_core_arm/src/binary_patches/hook.rs
           if grep -q 'PHASE8_49_INOTIA1_REWARD_WIDE_MATH' wie_core_arm/src/binary_patches/hook.rs; then echo 'Noisy Phase 8.49 per-spawn reward logging is still enabled' >&2; exit 1; fi
           if grep -R -q 'debug-arm-exp-trace\|diagnostics.armExp' wie_web/src; then echo 'Temporary manual EXP/spawn arm UI is still present' >&2; exit 1; fi
           grep -n 'inotia1_reward_original_wrapped' wie_core_arm/src/binary_patches/hook.rs
@@ -396,10 +402,10 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.53"' wie_app/tauri.conf.json
-          grep -n 'WIPI Player Phase 8.53' PHASE8_53_BUILD_ID.txt
+          grep -n '"version": "0.1.54"' wie_app/tauri.conf.json
+          grep -n 'WIPI Player Phase 8.54' PHASE8_54_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
-            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.53' >&2
+            echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.54' >&2
             exit 1
           fi
           grep -n 'PHASE8_30_INOTIA2_STARTUP_MENU_PROBE' wie_ktf/src/emulator.rs
@@ -454,22 +460,23 @@ jobs:
           grep -n 'INOTIA2_KTF_REQUIRED_ACCESS_MASK: WIPICWord = 0xBC' wie_ktf/src/runtime/wipi_c/method_table.rs
           grep -n '010100D5/010100D5.jar' wie_ktf/src/runtime/wipi_c/method_table.rs
           if grep -q 'PHASE8_16_INOTIA2_INSTALL_VERIFY_BYPASS' wie_ktf/src/runtime/init.rs; then echo 'obsolete Phase 8.16 install verifier patch still present' >&2; exit 1; fi
-          echo 'Phase 8.53 clean WASM build completed.'
+          echo 'Phase 8.54 clean WASM build completed.'
 
 
-      - name: Verify Phase 8.53 web runtime and build marker
-        id: phase851_web
+      - name: Verify Phase 8.54 web runtime and build marker
+        id: phase854_web
         shell: bash
         run: |
           set -euo pipefail
 
           RAW_WASM="wie_web/pkg/wie_web_bg.wasm"
           test -f "$RAW_WASM"
-          grep -a -q 'PHASE8_53_RUNTIME_SENTINEL' "$RAW_WASM"
-          grep -a -q 'PHASE8_53_LGT_INTERFACE_LINK' "$RAW_WASM"
-          grep -a -q 'PHASE8_53_LGT_STARTUP_ERROR' "$RAW_WASM"
-          grep -a -q 'PHASE8_53_INOTIA1_REWARD_REPAIR_ACTIVE' "$RAW_WASM"
-          grep -a -q 'PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_RUNTIME_SENTINEL' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_LGT_INTERFACE_LINK' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_LGT_STARTUP_ERROR' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_INOTIA1_REWARD_REPAIR_ACTIVE' "$RAW_WASM"
+          grep -a -q 'PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR' "$RAW_WASM"
           if grep -a -q 'PHASE8_49_INOTIA1_REWARD_WIDE_MATH' "$RAW_WASM"; then
             echo '::error::Raw WASM still contains noisy Phase 8.49 per-spawn reward logging.'
             exit 1
@@ -481,29 +488,30 @@ jobs:
             find wie_web/dist -maxdepth 3 -type f -print || true
             exit 1
           fi
-          grep -a -q 'PHASE8_53_RUNTIME_SENTINEL' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.53 runtime sentinel.'; exit 1; }
-          grep -a -q 'PHASE8_53_LGT_INTERFACE_LINK' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT interface-link marker.'; exit 1; }
-          grep -a -q 'PHASE8_53_LGT_STARTUP_ERROR' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT startup-error marker.'; exit 1; }
-          grep -a -q 'PHASE8_53_INOTIA1_REWARD_REPAIR_ACTIVE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing reward-repair active marker.'; exit 1; }
-          grep -a -q 'PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing overflow-repair marker.'; exit 1; }
+          grep -a -q 'PHASE8_54_RUNTIME_SENTINEL' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.54 runtime sentinel.'; exit 1; }
+          grep -a -q 'PHASE8_54_LGT_INTERFACE_LINK' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT interface-link marker.'; exit 1; }
+          grep -a -q 'PHASE8_54_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
+          grep -a -q 'PHASE8_54_LGT_STARTUP_ERROR' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT startup-error marker.'; exit 1; }
+          grep -a -q 'PHASE8_54_INOTIA1_REWARD_REPAIR_ACTIVE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing reward-repair active marker.'; exit 1; }
+          grep -a -q 'PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing overflow-repair marker.'; exit 1; }
           if grep -a -q 'PHASE8_49_INOTIA1_REWARD_WIDE_MATH' "$BUNDLED_WASM"; then
             echo '::error::Bundled WASM still contains noisy Phase 8.49 per-spawn reward logging.'
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_53_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_54_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.53 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.54 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_53_BUILD_SENTINEL=WIPI_PLAYER_0.1.53_LGT_INTERFACE_LINK_STARTUP_DIAGNOSTICS' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_54_BUILD_SENTINEL=WIPI_PLAYER_0.1.54_OZ_INPUT_METHOD_GETCURRENTMODE' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.53 stabilized runtime and frontend build marker.'
+          echo 'Verified Phase 8.54 stabilized runtime and frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
@@ -676,7 +684,7 @@ jobs:
           echo "IPA: $ipa_path"
           shasum -a 256 "dist/WIPI-Player-iOS-TestFlight.ipa"
 
-      - name: Verify Phase 8.53 package identity inside final IPA
+      - name: Verify Phase 8.54 package identity inside final IPA
         shell: bash
         run: |
           set -euo pipefail
@@ -699,12 +707,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.53" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.53."
+          if [[ "$APP_VERSION" != "0.1.54" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.54."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.53.85), rather than the bare numeric build number.
+          # (for example 0.1.54.85), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
@@ -717,7 +725,7 @@ jobs:
           fi
 
           echo "Verified final IPA identity: bundle=$APP_BUNDLE_ID version=$APP_VERSION build=$APP_BUILD"
-          echo 'Phase 8.53 runtime was already verified in the clean raw and webpack-emitted WASM before the fresh Tauri iOS build.'
+          echo 'Phase 8.54 runtime was already verified in the clean raw and webpack-emitted WASM before the fresh Tauri iOS build.'
 
       - name: Upload IPA as GitHub artifact
         uses: actions/upload-artifact@v7

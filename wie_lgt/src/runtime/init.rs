@@ -79,20 +79,20 @@ pub async fn load_native(core: &mut ArmCore, system: &mut System, jvm: &Jvm, jar
     tracing::debug!("ptr_init_param_2: {ptr_init_param_2:#x}");
 
     tracing::info!(
-        "[PHASE8_53_LGT_NATIVE_ENTRY] aid={} pid={} entrypoint={entrypoint:#010x} init_param1={ptr_init_param_1:#010x} init_param2={ptr_init_param_2:#010x}",
+        "[PHASE8_54_LGT_NATIVE_ENTRY] aid={} pid={} entrypoint={entrypoint:#010x} init_param1={ptr_init_param_1:#010x} init_param2={ptr_init_param_2:#010x}",
         system.aid(),
         system.pid()
     );
     let entry_result: Result<()> = core.run_function(entrypoint + 1, &[ptr_init_param_1, ptr_init_param_2, 0]).await;
     if let Err(error) = &entry_result {
-        tracing::error!("[PHASE8_53_LGT_ENTRY_ERROR] aid={} pid={} error={error}", system.aid(), system.pid());
+        tracing::error!("[PHASE8_54_LGT_ENTRY_ERROR] aid={} pid={} error={error}", system.aid(), system.pid());
     }
     entry_result?;
 
     let init_param_1: InitParam1 = read_generic(core, ptr_init_param_1)?;
     let init_struct: InitStruct = read_generic(core, init_param_1.ptr_init_struct)?;
     tracing::info!(
-        "[PHASE8_53_LGT_INIT_STRUCT] aid={} pid={} ptr={:#010x} fn_init={:#010x}",
+        "[PHASE8_54_LGT_INIT_STRUCT] aid={} pid={} ptr={:#010x} fn_init={:#010x}",
         system.aid(),
         system.pid(),
         init_param_1.ptr_init_struct,
@@ -102,14 +102,14 @@ pub async fn load_native(core: &mut ArmCore, system: &mut System, jvm: &Jvm, jar
     let init_result: Result<()> = core.run_function(init_struct.fn_init, &[]).await;
     if let Err(error) = &init_result {
         tracing::error!(
-            "[PHASE8_53_LGT_INITIALIZER_ERROR] aid={} pid={} fn_init={:#010x} error={error}",
+            "[PHASE8_54_LGT_INITIALIZER_ERROR] aid={} pid={} fn_init={:#010x} error={error}",
             system.aid(),
             system.pid(),
             init_struct.fn_init
         );
     }
     init_result?;
-    tracing::info!("[PHASE8_53_LGT_INITIALIZER_COMPLETE] aid={} pid={}", system.aid(), system.pid());
+    tracing::info!("[PHASE8_54_LGT_INITIALIZER_COMPLETE] aid={} pid={}", system.aid(), system.pid());
 
     Ok(())
 }
@@ -141,7 +141,7 @@ async fn get_import_function(core: &mut ArmCore, import_table: u32, function_ind
         (0x201, 0x03) => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::Unk3)?,
         _ => {
             tracing::error!(
-                "[PHASE8_53_LGT_UNSUPPORTED_IMPORT] table={import_table:#x} function_index={function_index:#x}"
+                "[PHASE8_54_LGT_UNSUPPORTED_IMPORT] table={import_table:#x} function_index={function_index:#x}"
             );
             return Err(WieError::FatalError(format!(
                 "Unknown import function: {import_table:#x}, {function_index:#x}"

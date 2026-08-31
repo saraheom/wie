@@ -86,16 +86,16 @@ impl KtfEmulator {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
         let inotia1_exp_diag_available = aid == "010100D3" && pid == "PD005362";
         if inotia1_exp_diag_available {
-            // Phase 8.53 stabilization: keep the proven EXP/entity diagnostic engine
+            // Phase 8.54 stabilization: keep the proven EXP/entity diagnostic engine
             // disarmed and retain it only as dormant internal support. Production UI
             // no longer exposes the manual arm control. The automatic reward overflow
             // repair remains independently active through the verified binary hook.
             core.set_inotia1_exp_diagnostics(false);
             tracing::info!(
-                "[PHASE8_53_RUNTIME_SENTINEL] WIPI Player Phase 8.53 active; stabilized global Inotia1 reward overflow repair + enhancement-scroll/bulk-resource cash catalog"
+                "[PHASE8_54_RUNTIME_SENTINEL] WIPI Player Phase 8.54 active; stabilized global Inotia1 reward overflow repair + enhancement-scroll/bulk-resource cash catalog"
             );
             tracing::info!(
-                "[PHASE8_53_INOTIA1_REWARD_REPAIR_ACTIVE] automatic global monster reward wide-math repair enabled for the verified Inotia1 constructor path"
+                "[PHASE8_54_INOTIA1_REWARD_REPAIR_ACTIVE] automatic global monster reward wide-math repair enabled for the verified Inotia1 constructor path"
             );
         }
         if aid == "010100D5" && pid == "PD007974" {

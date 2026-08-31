@@ -44,7 +44,7 @@ pub enum HookKind {
     /// This hook emulates the replaced LDR and copies R8 into R4 before
     /// continuing to the untouched BL instruction.
     Inotia1RevivalBaseRepair,
-    /// Phase 8.53 — production Inotia1 monster base-reward overflow repair using the
+    /// Phase 8.54 — production Inotia1 monster base-reward overflow repair using the
     /// same formula evaluated using wide intermediates. The original Thumb
     /// helper at 0x001281ec uses 32-bit MULS before signed division; higher
     /// monster parameters can wrap the numerator negative (or back positive).
@@ -658,13 +658,13 @@ async fn handle_binary_patch_svc(core: &mut ArmCore, registry: &mut Registry) ->
                 .engine
                 .reg_write(ArmRegister::R0, applied_value as u32);
 
-            // Phase 8.53 cleanup: normal monster spawns are intentionally silent.
+            // Phase 8.54 cleanup: normal monster spawns are intentionally silent.
             // Emit one concise marker only when the wide result actually repairs
             // a wrapped 32-bit reward. This preserves field visibility without
             // flooding the session log for every unaffected monster.
             if repaired {
                 tracing::info!(
-                    "[PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR] lr={lr:#010x} original={} corrected={} original_hex={:#010x} corrected_hex={:#010x} wide_numerator={} wide_denominator={} a={a} b={b} c={c} d={d} e={e} f={f}",
+                    "[PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR] lr={lr:#010x} original={} corrected={} original_hex={:#010x} corrected_hex={:#010x} wide_numerator={} wide_denominator={} a={a} b={b} c={c} d={d} e={e} f={f}",
                     original_value,
                     corrected_value,
                     original_value as u32,

@@ -1,0 +1,10 @@
+WIPI Player Phase 8.54
+TestFlight marketing version: 0.1.54
+Build sentinel: PHASE8_54_BUILD_SENTINEL=WIPI_PLAYER_0.1.54_OZ_INPUT_METHOD_GETCURRENTMODE
+Runtime sentinel: PHASE8_54_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_54_INOTIA1_REWARD_OVERFLOW_REPAIR
+LGT interface repair marker: PHASE8_54_LGT_INTERFACE_LINK
+LGT startup error marker: PHASE8_54_LGT_STARTUP_ERROR
+WIPI input mode marker: PHASE8_54_WIPI_INPUT_METHOD_MODE
+OZ compatibility: InputMethodHandler.getCurrentMode()I added with stateful set/get semantics
+Cash catalog: unchanged 11 records; 무기강화 주문서 x10; 방어구강화 주문서 x10; 힘의 조각 x10; 마법의 가지 x10
