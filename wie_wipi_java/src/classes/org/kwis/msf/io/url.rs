@@ -36,7 +36,10 @@ impl URL {
         Ok(())
     }
 
-    async fn find(jvm: &Jvm, _: &mut WieJvmContext, _: ClassInstanceRef<String>) -> JvmResult<ClassInstanceRef<Self>> {
+    async fn find(jvm: &Jvm, context: &mut WieJvmContext, url: ClassInstanceRef<String>) -> JvmResult<ClassInstanceRef<Self>> {
+        if context.system().aid() == "00026DBF" && context.system().pid() == "PD112525" {
+            tracing::warn!("[PHASE8_62_OZ_URL_FIND] URL.find({url:?}) -> SchemeNotFoundException (current generic WIE network unsupported path)");
+        }
         Err(jvm.exception("org/kwis/msf/io/SchemeNotFoundException", "Network is not supported").await)
     }
 }

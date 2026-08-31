@@ -29,9 +29,12 @@ impl Network {
         }
     }
 
-    async fn connect(_: &Jvm, _: &mut WieJvmContext) -> JvmResult<i32> {
-        tracing::warn!("stub org.kwis.msf.io.Network::connect()");
-
+    async fn connect(_: &Jvm, context: &mut WieJvmContext) -> JvmResult<i32> {
+        if context.system().aid() == "00026DBF" && context.system().pid() == "PD112525" {
+            tracing::warn!("[PHASE8_62_OZ_NETWORK_CONNECT] org.kwis.msf.io.Network::connect() -> -1 (current generic WIE offline stub)");
+        } else {
+            tracing::warn!("stub org.kwis.msf.io.Network::connect()");
+        }
         Ok(-1)
     }
 

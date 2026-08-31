@@ -881,7 +881,11 @@ pub async fn connect(context: &mut dyn WIPICContext, cb: WIPICWord, param: WIPIC
             "[PHASE8_12_INOTIA1_NET] MC_netConnect offline bridge cb={cb:#010x} param={param:#010x} -> callback success"
         );
     } else {
-        tracing::warn!("stub MC_netConnect({cb:#x}, {param:#x})");
+        if context.system().aid() == "00026DBF" && context.system().pid() == "PD112525" {
+            tracing::warn!("[PHASE8_62_OZ_MC_NET_CONNECT] cb={cb:#010x} param={param:#010x} -> generic async error callback");
+        } else {
+            tracing::warn!("stub MC_netConnect({cb:#x}, {param:#x})");
+        }
     }
 
     struct ConnectCallback {
@@ -933,6 +937,9 @@ pub async fn socket(context: &mut dyn WIPICContext, domain: i32, socket_type: i3
         return Ok(INOTIA1_FAKE_SOCKET_FD);
     }
 
+    if context.system().aid() == "00026DBF" && context.system().pid() == "PD112525" {
+        tracing::warn!("[PHASE8_62_OZ_MC_NET_SOCKET] domain={domain} type={socket_type} -> current generic WIE unimplemented path");
+    }
     Err(WieError::Unimplemented("2: MC_netSocket".into()))
 }
 
@@ -945,6 +952,9 @@ pub async fn socket_connect(
     param: WIPICWord,
 ) -> Result<i32> {
     if !is_inotia1_offline_network(context) {
+        if context.system().aid() == "00026DBF" && context.system().pid() == "PD112525" {
+            tracing::warn!("[PHASE8_62_OZ_MC_SOCKET_CONNECT] fd={fd} addr={addr:#010x} port_raw={port:#06x} cb={cb:#010x} param={param:#010x} -> current generic WIE unimplemented path");
+        }
         return Err(WieError::Unimplemented("3: MC_netSocketConnect".into()));
     }
 

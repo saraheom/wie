@@ -88,6 +88,18 @@ impl LgtEmulator {
         mut options: Options,
     ) -> Result<Self> {
         let mut core = ArmCore::new(options.enable_gdbserver, options.profile.take())?;
+        // Phase 8.62 — OZ/천공의 기사단 black-screen hang localization.
+        // This exact LGT title now gets through the Phase 8.61 exception ABI path
+        // but can remain inside startup for minutes without another host-visible
+        // event. Lower only the one-shot native-loop diagnostic threshold so the
+        // next log captures the guest PC/LR if startup is burning CPU. Execution
+        // semantics are unchanged.
+        if aid == "00026DBF" && pid == "PD112525" {
+            core.set_native_loop_trace_chunks(256);
+            tracing::info!(
+                "[PHASE8_62_OZ_HANG_PROBE] native_loop_trace_chunks=256 run_slice_instructions=1000 (~256k instructions before one-shot trace)"
+            );
+        }
         let system = System::new(platform, pid, aid, LgtTaskRunner { core: core.clone() });
 
         for (filename, data) in files {
