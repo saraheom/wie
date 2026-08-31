@@ -1,0 +1,8 @@
+WIPI Player Phase 8.53
+TestFlight marketing version: 0.1.53
+Build sentinel: PHASE8_53_BUILD_SENTINEL=WIPI_PLAYER_0.1.53_LGT_INTERFACE_LINK_STARTUP_DIAGNOSTICS
+Runtime sentinel: PHASE8_53_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_53_INOTIA1_REWARD_OVERFLOW_REPAIR
+LGT interface repair marker: PHASE8_53_LGT_INTERFACE_LINK
+LGT startup error marker: PHASE8_53_LGT_STARTUP_ERROR
+Cash catalog: unchanged 11-record Phase 8.52 catalog; 무기강화 주문서 x10; 방어구강화 주문서 x10; 힘의 조각 x10; 마법의 가지 x10
