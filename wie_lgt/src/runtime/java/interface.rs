@@ -52,7 +52,7 @@ pub fn get_java_interface_method(core: &mut ArmCore, function_index: u32) -> Res
         0xe2 => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::GetStringArrayClass)?,
         0xfa => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::StoreReferenceArrayUnchecked)?,
         _ => {
-            tracing::error!("[PHASE8_57_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
+            tracing::error!("[PHASE8_58_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
             return Err(WieError::FatalError(format!("Unknown lgt java import: {function_index:#x}")));
         }
     })
@@ -451,14 +451,80 @@ async fn java_instantiate_multi_array(core: &mut ArmCore, jvm: &mut Jvm, ptr_cla
     Ok(LgtJvmSupport::class_instance_raw(&*arrays.remove(0)))
 }
 
-fn read_member_name_and_descriptor(core: &ArmCore, table: u32, index: u16) -> Result<(String, String)> {
+fn read_member_pointers(core: &ArmCore, table: u32, index: u16) -> Result<(u32, u32)> {
     let ptr_name: u32 = read_generic(core, table + index as u32 * 2 * size_of::<u32>() as u32)?;
     let ptr_descriptor: u32 = read_generic(core, table + (index as u32 * 2 + 1) * size_of::<u32>() as u32)?;
+    Ok((ptr_name, ptr_descriptor))
+}
+
+fn decode_member_name_and_descriptor(core: &ArmCore, ptr_name: u32, ptr_descriptor: u32) -> Result<(String, String)> {
     let name = String::from_utf8(read_null_terminated_string_bytes(core, ptr_name)?)
         .map_err(|error| WieError::FatalError(format!("Invalid LGT member name: {error}")))?;
     let descriptor = String::from_utf8(read_null_terminated_string_bytes(core, ptr_descriptor)?)
         .map_err(|error| WieError::FatalError(format!("Invalid LGT member descriptor: {error}")))?;
     Ok((name, descriptor))
+}
+
+fn read_member_name_and_descriptor(core: &ArmCore, table: u32, index: u16) -> Result<(String, String)> {
+    let (ptr_name, ptr_descriptor) = read_member_pointers(core, table, index)?;
+    if ptr_name == 0 || ptr_descriptor == 0 {
+        return Err(WieError::FatalError(format!(
+            "Invalid empty LGT member metadata at table {table:#010x} index {index}: name={ptr_name:#010x} descriptor={ptr_descriptor:#010x}"
+        )));
+    }
+    decode_member_name_and_descriptor(core, ptr_name, ptr_descriptor)
+}
+
+fn link_field_words(
+    core: &mut ArmCore,
+    jvm: &Jvm,
+    class_name: &str,
+    imports: u32,
+    output_word_indices: u32,
+    offset: u16,
+    count: u16,
+    is_static: bool,
+) -> Result<()> {
+    let mut wide_continuation: Option<(u16, &'static str)> = None;
+    for index in offset..offset + count {
+        let (ptr_name, ptr_descriptor) = read_member_pointers(core, imports, index)?;
+        if ptr_name == 0 && ptr_descriptor == 0 {
+            let (word_index, descriptor) = wide_continuation.take().ok_or_else(|| {
+                WieError::FatalError(format!(
+                    "Unexpected empty LGT {} field metadata for {class_name} at index {index}",
+                    if is_static { "static" } else { "instance" }
+                ))
+            })?;
+            tracing::info!(
+                "[PHASE8_58_LGT_WIDE_FIELD_CONTINUATION] class={class_name} kind={} index={index} descriptor={descriptor} resolved={word_index}",
+                if is_static { "static" } else { "instance" }
+            );
+            write_generic(core, output_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
+            continue;
+        }
+        if ptr_name == 0 || ptr_descriptor == 0 {
+            return Err(WieError::FatalError(format!(
+                "Malformed LGT {} field metadata for {class_name} at index {index}: name={ptr_name:#010x} descriptor={ptr_descriptor:#010x}",
+                if is_static { "static" } else { "instance" }
+            )));
+        }
+
+        let (name, descriptor) = decode_member_name_and_descriptor(core, ptr_name, ptr_descriptor)?;
+        let word_index = LgtJvmSupport::field_word_index(jvm, class_name, &name, &descriptor, is_static)?;
+        write_generic(core, output_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
+
+        wide_continuation = if descriptor == "J" || descriptor == "D" {
+            Some((
+                word_index.checked_add(1).ok_or_else(|| {
+                    WieError::FatalError(format!("LGT wide field word index overflow for {class_name}.{name}{descriptor}"))
+                })?,
+                if descriptor == "J" { "J" } else { "D" },
+            ))
+        } else {
+            None
+        };
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -478,17 +544,27 @@ async fn link_class_members(
     interface_method_indices: u32,
     non_virtual_method_targets: u32,
 ) -> Result<()> {
-    for index in link.instance_field_offset..link.instance_field_offset + link.instance_field_count {
-        let (name, descriptor) = read_member_name_and_descriptor(core, instance_field_imports, index)?;
-        let word_index = LgtJvmSupport::field_word_index(jvm, class_name, &name, &descriptor, false)?;
-        write_generic(core, instance_field_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
-    }
+    link_field_words(
+        core,
+        jvm,
+        class_name,
+        instance_field_imports,
+        instance_field_word_indices,
+        link.instance_field_offset,
+        link.instance_field_count,
+        false,
+    )?;
 
-    for index in link.static_field_offset..link.static_field_offset + link.static_field_count {
-        let (name, descriptor) = read_member_name_and_descriptor(core, static_field_imports, index)?;
-        let word_index = LgtJvmSupport::field_word_index(jvm, class_name, &name, &descriptor, true)?;
-        write_generic(core, static_field_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
-    }
+    link_field_words(
+        core,
+        jvm,
+        class_name,
+        static_field_imports,
+        static_field_word_indices,
+        link.static_field_offset,
+        link.static_field_count,
+        true,
+    )?;
 
     for index in link.virtual_method_offset..link.virtual_method_offset + link.virtual_method_count {
         let (name, descriptor) = read_member_name_and_descriptor(core, virtual_method_imports, index)?;
@@ -498,7 +574,7 @@ async fn link_class_members(
 
     if link.interface_method_count != 0 {
         tracing::info!(
-            "[PHASE8_57_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
+            "[PHASE8_58_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
             link.interface_method_count,
             link.interface_method_offset,
             link.interface_method_offset + link.interface_method_count
@@ -508,7 +584,7 @@ async fn link_class_members(
         let (name, descriptor) = read_member_name_and_descriptor(core, interface_method_imports, index)?;
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
         tracing::info!(
-            "[PHASE8_57_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
+            "[PHASE8_58_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
         );
         write_generic(core, interface_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
     }

@@ -7,7 +7,7 @@ c826ba51db549ceaecbf7fe3e446f9f996965f17e2dbcdc459762df87c3c40fc  ./.github/work
 ce9e8466bfc09c59cd4800943589fa666f7b4b893ae73a6f1c4699bc78097e7d  ./.github/workflows/dependabot.yaml
 2e11b933bd8beca769fe80103159e689d0120fc7b2b157626be9186c9c28809b  ./.github/workflows/ios-device-adhoc.yml
 e1aa08146478b2b2c1e031d2b309bbdae2155093e9a96920813b38687d5eb5de  ./.github/workflows/ios-smoke.yml
-a3a2fb81f00fdbdbb3ddc1f19db8df6683ed2b93fab2682db3b2807ccc279289  ./.github/workflows/ios-testflight.yml
+669862f905421f997ce4aac2731b6dbb9151adf54ace27cab0819ceb19e3f7f0  ./.github/workflows/ios-testflight.yml
 a5139941b8d5c6f08f8386ba8478a9c2ef5a9b6b603d20fe0727a5f346b1032b  ./.github/workflows/release.yaml
 feb53fcebdd4eeeaf12f2da124e6f72e562035a9ec670901d2ade3f33f7d7322  ./.github/workflows/rust-audit.yaml
 c1cb491d8fbae300b0eb33a254897412c605424ccebff97eace2b506c2717484  ./.github/workflows/rust.yml
@@ -66,7 +66,7 @@ f464d40bec06a2894f2459146954d0c1d5f74d450e8f7fde6b659096c2e53624  ./FULL_REPO_PH
 c708662aec5a9d33ea64cd92f656b93a81b5bc35504bb5978e958d15635921a6  ./FULL_REPO_PHASE8_54_README.md
 0e4a5a40a2bef58b88b0840fa689808a9403c875156ae754ed4c682144220b49  ./FULL_REPO_PHASE8_55_README.md
 60e7aff5229a0bdae312d0b366ee292072c64c2b90115de72dd1c1e265c7e6e8  ./FULL_REPO_PHASE8_56_README.md
-ac5695f4b55a3891f50add37bb32dd127f2fd23f7300bfa48e7a72e1bb9c822b  ./FULL_REPO_PHASE8_57_README.md
+47fe5634258167764a7fcb08630bdba5dba596316c89ca52d6d9f89320a9202f  ./FULL_REPO_PHASE8_58_README.md
 8d4dd450012fd613507df683f80affc45478c6551aaaed31d3c6ea4a37d3824f  ./FULL_REPO_PHASE8_9_1_README.md
 ae7e83fe9d1e6f549b03479bb1980f13656fcf29535aabf5c0505f80691e9c38  ./LICENSE
 71cbfca0738a889b7e0e7c0f9a13927f90b827e1348ed993fde73290cc81a35f  ./PHASE8_35_1_CI_FIX.txt
@@ -86,10 +86,10 @@ e3d79e689234aacb778cb1cf321aed36d3ad56aa69f860499abd9f8c5806669a  ./PHASE8_47_BU
 7411665d0976684a5a45a82a804e0f5261e457ac0d7b1a1f3e44fc37a267ea1b  ./PHASE8_53_BUILD_ID.txt
 c53507a4bfe6c0fe1401f6505b7f2ac198a3fe645c1b47bbb141b2a4c9222b0f  ./PHASE8_54_BUILD_ID.txt
 33c3f1ab74222d1260b55de7f6cac21945eac5885d64131c9fe76d6a4c53631c  ./PHASE8_55_BUILD_ID.txt
-d325675daf546a128938ab69d8947ee153f9d5be1cc3e47c205e5f62fabc4b13  ./PHASE8_57_BUILD_ID.txt
+eea351906fdfc0c60e7dd657b55fd17f2b4f8b68705a63a22e691b33ec00b88c  ./PHASE8_58_BUILD_ID.txt
 692ed1cb41317a13704607a60faa750ff334087e90be165d38ba34c2e0d40d34  ./PHASE8_9_1_METHOD_TABLE_COMPILE_FIX.diff
 5c6dad9508e044767beba81f9e99c7eba67f958f0debc3b4ce31c6506b938cb3  ./PHASE8_9_METHOD_TABLE.diff
-c840ef8384030a1a5e5a8cfb11260d4f50333935cd1f0d3da0dcc976044a7cd0  ./README.md
+883ad9c5cd4db8b9a61666f4a7c89f419ff5b79d09ddc1ad1eba2e1a60065358  ./README.md
 e5272d743e7aab290b5cfa20d362d5b5ee9ad32950a034ba3184d95dbbdd2a36  ./TESTFLIGHT_SETUP.md
 500eacca722187d6a68f5da725c79c86e0c16f5c69aec0f62ac9a50e00552ba8  ./UI_PHASE1_LIBRARY.md
 7e193f30f8c65497c051173c169d3d2a8334ad08164dc4c79a6babfeaa294b6e  ./UI_PHASE2_1_DIAGNOSTICS.md
@@ -171,7 +171,7 @@ b22e97ec8fb5a6344bcfea898b669582f68e1e68da9cf1a6e52783dbc9f8ec66  ./UI_PHASE8_40
 fb0fb8c40b516bb2a1c6f65ee165e644a11487973411ddb1b44c46da611ba2de  ./UI_PHASE8_54_OZ_INPUT_METHOD.md
 4d72fc9424d2c9c839361021be5118607318c55181b5aabcf5386ccedb9bc72b  ./UI_PHASE8_55_OZ_TEXT_COMPONENT.md
 5dbbe9e484077a7c1d1cb248f727d644651a76e9fa2e0f2e5b12a7b6d186bbfe  ./UI_PHASE8_56_OZ_WEC_OEM_APP_EXECUTOR.md
-5940d786b7c45364ee135ff128a4648991814ce3d69c4f074938151146411549  ./UI_PHASE8_57_OZ_AOT_NULL_FAULT_LOCALIZATION.md
+fc155e249b5deadf0f2c4ef6c641e16a896b9bf66f88d626b2754ebc932586f0  ./UI_PHASE8_58_OZ_LGT_WIDE_FIELD_LINKER.md
 8591441553076890033e809b11cc59e8df4c558a8f0c6b17c84f9c3d00e67ae7  ./UI_PHASE8_5_INOTIA2_IPACK_POST_HEADER_POINTER_PROBE.md
 d0607f0ca5db33e649f531f4e2e600a0bb955ce0d6c05880c7b7a638a6955d84  ./UI_PHASE8_6_INOTIA2_POST_IPACK_VALIDATION_GLOBAL_PROBE.md
 b88dbb9d2ce7be9c671c83d97a02e84876f4717ae90a26d2fc3c93ac01159e30  ./UI_PHASE8_7_INOTIA2_POST_STARTUP_RESOURCE_BASE_PROBE.md
@@ -201,7 +201,7 @@ e0b7c9107c32fdf08657cd21eb12d279067f0115449e8d3ab52cd3f5ba3452ae  ./test_utils/s
 a0cbae01b7b56faa15c7c1859aa7e53e79ba1e96843136db4c5f9566e3737942  ./tools/verify_phase8_53_catalog.py
 9a913d74c9959d11eca6e48535cc0cbd2d95e15fe8c6b8fdd9a2d549b3615854  ./tools/verify_phase8_54_catalog.py
 917d86fc66a02335173903ef22430a590b2a68c197a202fd6d7229ee87ad53be  ./tools/verify_phase8_55_catalog.py
-d4bb202017e79e4300a5b781224f76a12bb1250201ef807d7e2e752ffbf0de55  ./tools/verify_phase8_57_catalog.py
+1da647bf018c72bf66b61fa4d9c1f5eb5c34c04d0e73f6379979b3c3e22be0f1  ./tools/verify_phase8_58_catalog.py
 646a917f23a3d76736252fac394b218e99c3f2d7f5c4dad9e334563452574cde  ./wie_app/.gitignore
 da53d348cbf1dbb05b0d556991b27ecb856740f42488b8d54248c524b2ac40cc  ./wie_app/Cargo.toml
 272421066240c0cea28f02fed6a8451ef7cfccd9f2c97cab8289a0e783d9d0fc  ./wie_app/Info.plist
@@ -211,7 +211,7 @@ e38ca88e1d5490f3dcbc3c3fa525f7fcb7b80fff3cb2f3a4eb1b2d018c0915c1  ./wie_app/icon
 6413bfe9d546e5225fc9256a0ecec48df3a1272ea4bdc91c15b8e000222a95d3  ./wie_app/icons/icon.png
 f12a57733801a2da15a5ae9126bc7a865e0237ce93a931578498f0b883cbdfda  ./wie_app/src/lib.rs
 611fb7b3a96c3bb50a4a7d3f7f36f3b0da4cf0c9041ae6e2319ec71b03563a92  ./wie_app/src/main.rs
-c298fadb1cf778a90f180642701f7b4187ab25a2f24f0accb1ffb15493439846  ./wie_app/tauri.conf.json
+dafa05b6fb1ce4e212f8ac6c0900cb64080058b5420ff33cfc61679fb4fab32a  ./wie_app/tauri.conf.json
 ebdd9cfb6187345b1b42784d615cf07450fb4aa1665f0cdaa4e473b6e673449b  ./wie_backend/Cargo.toml
 849322e26b80d34788ef692cfb35dbbf6ccb92dd786aeee35798c0c18f414121  ./wie_backend/src/audio_sink.rs
 703edf9b91982a871159e04e9addbf5cb3568a78d2b9adc85716f828b6e6e3df  ./wie_backend/src/canvas/lbmp.rs
@@ -238,12 +238,12 @@ ed3db69a23375dfd0181fd4111a52f1cfa675161537c94ffbd34c6022b1b568a  ./wie_core_arm
 68888d352ae94e7c75edc76d47c412cb1150dc47f0e231075331a9e43d6c4129  ./wie_core_arm/src/allocator/bucket.rs
 ba0267be1c5b997b05f1055cf42be4c1d8b69d1173c22842207bde7fe8f2c2ca  ./wie_core_arm/src/allocator/list.rs
 26b021ae846c6ce17a919740c8541fa6128063222ad81bc7c9989b75a9984f2b  ./wie_core_arm/src/allocator.rs
-7df961bfc9627d2c20f2ca23f7b5550f73cb34098d7ffe87e1a5101b2d88466b  ./wie_core_arm/src/binary_patches/hook.rs
+3a844096a84c0b1d267f41da2dda66c1886b5f90cd1359682a7e40cda1b54cfa  ./wie_core_arm/src/binary_patches/hook.rs
 0eacc42062525c8201d624bacfb8b6239d7ed28c043f57883193125fc0c48141  ./wie_core_arm/src/binary_patches/parser.rs
 8e0c9e470821852cd8e5975fa4f20ac25caef29996bf945e11fe4ebfebdd92d7  ./wie_core_arm/src/binary_patches/patch.rs
 48212869e40dd9f6c3a7c46006fe6092dab31f8bba6753080fca410744e8e21a  ./wie_core_arm/src/binary_patches.rs
 ddd7d04e4f379116ead93c11f244058af728b67b0bc2dce9ca0cf68f787f84aa  ./wie_core_arm/src/context.rs
-ba89243232371d50e9344ae802200b39a1719fb176ae98c47ab18acf0f49a1e2  ./wie_core_arm/src/core.rs
+138dd207f7f8aa5ea855b1aa848cd9efe4abdfd81cd8be0438041e65309466d1  ./wie_core_arm/src/core.rs
 904763b5afc1182e9b51b46d3180682700d73ddeee53f436cf8c64119d2ca4ba  ./wie_core_arm/src/engine/arm32_cpu.rs
 a3b1ed4d18d0055a2ddac58c793a710a90833bb797d9e005bd2355d8d800760a  ./wie_core_arm/src/engine/debugged_arm32_cpu.rs
 5c2b53fabca7fc08d82a608f8865d6c1b64ca9e50269b59b624af5ffc72a5cc1  ./wie_core_arm/src/engine.rs
@@ -266,7 +266,7 @@ dcaeca23d33891b75498eda033df685cca813ba62a6e6676a5a66a863dc2acdb  ./wie_jvm_supp
 42cfa513a152f903cd4aa363d33e2838df84a889ef2c38c362d6deabaa8a5760  ./wie_ktf/Cargo.toml
 fa79a27cff6319ba76a0107dedf3bf92fc39037d3e3c8abe4db316cca989cfc2  ./wie_ktf/src/adf.rs
 2bb36be785a722a527fed40315a611c260d588d315709bdb3ad73f53c615f96e  ./wie_ktf/src/dump.rs
-8f0cd9d886c36409ad29e05625f6a0d787914cac50d8ea7a0a118c854e4cc5a6  ./wie_ktf/src/emulator.rs
+f67f61e2f2309386ccce1a692c763eecda6a2a22cb3690c8bb49bbed4440dd06  ./wie_ktf/src/emulator.rs
 81505a657841991667fe0ccde4384bda2026aa4dc109c457992d643a2e4aa37a  ./wie_ktf/src/lib.rs
 4f001803f62e4da5aa2920bc873df84b102c1de10beaefa6d0f4950109dea641  ./wie_ktf/src/runtime/init.rs
 0a263b0efab5a76017e379d8153462eec56327ea1793fc3e1d98be89af5c7a3f  ./wie_ktf/src/runtime/java/interface.rs
@@ -296,9 +296,9 @@ df60c8ba913482133056094edbb931d720abd4cd6f03548126c24f39c9ee2273  ./wie_ktf/src/
 1ce7b4965efd05af55f02b72c95b92fb71dbd4c53ab23e5338cd548b94eca8cc  ./wie_ktf_dump/Cargo.toml
 d05e1879b528f984cd9cb4cc16743843478dc8f275016041a1c83dcde328d278  ./wie_ktf_dump/src/main.rs
 297e0815d06a51af34fa4040684a408dd72713fbd48ac28e4b05ae0f86c0fbda  ./wie_lgt/Cargo.toml
-595f03d8febb90d83caec0fc3905b8bbcb5bb8140560d47139d4661306266dd0  ./wie_lgt/src/emulator.rs
+f3d002012fcd621a7eeb12ab249993bae6b48660c90f2ed1fc3849bd52d1d260  ./wie_lgt/src/emulator.rs
 8f29628ba75a22c14ea8c498d1d130ff1588a20423f536d974cdc9e838bc6bae  ./wie_lgt/src/lib.rs
-a5a0bdb94f2baaf4bb29ad424206ce3615fea31057e08354c89f13dd092549a1  ./wie_lgt/src/runtime/init.rs
+f55bef34249c362377742bbc4a9d19e2734b81d96651480db0029136a3157461  ./wie_lgt/src/runtime/init.rs
 92c27e762c360b41cf1dba937f4114ab37e15ef43ba28acf4dd89b3275e9ccd3  ./wie_lgt/src/runtime/java/abi.rs
 62906727ee3a0cb3c95c9733b4673a8c9628fc3e6a2d90cbc3a99a3572d6045a  ./wie_lgt/src/runtime/java/classes/net/wie/clet_wrapper.rs
 9dd0f7eb2dd945c89d93721ceb49c4f96848bd04c7256a1a35e89a58eb7716c3  ./wie_lgt/src/runtime/java/classes/net/wie/clet_wrapper_card.rs
@@ -307,14 +307,14 @@ c898650e12d44412ab998f77c0bb0090922f2437a2b87f24bc26d2543ed7d439  ./wie_lgt/src/
 5217b38bc09472a5f0e77c7624f7983ed206d543762dff839faf74fe2cd33815  ./wie_lgt/src/runtime/java/classes/net.rs
 7b2531ddb2847160abe587984df72bc46b6e81c0d73b4bbffca1900509a1c006  ./wie_lgt/src/runtime/java/classes.rs
 5325edd7ecff05ba67a98c44ac592b2cf7a97f79bf8dfb9f916a70aa9cf63e73  ./wie_lgt/src/runtime/java/exception.rs
-b4bf7dacca6071d8e00aa98a07579546b037e75c52195e6fd7300e1f7467b896  ./wie_lgt/src/runtime/java/interface.rs
+5d7f3bf04fcf184961650f82698f506081b697129408710ae186d562fd2f7ba9  ./wie_lgt/src/runtime/java/interface.rs
 3fb8debf374c518b83a97afa2781e96fc241c83aef14c92d9f107c386bbe2bcb  ./wie_lgt/src/runtime/java/jvm_support/array_class_definition.rs
 4c8cc76746c659b6cc29e744f42f1125ed425b31cb6241346b2cc44682cebe30  ./wie_lgt/src/runtime/java/jvm_support/array_class_instance.rs
 7ebd39382dedec2a17e54a3d93f0ad761c0fd013c555f3156bed4e3e41178be1  ./wie_lgt/src/runtime/java/jvm_support/class_definition.rs
 58816557886a6b8817655a8614135b35451949a100dfd8aa363f6dcdab6fbb16  ./wie_lgt/src/runtime/java/jvm_support/class_instance.rs
 194795912978b00275cd54d10716ef4025b183de15d36bef79bfde4290210d75  ./wie_lgt/src/runtime/java/jvm_support/field.rs
 24c54cd29f7ff38fc4acf630bd43e20e09e6289bf0fe69dce073e0ed852e0065  ./wie_lgt/src/runtime/java/jvm_support/jvm_implementation.rs
-e7ab4f19e1263750f2d392632e686c41b59dc8dce5fedeb96a146f669e6addbd  ./wie_lgt/src/runtime/java/jvm_support/method.rs
+c5d14fff2892d3380519b516dde1bee2ea22489ee895fee9ea076e2f69e2f621  ./wie_lgt/src/runtime/java/jvm_support/method.rs
 f30c4b3846c9ffea6de81367b2b81ddbe06efbc3bf84e00c8af0f085b20109b1  ./wie_lgt/src/runtime/java/jvm_support/value.rs
 b297369b26c9c0baf081206f391eccefa2bd938fe9ffc28a4d097e25ec571d93  ./wie_lgt/src/runtime/java/jvm_support/vtable.rs
 f4227379236d21f1fbf470d5a43f78891d6228dc2fa563a8a8ac68c7a67e0c08  ./wie_lgt/src/runtime/java/jvm_support.rs
@@ -415,7 +415,7 @@ d4ff4e62012c0aad37bb7a8e1ae90ff0ffad4980b28543c3e0eaca31368749be  ./wie_web/publ
 f8083e507732666548546b62b7461b446321cb96e19f907ee26b1ab843bda206  ./wie_web/public/phase8_47_build.txt
 71cbe2eff05fe68b53e179d40001f8f3aca8487a59cfe111f26859f1cc651850  ./wie_web/public/phase8_54_build.txt
 1d20941b1a08cd4707379c24f2075eb2912b6e64fbc1e6a900c6c7dfda2dfd97  ./wie_web/public/phase8_55_build.txt
-39c2627b84590ac5084d888a810e15bf74d8da3b37195b9e06ae757fa14a437d  ./wie_web/public/phase8_57_build.txt
+17cf50214232d3be3d4a9327fc9a397d880bb93c58dd3eafd145ac5be74f60d4  ./wie_web/public/phase8_58_build.txt
 bbfc153e08bafd8b03947d21a7a979b47668d3177b7c94bfcab9ff0197e04633  ./wie_web/src/css/style.css
 406f7d727d03186b3ea05fa6dd49d091d3ca2b86df133cc0fe76bd1c16214d76  ./wie_web/src/html/index.html
 36512cf30cf31c35def70059fa36004c19a5525f7d5cd7c15709717bb7390810  ./wie_web/src/rust/audio_sink.rs
@@ -488,7 +488,7 @@ a0122d6a5fb077e2ae79c533ca502942cb5b0fa9351890747e4f2e7ee82059bb  ./wie_wipi_jav
 08eab4cee19623b595c1d50c1beb59c6945154e0ba32f5f040f05d175033355b  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/graphics.rs
 85b815a53bc58319fc7306e8ecdb88dff1dedc926ccacc56cc3f76adfac0f40b  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/image.rs
 3bc3e41fc04932becc5bce9ec76b732bc64527b0383f4fd91845ee0bfc731064  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/image_observer.rs
-b59e2ee4901164aa6b85e23e4d64489e15d6168d40ec22d12d7f457beb44fe0f  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
+635496e748959ff30964019ad39dfa3a5fd955c9a6e7847c65be0ba64d77c50f  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/input_method_handler.rs
 0711a2105c19ab66a0b16ee672a0bc1e30bba54fbbe0097a38173ba3b67a4d69  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/jlet.rs
 178fa70e9b01012c140c3191554e9106fa2cf2b4a698594b24a1078d73209353  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/jlet_event_listener.rs
 cb8a4ff978751d22fc36145a4f8e366147e8c9e0757f1843a373ffbdf5ff743e  ./wie_wipi_java/src/classes/org/kwis/msp/lcdui/jlet_wrapper.rs
@@ -500,7 +500,7 @@ fb980667e00a259df7a4567e0eadbe0b2436f98708f8edde3de507cb6a45c7d3  ./wie_wipi_jav
 99e64b23605fdf56f7bfb252f6294c5bb50712451ffcc78c279edbdfbdfcd784  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/event_listener.rs
 4d2f25f0f268f7115ff8f2ac816d632bcef1c38b3a0fdbaf4f96f519ed023a71  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/shell_component.rs
 53deefc50633a559237094e6feeca841a8fde488cd06adc2fb2b65a51f23a904  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/text_box_component.rs
-33d4e4f63436f83d8fb8e4ec2ab3e9cb1ce0779c56639a8d62b1b6ba16d3473c  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/text_component.rs
+a88256099e922934ce846354f29dcfdb9391b60b14ed97456879fcbe17e8fde0  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/text_component.rs
 b12d0d272e155b42f0ecaa6cada626640c5838782e2658527e54820e94eba8fd  ./wie_wipi_java/src/classes/org/kwis/msp/lwc/text_field_component.rs
 198babb30acba17d59e8cda8e69c3000fb060394a305b1d7d08e7fa8df2f7e3d  ./wie_wipi_java/src/classes/org/kwis/msp/lwc.rs
 b82ed05ac3d5dc1740fd9b25814725c6990de97b5efc41acae9d815fe58ad795  ./wie_wipi_java/src/classes/org/kwis/msp/media/base_clip.rs
@@ -513,6 +513,6 @@ e7c27f75241eb6c6176752da86a2c72f7f201e5bf96dc4ced8b46ff6f883ddd7  ./wie_wipi_jav
 f6e528978483a927782ef971cc096ccf1ae79a9584dcf2eef91a259d7987f6c1  ./wie_wipi_java/src/classes/org/kwis/msp.rs
 4b29738c01a2b83f3c66dc643df92bcadd69c997cd6f1916b50c67b0ae11e8f0  ./wie_wipi_java/src/classes/org/kwis.rs
 262ce538bcb6f4e3b0d902944264e820557fa478adbfd7eeeb780e84aff4cc28  ./wie_wipi_java/src/classes/org.rs
-4bdac7c86dda6f8749636a416fa99f67a46086d7625afbb372601844939d6654  ./wie_wipi_java/src/classes/wec.rs
+98ab72ac6553f1cc53d5da0c57d19ba2894220ca6c9374d5b291df9a2ea9e948  ./wie_wipi_java/src/classes/wec.rs
 673e061c3485bb84c53fce6ba47c06500a960cc0676414ffed7408de6fb1b725  ./wie_wipi_java/src/classes.rs
 c8589ad037899ebba7057ffe2d3db9932be8e740be69bf7c3ba282b57a4daacd  ./wie_wipi_java/src/lib.rs

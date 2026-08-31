@@ -102,7 +102,7 @@ impl JavaMethod {
                         .map(|index| read_generic::<u32, _>(&run_core, code_base + index * 4).unwrap_or(0))
                         .collect::<Vec<_>>();
                     tracing::error!(
-                        "[PHASE8_57_LGT_AOT_METHOD_FAULT] method={method_name}{method_descriptor} entry={:#010x} error={} pc={pc:#010x} lr={lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x} raw_args={raw_args:?} code_base={code_base:#010x} code_words={code_words:x?}",
+                        "[PHASE8_58_LGT_AOT_METHOD_FAULT] method={method_name}{method_descriptor} entry={:#010x} error={} pc={pc:#010x} lr={lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x} raw_args={raw_args:?} code_base={code_base:#010x} code_words={code_words:x?}",
                         raw.ptr_method,
                         error
                     );
