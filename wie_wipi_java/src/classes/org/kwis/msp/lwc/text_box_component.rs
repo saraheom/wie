@@ -24,13 +24,15 @@ impl TextBoxComponent {
     async fn init(
         jvm: &Jvm,
         _: &mut WieJvmContext,
-        this: ClassInstanceRef<TextBoxComponent>,
+        mut this: ClassInstanceRef<TextBoxComponent>,
         data: ClassInstanceRef<String>,
         constraint: i32,
     ) -> JvmResult<()> {
         tracing::warn!("stub org.kwis.msp.lwc.TextBoxComponent::<init>({this:?}, {data:?}, {constraint:?})");
 
         let _: () = jvm.invoke_special(&this, "org/kwis/msp/lwc/TextComponent", "<init>", "()V", ()).await?;
+        let _: () = jvm.invoke_virtual(&this, "setString", "(Ljava/lang/String;)V", (data,)).await?;
+        jvm.put_field(&mut this, "constraint", "I", constraint).await?;
 
         Ok(())
     }

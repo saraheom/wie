@@ -33,21 +33,21 @@ impl InputMethodHandler {
         // selection is not yet emulated, so start from the neutral/default mode
         // and preserve any later setCurrentMode() value exactly.
         jvm.put_field(&mut this, "currentMode", "I", 0i32).await?;
-        tracing::info!("[PHASE8_54_WIPI_INPUT_METHOD_MODE] op=init constraint={constraint} mode=0");
+        tracing::info!("[PHASE8_55_WIPI_INPUT_METHOD_MODE] op=init constraint={constraint} mode=0");
 
         Ok(())
     }
 
     async fn set_current_mode(jvm: &Jvm, _: &mut WieJvmContext, mut this: ClassInstanceRef<Self>, mode: i32) -> JvmResult<bool> {
         jvm.put_field(&mut this, "currentMode", "I", mode).await?;
-        tracing::info!("[PHASE8_54_WIPI_INPUT_METHOD_MODE] op=set mode={mode}");
+        tracing::info!("[PHASE8_55_WIPI_INPUT_METHOD_MODE] op=set mode={mode}");
 
         Ok(true)
     }
 
     async fn get_current_mode(jvm: &Jvm, _: &mut WieJvmContext, this: ClassInstanceRef<Self>) -> JvmResult<i32> {
         let mode: i32 = jvm.get_field(&this, "currentMode", "I").await?;
-        tracing::info!("[PHASE8_54_WIPI_INPUT_METHOD_MODE] op=get mode={mode}");
+        tracing::info!("[PHASE8_55_WIPI_INPUT_METHOD_MODE] op=get mode={mode}");
 
         Ok(mode)
     }

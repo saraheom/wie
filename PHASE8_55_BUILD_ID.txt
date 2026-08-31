@@ -1,0 +1,11 @@
+WIPI Player Phase 8.55
+TestFlight marketing version: 0.1.55
+Build sentinel: PHASE8_55_BUILD_SENTINEL=WIPI_PLAYER_0.1.55_OZ_TEXT_COMPONENT_STATE
+Runtime sentinel: PHASE8_55_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_55_INOTIA1_REWARD_OVERFLOW_REPAIR
+LGT interface repair marker: PHASE8_55_LGT_INTERFACE_LINK
+LGT startup error marker: PHASE8_55_LGT_STARTUP_ERROR
+WIPI input mode marker: PHASE8_55_WIPI_INPUT_METHOD_MODE
+WIPI text component marker: PHASE8_55_WIPI_TEXT_COMPONENT
+OZ compatibility: TextComponent getMaxLength/setString added; maxLength/text/constraint state preserved; TextField/TextBox constructors retain initial data
+Cash catalog: unchanged 11 records; 무기강화 주문서 x10; 방어구강화 주문서 x10; 힘의 조각 x10; 마법의 가지 x10
