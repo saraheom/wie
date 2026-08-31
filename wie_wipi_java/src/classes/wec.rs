@@ -40,7 +40,7 @@ impl OEMAppExecutor {
         parameters: ClassInstanceRef<Array<Array<i8>>>,
     ) -> JvmResult<i32> {
         tracing::warn!(
-            "[PHASE8_58_WEC_OEM_APP_EXECUTOR] application={application:?} command={command:?} parameters={parameters:?} result=-1 unsupported_external_carrier_app"
+            "[PHASE8_59_WEC_OEM_APP_EXECUTOR] application={application:?} command={command:?} parameters={parameters:?} result=-1 unsupported_external_carrier_app"
         );
 
         // Negative result: no OEM/carrier application was launched. Do not

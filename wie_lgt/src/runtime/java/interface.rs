@@ -52,7 +52,7 @@ pub fn get_java_interface_method(core: &mut ArmCore, function_index: u32) -> Res
         0xe2 => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::GetStringArrayClass)?,
         0xfa => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::StoreReferenceArrayUnchecked)?,
         _ => {
-            tracing::error!("[PHASE8_58_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
+            tracing::error!("[PHASE8_59_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
             return Err(WieError::FatalError(format!("Unknown lgt java import: {function_index:#x}")));
         }
     })
@@ -496,7 +496,7 @@ fn link_field_words(
                 ))
             })?;
             tracing::info!(
-                "[PHASE8_58_LGT_WIDE_FIELD_CONTINUATION] class={class_name} kind={} index={index} descriptor={descriptor} resolved={word_index}",
+                "[PHASE8_59_LGT_WIDE_FIELD_CONTINUATION] class={class_name} kind={} index={index} descriptor={descriptor} resolved={word_index}",
                 if is_static { "static" } else { "instance" }
             );
             write_generic(core, output_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
@@ -544,6 +544,21 @@ async fn link_class_members(
     interface_method_indices: u32,
     non_virtual_method_targets: u32,
 ) -> Result<()> {
+    if class_name == "base/a" {
+        tracing::info!(
+            "[PHASE8_59_LGT_LINK_CLASS_BEGIN] class={class_name} instance={}+{} static={}+{} virtual={}+{} interface={}+{} direct={}+{}",
+            link.instance_field_offset,
+            link.instance_field_count,
+            link.static_field_offset,
+            link.static_field_count,
+            link.virtual_method_offset,
+            link.virtual_method_count,
+            link.interface_method_offset,
+            link.interface_method_count,
+            link.non_virtual_method_offset,
+            link.non_virtual_method_count
+        );
+    }
     link_field_words(
         core,
         jvm,
@@ -554,6 +569,9 @@ async fn link_class_members(
         link.instance_field_count,
         false,
     )?;
+    if class_name == "base/a" {
+        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=instance_fields_complete");
+    }
 
     link_field_words(
         core,
@@ -565,16 +583,32 @@ async fn link_class_members(
         link.static_field_count,
         true,
     )?;
+    if class_name == "base/a" {
+        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=static_fields_complete");
+    }
 
     for index in link.virtual_method_offset..link.virtual_method_offset + link.virtual_method_count {
         let (name, descriptor) = read_member_name_and_descriptor(core, virtual_method_imports, index)?;
+        if class_name == "base/a" {
+            tracing::info!(
+                "[PHASE8_59_LGT_VIRTUAL_RESOLVE_BEGIN] class={class_name} index={index} name={name} descriptor={descriptor}"
+            );
+        }
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
+        if class_name == "base/a" {
+            tracing::info!(
+                "[PHASE8_59_LGT_VIRTUAL_RESOLVE_COMPLETE] class={class_name} index={index} name={name} descriptor={descriptor} resolved={method_index}"
+            );
+        }
         write_generic(core, virtual_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
+    }
+    if class_name == "base/a" {
+        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=virtual_methods_complete");
     }
 
     if link.interface_method_count != 0 {
         tracing::info!(
-            "[PHASE8_58_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
+            "[PHASE8_59_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
             link.interface_method_count,
             link.interface_method_offset,
             link.interface_method_offset + link.interface_method_count
@@ -584,9 +618,12 @@ async fn link_class_members(
         let (name, descriptor) = read_member_name_and_descriptor(core, interface_method_imports, index)?;
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
         tracing::info!(
-            "[PHASE8_58_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
+            "[PHASE8_59_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
         );
         write_generic(core, interface_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
+    }
+    if class_name == "base/a" {
+        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=interface_methods_complete");
     }
 
     let (initialized_class_getter, class_getter) = LgtJvmSupport::class_getter_targets(jvm, class_name)?;
@@ -601,6 +638,9 @@ async fn link_class_members(
             }
         };
         write_generic(core, non_virtual_method_targets + index as u32 * size_of::<u32>() as u32, target)?;
+    }
+    if class_name == "base/a" {
+        tracing::info!("[PHASE8_59_LGT_LINK_CLASS_COMPLETE] class={class_name}");
     }
 
     Ok(())

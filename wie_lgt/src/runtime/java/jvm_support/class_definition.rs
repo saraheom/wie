@@ -515,8 +515,18 @@ impl JavaClassDefinition {
     }
 
     pub async fn vtable_entries(&self, jvm: &Jvm) -> Result<Vec<JavaVtableEntry>> {
+        let trace_base_a = ClassDefinition::name(self) == "base/a";
+        if trace_base_a {
+            tracing::info!("[PHASE8_59_LGT_VTABLE_HIERARCHY_BEGIN] class=base/a");
+        }
         let mut hierarchy = vec![self.clone()];
         while let Some(parent_name) = ClassDefinition::super_class_name(hierarchy.last().unwrap()) {
+            if trace_base_a {
+                tracing::info!(
+                    "[PHASE8_59_LGT_VTABLE_PARENT_RESOLVE_BEGIN] class=base/a parent={parent_name} depth={}",
+                    hierarchy.len()
+                );
+            }
             let parent_class = jvm
                 .resolve_class(&parent_name)
                 .await
@@ -526,14 +536,33 @@ impl JavaClassDefinition {
                 .downcast_ref::<JavaClassDefinition>()
                 .unwrap()
                 .clone();
+            if trace_base_a {
+                tracing::info!(
+                    "[PHASE8_59_LGT_VTABLE_PARENT_RESOLVE_COMPLETE] class=base/a parent={parent_name} depth={}",
+                    hierarchy.len()
+                );
+            }
             hierarchy.push(parent_class);
+        }
+        if trace_base_a {
+            tracing::info!(
+                "[PHASE8_59_LGT_VTABLE_HIERARCHY_COMPLETE] class=base/a depth={}",
+                hierarchy.len()
+            );
         }
 
         let known_classes = hierarchy
             .into_iter()
             .map(|class| Ok((ClassDefinition::name(&class), class.methods()?)))
             .collect::<Result<Vec<_>>>()?;
-        JavaVtable::read(&self.core, self.ptr_vtable()?, &known_classes)
+        if trace_base_a {
+            tracing::info!("[PHASE8_59_LGT_VTABLE_RAW_READ_BEGIN] class=base/a known_classes={}", known_classes.len());
+        }
+        let entries = JavaVtable::read(&self.core, self.ptr_vtable()?, &known_classes)?;
+        if trace_base_a {
+            tracing::info!("[PHASE8_59_LGT_VTABLE_RAW_READ_COMPLETE] class=base/a entries={}", entries.len());
+        }
+        Ok(entries)
     }
 }
 

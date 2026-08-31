@@ -394,7 +394,7 @@ impl ArmCore {
                             let r2 = self1.read_param(2).unwrap_or(0);
                             let r3 = self1.read_param(3).unwrap_or(0);
                             tracing::error!(
-                                "[PHASE8_58_ARM_SVC_FAULT] category={category:#x} svc_lr={lr:#010x} error={} pc={pc:#010x} lr={current_lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}",
+                                "[PHASE8_59_ARM_SVC_FAULT] category={category:#x} svc_lr={lr:#010x} error={} pc={pc:#010x} lr={current_lr:#010x} r0={r0:#010x} r1={r1:#010x} r2={r2:#010x} r3={r3:#010x}",
                                 error
                             );
                         }
