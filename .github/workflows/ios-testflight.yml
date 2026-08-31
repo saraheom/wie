@@ -1,4 +1,4 @@
-name: iOS TestFlight — Phase 8.61
+name: iOS TestFlight — Phase 8.62
 
 on:
   workflow_dispatch:
@@ -567,17 +567,17 @@ jobs:
 
           BUILD_MARKER="wie_web/dist/phase8_61_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.60 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.62 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_61_BUILD_SENTINEL=WIPI_PLAYER_0.1.62_OZ_LGT_EXCEPTION_ABI_ALIGNMENT' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_62_BUILD_SENTINEL=WIPI_PLAYER_0.1.62_OZ_LGT_BLACKSCREEN_NETWORK_PROBE' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.60 stabilized runtime and frontend build marker.'
+          echo 'Verified Phase 8.62 OZ network-probe runtime and frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
