@@ -116,7 +116,7 @@ impl LgtJvmSupport {
     pub async fn virtual_method_index(jvm: &Jvm, class_name: &str, name: &str, descriptor: &str) -> Result<u16> {
         if class_name == "base/a" {
             tracing::info!(
-                "[PHASE8_59_LGT_VTABLE_INDEX_BEGIN] class={class_name} name={name} descriptor={descriptor}"
+                "[PHASE8_60_LGT_VTABLE_INDEX_BEGIN] class={class_name} name={name} descriptor={descriptor}"
             );
         }
         let class = jvm
@@ -134,13 +134,13 @@ impl LgtJvmSupport {
             .clone();
         if class_name == "base/a" {
             tracing::info!(
-                "[PHASE8_59_LGT_VTABLE_READ_BEGIN] class={class_name} name={name} descriptor={descriptor}"
+                "[PHASE8_60_LGT_VTABLE_READ_BEGIN] class={class_name} name={name} descriptor={descriptor}"
             );
         }
         let mut methods = definition.vtable_entries(jvm).await?;
         if class_name == "base/a" {
             tracing::info!(
-                "[PHASE8_59_LGT_VTABLE_READ_COMPLETE] class={class_name} name={name} descriptor={descriptor} entries={}",
+                "[PHASE8_60_LGT_VTABLE_READ_COMPLETE] class={class_name} name={name} descriptor={descriptor} entries={}",
                 methods.len()
             );
         }

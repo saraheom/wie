@@ -1,0 +1,17 @@
+WIPI Player Phase 8.60
+TestFlight marketing version: 0.1.60
+Build sentinel: PHASE8_60_BUILD_SENTINEL=WIPI_PLAYER_0.1.60_OZ_LGT_CLASS_INIT_REENTRANCY_REPAIR
+Runtime sentinel: PHASE8_60_RUNTIME_SENTINEL
+Reward repair marker: PHASE8_60_INOTIA1_REWARD_OVERFLOW_REPAIR
+OZ interface linker marker: PHASE8_60_LGT_INTERFACE_LINK
+OZ wide-field marker: PHASE8_60_LGT_WIDE_FIELD_CONTINUATION
+OZ class-link stage marker: PHASE8_60_LGT_LINK_CLASS_BEGIN
+OZ virtual resolver marker: PHASE8_60_LGT_VIRTUAL_RESOLVE_BEGIN
+OZ vtable hierarchy marker: PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN
+AOT fault marker: PHASE8_60_LGT_AOT_METHOD_FAULT
+SVC fault marker: PHASE8_60_ARM_SVC_FAULT
+Cash catalog: unchanged 11 records; 무기강화 주문서 x10; 방어구강화 주문서 x10; 힘의 조각 x10; 마법의 가지 x10; 초보용 용사의 인장 removed
+
+Class-init begin marker: PHASE8_60_LGT_CLASS_INIT_BEGIN
+Class-init reentrant marker: PHASE8_60_LGT_CLASS_INIT_REENTRANT
+Class-init complete marker: PHASE8_60_LGT_CLASS_INIT_COMPLETE

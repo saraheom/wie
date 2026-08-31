@@ -52,7 +52,7 @@ pub fn get_java_interface_method(core: &mut ArmCore, function_index: u32) -> Res
         0xe2 => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::GetStringArrayClass)?,
         0xfa => core.make_svc_stub(SVC_CATEGORY_JAVA_SYSTEM, JavaSystemSvcId::StoreReferenceArrayUnchecked)?,
         _ => {
-            tracing::error!("[PHASE8_59_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
+            tracing::error!("[PHASE8_60_LGT_UNSUPPORTED_JAVA_IMPORT] function_index={function_index:#x}");
             return Err(WieError::FatalError(format!("Unknown lgt java import: {function_index:#x}")));
         }
     })
@@ -305,21 +305,82 @@ async fn java_resolve_class(core: &mut ArmCore, jvm: &mut Jvm, ptr_class: u32, _
 }
 
 async fn java_initialize_class(core: &mut ArmCore, jvm: &mut Jvm, ptr_class_object: u32, callback: u32) -> Result<()> {
+    // Phase 8.60 — LGT class-initialization re-entrancy state machine.
+    //
+    // Real LGT AOT class getters call InitializeClass whenever the public class
+    // object's initialization state is not 5. A class initializer is allowed to
+    // reference its own initialized-class getter, so the VM must mark the class
+    // as "initializing" *before* running <clinit>. Without that transition the
+    // callback re-enters InitializeClass and recursively invokes itself until the
+    // WASM/native stack is exhausted (observed with OZ base/a: 0x18c0 -> 0x197c
+    // -> 0x1904 -> 0x18c0).
+    const CLASS_STATE_INITIALIZING: i32 = 4;
+    const CLASS_STATE_INITIALIZED: i32 = 5;
+
     let mut class_object = LgtJvmSupport::class_instance_from_raw(core, ptr_class_object);
-    let ready: i32 = jvm
+    let state: i32 = jvm
         .get_field(&class_object, CLASS_INITIALIZATION_STATE_FIELD, WORD_FIELD_DESCRIPTOR)
         .await
         .map_err(|JavaError::JavaException(instance)| WieError::JavaException(LgtJvmSupport::class_instance_raw(&*instance)))?;
-    if ready == 5 {
+
+    if state == CLASS_STATE_INITIALIZED {
+        tracing::info!(
+            "[PHASE8_60_LGT_CLASS_INIT_ALREADY_COMPLETE] class_object={ptr_class_object:#010x} callback={callback:#010x}"
+        );
+        return Ok(());
+    }
+    if state == CLASS_STATE_INITIALIZING {
+        tracing::info!(
+            "[PHASE8_60_LGT_CLASS_INIT_REENTRANT] class_object={ptr_class_object:#010x} callback={callback:#010x} state={state}"
+        );
         return Ok(());
     }
 
+    tracing::info!(
+        "[PHASE8_60_LGT_CLASS_INIT_BEGIN] class_object={ptr_class_object:#010x} callback={callback:#010x} previous_state={state}"
+    );
+    jvm.put_field(
+        &mut class_object,
+        CLASS_INITIALIZATION_STATE_FIELD,
+        WORD_FIELD_DESCRIPTOR,
+        CLASS_STATE_INITIALIZING,
+    )
+    .await
+    .map_err(|JavaError::JavaException(instance)| WieError::JavaException(LgtJvmSupport::class_instance_raw(&*instance)))?;
+
     if callback != 0 {
-        let _: () = core.run_function(callback, &[]).await?;
+        let callback_result: Result<()> = core.run_function(callback, &[]).await;
+        if let Err(error) = callback_result {
+            // Do not leave a failed class permanently marked as initializing.
+            // Restoring the prior state preserves the pre-8.60 retry/error
+            // behavior while still preventing recursive <clinit> entry.
+            jvm.put_field(
+                &mut class_object,
+                CLASS_INITIALIZATION_STATE_FIELD,
+                WORD_FIELD_DESCRIPTOR,
+                state,
+            )
+            .await
+            .map_err(|JavaError::JavaException(instance)| WieError::JavaException(LgtJvmSupport::class_instance_raw(&*instance)))?;
+            tracing::error!(
+                "[PHASE8_60_LGT_CLASS_INIT_CALLBACK_ERROR] class_object={ptr_class_object:#010x} callback={callback:#010x} restored_state={state} error={error}"
+            );
+            return Err(error);
+        }
     }
-    jvm.put_field(&mut class_object, CLASS_INITIALIZATION_STATE_FIELD, WORD_FIELD_DESCRIPTOR, 5i32)
-        .await
-        .map_err(|JavaError::JavaException(instance)| WieError::JavaException(LgtJvmSupport::class_instance_raw(&*instance)))
+
+    jvm.put_field(
+        &mut class_object,
+        CLASS_INITIALIZATION_STATE_FIELD,
+        WORD_FIELD_DESCRIPTOR,
+        CLASS_STATE_INITIALIZED,
+    )
+    .await
+    .map_err(|JavaError::JavaException(instance)| WieError::JavaException(LgtJvmSupport::class_instance_raw(&*instance)))?;
+    tracing::info!(
+        "[PHASE8_60_LGT_CLASS_INIT_COMPLETE] class_object={ptr_class_object:#010x} callback={callback:#010x} state={CLASS_STATE_INITIALIZED}"
+    );
+    Ok(())
 }
 
 async fn java_get_array_type(core: &mut ArmCore, jvm: &mut Jvm, rank: u32, ptr_component_name: u32, primitive_type: u32) -> Result<u32> {
@@ -496,7 +557,7 @@ fn link_field_words(
                 ))
             })?;
             tracing::info!(
-                "[PHASE8_59_LGT_WIDE_FIELD_CONTINUATION] class={class_name} kind={} index={index} descriptor={descriptor} resolved={word_index}",
+                "[PHASE8_60_LGT_WIDE_FIELD_CONTINUATION] class={class_name} kind={} index={index} descriptor={descriptor} resolved={word_index}",
                 if is_static { "static" } else { "instance" }
             );
             write_generic(core, output_word_indices + index as u32 * size_of::<u16>() as u32, word_index)?;
@@ -546,7 +607,7 @@ async fn link_class_members(
 ) -> Result<()> {
     if class_name == "base/a" {
         tracing::info!(
-            "[PHASE8_59_LGT_LINK_CLASS_BEGIN] class={class_name} instance={}+{} static={}+{} virtual={}+{} interface={}+{} direct={}+{}",
+            "[PHASE8_60_LGT_LINK_CLASS_BEGIN] class={class_name} instance={}+{} static={}+{} virtual={}+{} interface={}+{} direct={}+{}",
             link.instance_field_offset,
             link.instance_field_count,
             link.static_field_offset,
@@ -570,7 +631,7 @@ async fn link_class_members(
         false,
     )?;
     if class_name == "base/a" {
-        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=instance_fields_complete");
+        tracing::info!("[PHASE8_60_LGT_LINK_STAGE] class={class_name} stage=instance_fields_complete");
     }
 
     link_field_words(
@@ -584,31 +645,31 @@ async fn link_class_members(
         true,
     )?;
     if class_name == "base/a" {
-        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=static_fields_complete");
+        tracing::info!("[PHASE8_60_LGT_LINK_STAGE] class={class_name} stage=static_fields_complete");
     }
 
     for index in link.virtual_method_offset..link.virtual_method_offset + link.virtual_method_count {
         let (name, descriptor) = read_member_name_and_descriptor(core, virtual_method_imports, index)?;
         if class_name == "base/a" {
             tracing::info!(
-                "[PHASE8_59_LGT_VIRTUAL_RESOLVE_BEGIN] class={class_name} index={index} name={name} descriptor={descriptor}"
+                "[PHASE8_60_LGT_VIRTUAL_RESOLVE_BEGIN] class={class_name} index={index} name={name} descriptor={descriptor}"
             );
         }
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
         if class_name == "base/a" {
             tracing::info!(
-                "[PHASE8_59_LGT_VIRTUAL_RESOLVE_COMPLETE] class={class_name} index={index} name={name} descriptor={descriptor} resolved={method_index}"
+                "[PHASE8_60_LGT_VIRTUAL_RESOLVE_COMPLETE] class={class_name} index={index} name={name} descriptor={descriptor} resolved={method_index}"
             );
         }
         write_generic(core, virtual_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
     }
     if class_name == "base/a" {
-        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=virtual_methods_complete");
+        tracing::info!("[PHASE8_60_LGT_LINK_STAGE] class={class_name} stage=virtual_methods_complete");
     }
 
     if link.interface_method_count != 0 {
         tracing::info!(
-            "[PHASE8_59_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
+            "[PHASE8_60_LGT_INTERFACE_LINK] class={class_name} count={} range={}..{} imports={interface_method_imports:#010x} output={interface_method_indices:#010x}",
             link.interface_method_count,
             link.interface_method_offset,
             link.interface_method_offset + link.interface_method_count
@@ -618,12 +679,12 @@ async fn link_class_members(
         let (name, descriptor) = read_member_name_and_descriptor(core, interface_method_imports, index)?;
         let method_index = LgtJvmSupport::virtual_method_index(jvm, class_name, &name, &descriptor).await?;
         tracing::info!(
-            "[PHASE8_59_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
+            "[PHASE8_60_LGT_INTERFACE_METHOD] class={class_name} name={name} descriptor={descriptor} index={index} resolved={method_index}"
         );
         write_generic(core, interface_method_indices + index as u32 * size_of::<u16>() as u32, method_index)?;
     }
     if class_name == "base/a" {
-        tracing::info!("[PHASE8_59_LGT_LINK_STAGE] class={class_name} stage=interface_methods_complete");
+        tracing::info!("[PHASE8_60_LGT_LINK_STAGE] class={class_name} stage=interface_methods_complete");
     }
 
     let (initialized_class_getter, class_getter) = LgtJvmSupport::class_getter_targets(jvm, class_name)?;
@@ -640,7 +701,7 @@ async fn link_class_members(
         write_generic(core, non_virtual_method_targets + index as u32 * size_of::<u32>() as u32, target)?;
     }
     if class_name == "base/a" {
-        tracing::info!("[PHASE8_59_LGT_LINK_CLASS_COMPLETE] class={class_name}");
+        tracing::info!("[PHASE8_60_LGT_LINK_CLASS_COMPLETE] class={class_name}");
     }
 
     Ok(())
