@@ -1,7 +1,7 @@
 # WIPI Player
 
-The current TestFlight workflow targets **WIPI Player 0.1.60 (Phase 8.60)**. This build preserves the verified Inotia1 global monster-reward overflow repair, save/revival compatibility, 11-record offline cash-shop catalog with the four bulk items at quantity 10, and the existing Inotia2 compatibility/performance work.
+The current TestFlight workflow targets **WIPI Player 0.1.61 (Phase 8.61)**. It preserves the Phase 8.60 LGT class-initialization re-entrancy repair and all existing Inotia1/Inotia2 compatibility work.
 
-Phase 8.60 preserves the OZ/LGT fixes from Phases 8.53–8.59 and repairs recursive LGT class initialization. `InitializeClass` now marks a class as state 4 (initializing) before invoking its initializer callback, safely returns on same-class re-entry, promotes the class to state 5 only after successful completion, and restores the previous state if the callback fails.
+Phase 8.61 targets the next OZ/천공의 기사단 startup blocker exposed by the 8.60 diagnostic log. The LGT Java import ABI is aligned with current upstream semantics for import `0x12` (class assignability) and import `0x21` (throw exception), and the `0x12` path now logs the actual guest pointers plus bounded pointer-word diagnostics when the class-name argument is malformed. This keeps the next test evidence-driven instead of hiding the guest exception.
 
 See the phase-specific notes for compatibility history and TestFlight setup.

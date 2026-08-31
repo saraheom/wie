@@ -1,0 +1,8 @@
+Phase 8.61 — OZ LGT Exception ABI Alignment
+
+1. Preserve Phase 8.60 class-initialization re-entrancy state machine.
+2. Reduce repeated PHASE8_60_LGT_CLASS_INIT_REENTRANT messages from INFO to DEBUG.
+3. Align Java import 0x12 behavior with current upstream WIE: class assignability using source class + target class name.
+4. Align Java import 0x21 behavior with current upstream WIE: throw the supplied exception object without popping the exception frame.
+5. Add Phase 8.61 argument/pointer diagnostics for malformed 0x12 class-name data.
+6. Bump TestFlight marketing version to 0.1.61 and add Phase 8.61 build marker checks.

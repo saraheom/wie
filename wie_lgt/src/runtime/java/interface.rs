@@ -3,7 +3,7 @@ use core::mem::size_of;
 
 use java_runtime::classes::java::util::Vector;
 use jvm::{
-    ClassDefinition, ClassInstance, ClassInstanceRef, JavaError, Jvm,
+    ClassDefinition, ClassInstance, ClassInstanceRef, JavaError, JavaType, Jvm,
     runtime::{JavaLangClass, JavaLangClassLoader, JavaLangString},
 };
 use wipi_types::lgt::java::{LgtJavaClass as RawJavaClass, LgtJavaClassDescriptor as RawJavaClassDescriptor, LgtJavaClassLink as RawJavaClassLink};
@@ -94,12 +94,28 @@ async fn handle_java_system_svc(core: &mut ArmCore, (jvm, ptr_jar_path): &mut (J
                 .await?
                 .write(core, lr),
             JavaSystemSvcId::LinkPublicClass => EmulatedFunction::call(&java_link_public_class, core, jvm).await?.write(core, lr),
+            // Phase 8.61 — import 0x12 is a class-assignability query, not a
+            // pending-exception matcher.  This matches the current upstream LGT ABI.
             JavaSystemSvcId::ExceptionMatchesClass => {
-                java_exception_matches_class(core, jvm, core.read_param(0)?, core.read_param(1)?, core.read_param(2)?)
-                    .await?
-                    .write(core, lr)
+                let ptr_class = core.read_param(0)?;
+                let ptr_class_name = core.read_param(1)?;
+                let ptr_fields = core.read_param(2)?;
+                let pending = exception::pending(core)?;
+                tracing::info!(
+                    "[PHASE8_61_LGT_IS_ASSIGNABLE_ENTRY] ptr_class={ptr_class:#010x} ptr_class_name={ptr_class_name:#010x} ptr_fields={ptr_fields:#010x} pending={pending:#010x}"
+                );
+                java_is_class_assignable(core, jvm, ptr_class, ptr_class_name, ptr_fields).await?.write(core, lr)
             }
-            JavaSystemSvcId::RethrowException => EmulatedFunction::call(&java_rethrow_exception, core, &mut ()).await?.write(core, lr),
+            // Phase 8.61 — import 0x21 is ThrowException(exception).  Do not pop
+            // the compiler exception frame here; handle_java_system_svc owns unwind.
+            JavaSystemSvcId::RethrowException => {
+                let ptr_exception = core.read_param(0)?;
+                tracing::info!(
+                    "[PHASE8_61_LGT_THROW_EXCEPTION] ptr_exception={ptr_exception:#010x} pending={:#010x}",
+                    exception::pending(core)?
+                );
+                Err(WieError::JavaException(ptr_exception))
+            }
             JavaSystemSvcId::RaiseNullPointerException => EmulatedFunction::call(&java_raise_null_pointer_exception, core, jvm)
                 .await?
                 .write(core, lr),
@@ -189,18 +205,75 @@ async fn java_pending_exception(core: &mut ArmCore, _: &mut ()) -> Result<u32> {
     exception::pending(core)
 }
 
-async fn java_exception_matches_class(core: &mut ArmCore, jvm: &Jvm, _ptr_exception_type: u32, ptr_class_name: u32, _ptr_fields: u32) -> Result<u32> {
-    let class_name = String::from_utf8(read_null_terminated_string_bytes(core, ptr_class_name)?)
-        .map_err(|error| WieError::FatalError(format!("Invalid LGT exception class name: {error}")))?;
-    let ptr_exception = exception::pending(core)?;
-    let exception = LgtJvmSupport::class_instance_from_raw(core, ptr_exception);
+fn phase8_61_pointer_words(core: &ArmCore, ptr: u32) -> String {
+    if ptr == 0 {
+        return String::from("null");
+    }
 
-    Ok(u32::from(jvm.is_instance(&*exception, &class_name)))
+    let mut words = Vec::with_capacity(4);
+    for index in 0..4u32 {
+        match read_generic::<u32, _>(core, ptr.saturating_add(index * size_of::<u32>() as u32)) {
+            Ok(value) => words.push(format!("{value:#010x}")),
+            Err(error) => {
+                words.push(format!("<read-error:{error}>"));
+                break;
+            }
+        }
+    }
+    words.join(",")
 }
 
-async fn java_rethrow_exception(core: &mut ArmCore, _: &mut (), ptr_exception: u32) -> Result<()> {
-    exception::pop(core)?;
-    Err(WieError::JavaException(ptr_exception))
+async fn java_is_class_assignable(core: &mut ArmCore, jvm: &Jvm, ptr_class: u32, ptr_class_name: u32, ptr_fields: u32) -> Result<u32> {
+    let class_name_bytes = match read_null_terminated_string_bytes(core, ptr_class_name) {
+        Ok(bytes) => bytes,
+        Err(error) => {
+            tracing::error!(
+                "[PHASE8_61_LGT_IS_ASSIGNABLE_NAME_READ_ERROR] ptr_class={ptr_class:#010x} ptr_class_name={ptr_class_name:#010x} ptr_fields={ptr_fields:#010x} class_words={} name_words={} field_words={} error={error}",
+                phase8_61_pointer_words(core, ptr_class),
+                phase8_61_pointer_words(core, ptr_class_name),
+                phase8_61_pointer_words(core, ptr_fields),
+            );
+            return Err(error);
+        }
+    };
+
+    let class_name = match String::from_utf8(class_name_bytes.clone()) {
+        Ok(value) => value,
+        Err(error) => {
+            let first_bytes = class_name_bytes
+                .iter()
+                .take(24)
+                .map(|value| format!("{value:02x}"))
+                .collect::<Vec<_>>()
+                .join("");
+            let indirect_name_ptr = read_generic::<u32, _>(core, ptr_class_name).unwrap_or(0);
+            let indirect_name = if indirect_name_ptr != 0 {
+                read_null_terminated_string_bytes(core, indirect_name_ptr)
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .unwrap_or_else(|| String::from("<invalid>"))
+            } else {
+                String::from("<null>")
+            };
+            tracing::error!(
+                "[PHASE8_61_LGT_IS_ASSIGNABLE_INVALID_NAME] ptr_class={ptr_class:#010x} ptr_class_name={ptr_class_name:#010x} ptr_fields={ptr_fields:#010x} first_bytes={first_bytes} indirect_ptr={indirect_name_ptr:#010x} indirect_name={indirect_name:?} class_words={} name_words={} field_words={} utf8_error={error}",
+                phase8_61_pointer_words(core, ptr_class),
+                phase8_61_pointer_words(core, ptr_class_name),
+                phase8_61_pointer_words(core, ptr_fields),
+            );
+            return Err(WieError::FatalError(format!("Invalid LGT class name: {error}")));
+        }
+    };
+
+    let source_class_name = LgtJvmSupport::class_from_raw(core, ptr_class).name();
+    let assignable = jvm.is_type_assignable(
+        &JavaType::from_class_name(&source_class_name),
+        &JavaType::from_class_name(&class_name),
+    );
+    tracing::info!(
+        "[PHASE8_61_LGT_IS_ASSIGNABLE_RESULT] source={source_class_name} target={class_name} result={assignable}"
+    );
+    Ok(u32::from(assignable))
 }
 
 async fn java_raise_null_pointer_exception(_core: &mut ArmCore, jvm: &mut Jvm) -> Result<()> {
