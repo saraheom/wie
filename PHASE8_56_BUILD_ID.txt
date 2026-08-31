@@ -1,0 +1,7 @@
+WIPI Player Phase 8.56
+TestFlight marketing version: 0.1.56
+Build sentinel: PHASE8_56_BUILD_SENTINEL=WIPI_PLAYER_0.1.56_OZ_WEC_OEM_APP_EXECUTOR
+Runtime sentinel: PHASE8_56_RUNTIME_SENTINEL
+OZ LGT compatibility: generic interface-method linking + InputMethodHandler current-mode state + TextComponent state + wec/OEMAppExecutor ABI shim
+OEMAppExecutor method: appExecutor(Ljava/lang/String;Ljava/lang/String;[[B)I, static/direct, conservative unsupported result -1
+Inotia1: global reward overflow repair retained; 11-record cash catalog retained; enhancement scrolls/resources x10 retained

@@ -130,7 +130,7 @@ impl LgtEmulator {
                 error => error,
             };
             tracing::error!(
-                "[PHASE8_55_LGT_STARTUP_ERROR] aid={} pid={} jar={} error={converted}",
+                "[PHASE8_56_LGT_STARTUP_ERROR] aid={} pid={} jar={} error={converted}",
                 system.aid(),
                 system.pid(),
                 jar_filename
@@ -139,7 +139,7 @@ impl LgtEmulator {
         }
 
         tracing::info!(
-            "[PHASE8_55_LGT_STARTUP_COMPLETE] aid={} pid={} jar={}",
+            "[PHASE8_56_LGT_STARTUP_COMPLETE] aid={} pid={} jar={}",
             system.aid(),
             system.pid(),
             jar_filename

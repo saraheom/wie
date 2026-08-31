@@ -6,7 +6,7 @@ pub mod classes;
 
 use wie_jvm_support::WieJavaClassProto;
 
-pub fn get_protos() -> [WieJavaClassProto; 42] {
+pub fn get_protos() -> [WieJavaClassProto; 43] {
     [
         crate::classes::org::kwis::msf::io::Network::as_proto(),
         crate::classes::org::kwis::msf::io::SchemeNotFoundException::as_proto(),
@@ -50,5 +50,6 @@ pub fn get_protos() -> [WieJavaClassProto; 42] {
         crate::classes::net::wie::CardCanvas::as_proto(),
         crate::classes::net::wie::WIPIFileOutputStream::as_proto(),
         crate::classes::net::wie::WIPIMIDlet::as_proto(),
+        crate::classes::wec::OEMAppExecutor::as_proto(),
     ]
 }
