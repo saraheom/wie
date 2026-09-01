@@ -156,6 +156,10 @@ impl ArmCore {
         self.inner.lock().oz_svc_hang_diagnostics = enabled;
     }
 
+    pub fn oz_svc_hang_diagnostics_enabled(&self) -> bool {
+        self.inner.lock().oz_svc_hang_diagnostics
+    }
+
     /// Phase 8.46 manual-arm diagnostic switch. This is deliberately enabled by the KTF
     /// frontend only for the known Inotia1 AID/PID, so every other title keeps
     /// the Phase 8.42 memory hot path unchanged.
