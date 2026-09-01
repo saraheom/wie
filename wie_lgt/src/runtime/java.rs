@@ -82,28 +82,9 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
         id.0, class_name, method_name, method_descriptor, lr, r0, r1, r2, r3
     );
 
-    // Phase 8.66: OZ-only diagnostic bypass for the URLClassLoader metadata hang.
-    // The 8.65 trace proved URL.getFile() returns successfully and the pinned
-    // RustJava implementation next awaits RuntimeContext::metadata(&file), where
-    // execution never returns. Conservatively report "resource not found" rather
-    // than fabricating content, so ClassLoader fallback/error handling can proceed.
-    if core.oz_svc_hang_diagnostics_enabled()
-        && class_name == "java/net/URLClassLoader"
-        && method_name == "findResource"
-        && method_descriptor == "(Ljava/lang/String;)Ljava/net/URL;"
-    {
-        tracing::warn!(
-            "[PHASE8_66_OZ_FIND_RESOURCE_METADATA_BYPASS] id={:#010x} loader={:#010x} name_object={:#010x} action=return_null",
-            id.0, r0, r1
-        );
-        core.write_return_value(&[0])?;
-        tracing::info!(
-            "[PHASE8_66_OZ_FIND_RESOURCE_METADATA_BYPASS_RETURN] id={:#010x} result=0x00000000",
-            id.0
-        );
-        return Ok(JumpTo(lr));
-    }
-
+    // Phase 8.67: the Phase 8.66 return-null experiment is intentionally
+    // removed. OZ binary.mod is now bootstrapped directly from the mounted JAR,
+    // preserving normal URLClassLoader semantics for later resource lookups.
     let call_result = function.call(core).await;
     let return_r0 = core.read_param(0).unwrap_or(0);
     if class_name == "java/net/URL" && method_name == "getFile" {

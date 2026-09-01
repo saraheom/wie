@@ -126,13 +126,44 @@ impl LgtEmulator {
     async fn do_start(core: &mut ArmCore, system: &mut System, jar_filename: String, _main_class_name: Option<String>) -> Result<()> {
         let jvm = LgtJvmSupport::init(core, system, Some(&jar_filename)).await?;
 
-        let class_loader = JavaLangClassLoader::get_system_class_loader(&jvm).await.unwrap();
-        let stream = JavaLangClassLoader::get_resource_as_stream(&jvm, &class_loader, "binary.mod")
-            .await
-            .unwrap()
-            .unwrap();
-
-        let binary_mod = JavaIoInputStream::read_until_end(&jvm, &stream).await.unwrap();
+        let binary_mod = if jar_filename == "00026DBF.jar" {
+            // Phase 8.67: OZ bootstrap must not route binary.mod through
+            // URLClassLoader::findResource(). Phase 8.65 proved that path blocks
+            // forever in RuntimeContext::metadata(), while Phase 8.66 proved
+            // binary.mod is required and returning null simply crashes the
+            // bootstrap unwrap. Read the already-mounted JAR directly from WIE's
+            // virtual filesystem and extract binary.mod from the ZIP in memory.
+            let filesystem = system.filesystem();
+            let jar_size = filesystem
+                .size(&jar_filename)
+                .await
+                .ok_or_else(|| WieError::FatalError(format!("Missing OZ bootstrap JAR: {jar_filename}")))?;
+            let mut jar_bytes = vec![0; jar_size];
+            let read = filesystem
+                .read(&jar_filename, 0, jar_size, &mut jar_bytes)
+                .await
+                .ok_or_else(|| WieError::FatalError(format!("Failed to read OZ bootstrap JAR: {jar_filename}")))?;
+            jar_bytes.truncate(read);
+            let jar_files = extract_zip(&jar_bytes)?;
+            let binary_mod = jar_files
+                .get("binary.mod")
+                .cloned()
+                .ok_or_else(|| WieError::FatalError("Missing binary.mod in OZ bootstrap JAR".into()))?;
+            tracing::info!(
+                "[PHASE8_67_OZ_DIRECT_BINARY_MOD] jar={} jar_bytes={} binary_mod_bytes={} source=virtual_filesystem_zip",
+                jar_filename,
+                jar_bytes.len(),
+                binary_mod.len()
+            );
+            binary_mod
+        } else {
+            let class_loader = JavaLangClassLoader::get_system_class_loader(&jvm).await.unwrap();
+            let stream = JavaLangClassLoader::get_resource_as_stream(&jvm, &class_loader, "binary.mod")
+                .await
+                .unwrap()
+                .unwrap();
+            JavaIoInputStream::read_until_end(&jvm, &stream).await.unwrap()
+        };
 
         if let Err(error) = load_native(core, system, &jvm, &jar_filename, &binary_mod).await {
             let converted = match error {
