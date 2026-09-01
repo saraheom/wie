@@ -1,6 +1,6 @@
 use core::pin::Pin;
 
-use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, collections::BTreeMap, format, string::String, vec, vec::Vec};
 
 use jvm::{
     JavaError,
