@@ -15,22 +15,57 @@ pub struct FileImpl {
 
 impl FileImpl {
     pub async fn new(system: System, path: &str, options: FileOpenOptions) -> Result<Self, IOError> {
+        let oz_probe = system.aid() == "00026DBF" && system.pid() == "PD112525";
+        if oz_probe {
+            tracing::info!(
+                "[PHASE8_68_OZ_FILEIMPL_NEW_ENTRY] path={:?} read={} write={} append={} truncate={} create={}",
+                path, options.read, options.write, options.append, options.truncate, options.create
+            );
+        }
         let filesystem = system.filesystem();
+        if oz_probe {
+            tracing::info!("[PHASE8_68_OZ_FILEIMPL_EXISTS_BEGIN] path={:?}", path);
+        }
         let exists = filesystem.exists(path).await;
+        if oz_probe {
+            tracing::info!("[PHASE8_68_OZ_FILEIMPL_EXISTS_RETURN] path={:?} exists={}", path, exists);
+        }
         if !exists && !options.create {
+            if oz_probe {
+                tracing::warn!("[PHASE8_68_OZ_FILEIMPL_NOT_FOUND] path={:?}", path);
+            }
             return Err(IOError::NotFound);
         }
 
-        if (options.truncate || !exists) && !filesystem.truncate(path, 0).await {
-            return Err(IOError::Io);
+        if options.truncate || !exists {
+            if oz_probe {
+                tracing::info!("[PHASE8_68_OZ_FILEIMPL_TRUNCATE_BEGIN] path={:?} len=0", path);
+            }
+            let truncated = filesystem.truncate(path, 0).await;
+            if oz_probe {
+                tracing::info!("[PHASE8_68_OZ_FILEIMPL_TRUNCATE_RETURN] path={:?} ok={}", path, truncated);
+            }
+            if !truncated {
+                return Err(IOError::Io);
+            }
         }
 
         let cursor = if options.append {
-            filesystem.size(path).await.ok_or(IOError::NotFound)? as u64
+            if oz_probe {
+                tracing::info!("[PHASE8_68_OZ_FILEIMPL_SIZE_BEGIN] path={:?}", path);
+            }
+            let size = filesystem.size(path).await;
+            if oz_probe {
+                tracing::info!("[PHASE8_68_OZ_FILEIMPL_SIZE_RETURN] path={:?} size={:?}", path, size);
+            }
+            size.ok_or(IOError::NotFound)? as u64
         } else {
             0
         };
 
+        if oz_probe {
+            tracing::info!("[PHASE8_68_OZ_FILEIMPL_NEW_COMPLETE] path={:?} cursor={}", path, cursor);
+        }
         Ok(Self {
             path: path.into(),
             options,

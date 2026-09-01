@@ -205,9 +205,27 @@ where
 
     async fn open(&self, path: &str, options: FileOpenOptions) -> IOResult<FileDescriptorId> {
         tracing::debug!("open({path:?}, {options:?})");
+        let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
+        if oz_probe {
+            tracing::info!(
+                "[PHASE8_68_OZ_RUNTIME_OPEN_ENTRY] path={:?} read={} write={} append={} truncate={} create={}",
+                path, options.read, options.write, options.append, options.truncate, options.create
+            );
+        }
 
-        let file = FileImpl::new(self.system.clone(), path, options).await?;
-        Ok(self.file_table.lock().add(Box::new(file)))
+        let file = FileImpl::new(self.system.clone(), path, options).await;
+        if oz_probe {
+            tracing::info!(
+                "[PHASE8_68_OZ_RUNTIME_OPEN_FILEIMPL_RETURN] path={:?} ok={}",
+                path, file.is_ok()
+            );
+        }
+        let file = file?;
+        let fd = self.file_table.lock().add(Box::new(file));
+        if oz_probe {
+            tracing::info!("[PHASE8_68_OZ_RUNTIME_OPEN_COMPLETE] path={:?} fd={}", path, fd.id());
+        }
+        Ok(fd)
     }
 
     fn get_file(&self, fd: FileDescriptorId) -> IOResult<Box<dyn File>> {
