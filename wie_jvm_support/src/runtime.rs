@@ -120,7 +120,7 @@ where
     implementation: T,
     protos: Arc<Mutex<Vec<WieJavaClassProto>>>,
     file_table: Arc<Mutex<FileTableInner>>,
-    metadata_size_cache: Arc<Mutex<BTreeMap<String, FileSize>>>,
+    metadata_size_cache: Arc<Mutex<BTreeMap<String, Option<FileSize>>>>,
 }
 
 impl<T> JvmRuntime<T>
@@ -132,12 +132,19 @@ where
         file_table.files.insert(STDOUT_FD, Box::new(StdoutFile { system: system.clone() }));
         file_table.files.insert(STDERR_FD, Box::new(StderrFile { system: system.clone() }));
 
+        let mut metadata_size_cache = BTreeMap::new();
+        // RT_RUSTJAR ("wie.rustjar") is a synthetic classpath sentinel, not a
+        // physical VFS file. On iOS/web, asking the async VFS for the size of a
+        // missing synthetic entry can stall indefinitely. Seed a negative cache
+        // result so URLClassLoader falls through immediately.
+        metadata_size_cache.insert(String::from(RT_RUSTJAR), None);
+
         Self {
             system,
             implementation,
             protos: Arc::new(Mutex::new(protos.into_vec().into_iter().flat_map(|x| x.into_vec()).collect())),
             file_table: Arc::new(Mutex::new(file_table)),
-            metadata_size_cache: Arc::new(Mutex::new(BTreeMap::new())),
+            metadata_size_cache: Arc::new(Mutex::new(metadata_size_cache)),
         }
     }
 }
@@ -257,26 +264,36 @@ where
             });
         }
 
-        // JARs are immutable for the lifetime of a running app. On the iOS/web
-        // backend, repeated asynchronous filesystem size() calls for the same
-        // mounted JAR can stall indefinitely. Cache only successful JAR sizes
-        // so mutable save/config files continue to observe live filesystem state.
-        let cacheable_jar = path.ends_with(".jar");
-        if cacheable_jar {
-            if let Some(size) = self.metadata_size_cache.lock().get(path).copied() {
-                if oz_probe {
-                    tracing::info!(
-                        "[PHASE8_72_OZ_METADATA_CACHE_HIT] path={:?} size={}",
-                        path, size
-                    );
+        // Immutable classpath metadata is memoized, including negative results.
+        // This avoids repeated (or first-time synthetic) async VFS size() calls
+        // that can stall indefinitely on iOS/web. Writable save/config files are
+        // intentionally excluded so their metadata remains live.
+        let cacheable_classpath = path.ends_with(".jar") || path == RT_RUSTJAR;
+        if cacheable_classpath {
+            if let Some(cached) = self.metadata_size_cache.lock().get(path).copied() {
+                match cached {
+                    Some(size) => {
+                        if oz_probe {
+                            tracing::info!(
+                                "[PHASE8_73_OZ_METADATA_CACHE_HIT] path={:?} size={}",
+                                path, size
+                            );
+                        }
+                        return Ok(FileStat { size, r#type: FileType::File });
+                    }
+                    None => {
+                        if oz_probe {
+                            tracing::info!(
+                                "[PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_HIT] path={:?}",
+                                path
+                            );
+                        }
+                        return Err(IOError::NotFound);
+                    }
                 }
-                return Ok(FileStat {
-                    size,
-                    r#type: FileType::File,
-                });
             }
             if oz_probe {
-                tracing::info!("[PHASE8_72_OZ_METADATA_CACHE_MISS] path={:?}", path);
+                tracing::info!("[PHASE8_73_OZ_METADATA_CACHE_MISS] path={:?}", path);
             }
         }
 
@@ -287,13 +304,27 @@ where
         if oz_probe {
             tracing::info!("[PHASE8_71_OZ_METADATA_SIZE_RETURN] path={:?} size={:?}", path, raw_size);
         }
-        let size = raw_size.ok_or(IOError::NotFound)? as FileSize;
+        let size = match raw_size {
+            Some(size) => size as FileSize,
+            None => {
+                if cacheable_classpath {
+                    self.metadata_size_cache.lock().insert(String::from(path), None);
+                    if oz_probe {
+                        tracing::info!(
+                            "[PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_STORE] path={:?}",
+                            path
+                        );
+                    }
+                }
+                return Err(IOError::NotFound);
+            }
+        };
 
-        if cacheable_jar {
-            self.metadata_size_cache.lock().insert(String::from(path), size);
+        if cacheable_classpath {
+            self.metadata_size_cache.lock().insert(String::from(path), Some(size));
             if oz_probe {
                 tracing::info!(
-                    "[PHASE8_72_OZ_METADATA_CACHE_STORE] path={:?} size={}",
+                    "[PHASE8_73_OZ_METADATA_CACHE_STORE] path={:?} size={}",
                     path, size
                 );
             }

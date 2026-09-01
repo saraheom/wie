@@ -155,8 +155,10 @@ jobs:
           grep -n 'PHASE8_71_OZ_METADATA_ENTRY' wie_jvm_support/src/runtime.rs
           grep -n 'PHASE8_71_OZ_METADATA_SIZE_BEGIN' wie_jvm_support/src/runtime.rs
           grep -n 'PHASE8_71_OZ_METADATA_SIZE_RETURN' wie_jvm_support/src/runtime.rs
-          grep -n 'PHASE8_72_OZ_METADATA_CACHE_HIT' wie_jvm_support/src/runtime.rs
-          grep -n 'PHASE8_72_OZ_METADATA_CACHE_STORE' wie_jvm_support/src/runtime.rs
+          grep -n 'PHASE8_73_OZ_METADATA_CACHE_HIT' wie_jvm_support/src/runtime.rs
+          grep -n 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_HIT' wie_jvm_support/src/runtime.rs
+          grep -n 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_STORE' wie_jvm_support/src/runtime.rs
+          grep -n 'PHASE8_73_OZ_METADATA_CACHE_STORE' wie_jvm_support/src/runtime.rs
           grep -n 'PHASE8_62_OZ_NETWORK_CONNECT' wie_wipi_java/src/classes/org/kwis/msf/io/network.rs
           grep -n 'CLASS_STATE_INITIALIZING: i32 = 4' wie_lgt/src/runtime/java/interface.rs
           grep -n 'PHASE8_60_LGT_LINK_CLASS_BEGIN' wie_lgt/src/runtime/java/interface.rs
@@ -234,7 +236,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.72"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.73"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -455,7 +457,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.72"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.73"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -535,8 +537,10 @@ jobs:
           grep -a -q 'PHASE8_71_OZ_FIND_RESOURCE_ENTRY' "$RAW_WASM"
           grep -a -q 'PHASE8_71_OZ_URL_GET_FILE_RETURN' "$RAW_WASM"
           grep -a -q 'PHASE8_71_OZ_METADATA_SIZE_BEGIN' "$RAW_WASM"
-          grep -a -q 'PHASE8_72_OZ_METADATA_CACHE_HIT' "$RAW_WASM"
-          grep -a -q 'PHASE8_72_OZ_METADATA_CACHE_STORE' "$RAW_WASM"
+          grep -a -q 'PHASE8_73_OZ_METADATA_CACHE_HIT' "$RAW_WASM"
+          grep -a -q 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_HIT' "$RAW_WASM"
+          grep -a -q 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_STORE' "$RAW_WASM"
+          grep -a -q 'PHASE8_73_OZ_METADATA_CACHE_STORE' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
@@ -567,8 +571,10 @@ jobs:
           grep -a -q 'PHASE8_71_OZ_FIND_RESOURCE_ENTRY' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.71 OZ Java-call marker.'; exit 1; }
           grep -a -q 'PHASE8_71_OZ_URL_GET_FILE_RETURN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.71 OZ URL.getFile return marker.'; exit 1; }
           grep -a -q 'PHASE8_71_OZ_METADATA_SIZE_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.71 metadata-size marker.'; exit 1; }
-          grep -a -q 'PHASE8_72_OZ_METADATA_CACHE_HIT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.72 metadata-cache hit marker.'; exit 1; }
-          grep -a -q 'PHASE8_72_OZ_METADATA_CACHE_STORE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.72 metadata-cache store marker.'; exit 1; }
+          grep -a -q 'PHASE8_73_OZ_METADATA_CACHE_HIT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.73 metadata-cache hit marker.'; exit 1; }
+          grep -a -q 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_HIT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.73 negative-cache hit marker.'; exit 1; }
+          grep -a -q 'PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_STORE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.73 negative-cache store marker.'; exit 1; }
+          grep -a -q 'PHASE8_73_OZ_METADATA_CACHE_STORE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.73 metadata-cache store marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-link localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT vtable localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
@@ -583,19 +589,19 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_72_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_73_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.72 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.73 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_72_BUILD_SENTINEL=WIPI_PLAYER_0.1.72_OZ_JAR_METADATA_CACHE_FIX' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_73_BUILD_SENTINEL=WIPI_PLAYER_0.1.73_OZ_CLASSPATH_METADATA_NEGATIVE_CACHE_FIX' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.72 OZ JAR metadata cache fix and frontend build marker.'
+          echo 'Verified Phase 8.73 OZ JAR metadata cache fix and frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
@@ -791,12 +797,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.72" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.72."
+          if [[ "$APP_VERSION" != "0.1.73" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.73."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.72.85), rather than the bare numeric build number.
+          # (for example 0.1.73.85), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then
