@@ -241,15 +241,32 @@ where
     }
 
     async fn metadata(&self, path: &str) -> IOResult<FileStat> {
+        let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
+        if oz_probe {
+            tracing::info!("[PHASE8_71_OZ_METADATA_ENTRY] path={:?}", path);
+        }
         if path.is_empty() || path.ends_with("/") {
+            if oz_probe {
+                tracing::info!("[PHASE8_71_OZ_METADATA_DIRECTORY_RETURN] path={:?}", path);
+            }
             return Ok(FileStat {
                 size: 0,
                 r#type: FileType::Directory,
             });
         }
 
-        let size = self.system.filesystem().size(path).await.ok_or(IOError::NotFound)?;
+        if oz_probe {
+            tracing::info!("[PHASE8_71_OZ_METADATA_SIZE_BEGIN] path={:?}", path);
+        }
+        let raw_size = self.system.filesystem().size(path).await;
+        if oz_probe {
+            tracing::info!("[PHASE8_71_OZ_METADATA_SIZE_RETURN] path={:?} size={:?}", path, raw_size);
+        }
+        let size = raw_size.ok_or(IOError::NotFound)?;
 
+        if oz_probe {
+            tracing::info!("[PHASE8_71_OZ_METADATA_RETURN] path={:?} size={}", path, size);
+        }
         Ok(FileStat {
             size: size as _,
             r#type: FileType::File,

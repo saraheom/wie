@@ -21,6 +21,29 @@ pub use jvm_support::LgtJvmSupport;
 
 pub type JavaSvcFunctions = Arc<Mutex<BTreeMap<u32, Arc<Box<dyn RegisteredFunction>>>>>;
 
+
+fn phase8_71_decode_java_string(core: &ArmCore, ptr: u32) -> String {
+    if ptr == 0 {
+        return String::from("<null>");
+    }
+    let data_ptr = match read_generic::<u32, _>(core, ptr.wrapping_add(16)) {
+        Ok(v) => v,
+        Err(_) => return format!("<unreadable-string@{:#010x}>", ptr),
+    };
+    let count = match read_generic::<u32, _>(core, ptr.wrapping_add(24)) {
+        Ok(v) => v.min(512),
+        Err(_) => return format!("<unreadable-length@{:#010x}>", ptr),
+    };
+    let mut units = alloc::vec::Vec::new();
+    for i in 0..count {
+        match read_generic::<u16, _>(core, data_ptr.wrapping_add(i * 2)) {
+            Ok(v) => units.push(v),
+            Err(_) => return format!("<bad-utf16@{:#010x}>", data_ptr),
+        }
+    }
+    String::from_utf16(&units).unwrap_or_else(|_| format!("<invalid-utf16@{:#010x}>", data_ptr))
+}
+
 fn phase8_65_probe_words(core: &ArmCore, ptr: u32) -> String {
     if ptr == 0 {
         return String::from("<null>");
@@ -67,8 +90,8 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
     let r3 = core.read_param(3).unwrap_or(0);
     if class_name == "java/net/URLClassLoader" && method_name == "findResource" {
         tracing::info!(
-            "[PHASE8_65_OZ_FIND_RESOURCE_ENTRY] id={:#010x} loader={:#010x} name_object={:#010x} name_words=[{}]",
-            id.0, r0, r1, phase8_65_probe_words(core, r1)
+            "[PHASE8_71_OZ_FIND_RESOURCE_ENTRY] id={:#010x} loader={:#010x} name_object={:#010x} name={:?} name_words=[{}]",
+            id.0, r0, r1, phase8_71_decode_java_string(core, r1), phase8_65_probe_words(core, r1)
         );
     }
     if class_name == "java/net/URL" && method_name == "getFile" {
@@ -89,8 +112,8 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
     let return_r0 = core.read_param(0).unwrap_or(0);
     if class_name == "java/net/URL" && method_name == "getFile" {
         tracing::info!(
-            "[PHASE8_65_OZ_URL_GET_FILE_RETURN] id={:#010x} ok={} result={:#010x} result_words=[{}]",
-            id.0, call_result.is_ok(), return_r0, phase8_65_probe_words(core, return_r0)
+            "[PHASE8_71_OZ_URL_GET_FILE_RETURN] id={:#010x} ok={} result={:#010x} file={:?} result_words=[{}]",
+            id.0, call_result.is_ok(), return_r0, phase8_71_decode_java_string(core, return_r0), phase8_65_probe_words(core, return_r0)
         );
     }
     if class_name == "java/net/URLClassLoader" && method_name == "findResource" {
