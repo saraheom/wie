@@ -82,12 +82,41 @@ impl File for FileImpl {
             return Err(IOError::Unsupported);
         }
 
-        let cursor = self.cursor.load(Ordering::SeqCst) as usize;
-        let fs = self.system.filesystem();
+        // Phase 8.69: keep a single filesystem read bounded. Java
+        // InputStream.read(byte[], off, len) is permitted to return fewer
+        // bytes than requested, and callers that need the complete stream
+        // must continue reading until EOF.  OZ asks for its entire ~1.9 MiB
+        // JAR in one call; forwarding that request unchanged freezes the iOS
+        // WASM/IndexedDB bridge.  A 64 KiB cap preserves normal stream
+        // semantics while avoiding the oversized transfer.
+        const MAX_READ_CHUNK: usize = 64 * 1024;
 
-        let read = fs.read(&self.path, cursor, buf.len(), buf).await.ok_or(IOError::NotFound)?;
+        let cursor = self.cursor.load(Ordering::SeqCst) as usize;
+        let request_len = buf.len();
+        let chunk_len = core::cmp::min(request_len, MAX_READ_CHUNK);
+        let fs = self.system.filesystem();
+        let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
+
+        if oz_probe {
+            tracing::info!(
+                "[PHASE8_69_OZ_FILE_READ_BEGIN] path={:?} cursor={} requested={} chunk={}",
+                self.path, cursor, request_len, chunk_len
+            );
+        }
+
+        let read = fs
+            .read(&self.path, cursor, chunk_len, &mut buf[..chunk_len])
+            .await
+            .ok_or(IOError::NotFound)?;
 
         self.cursor.fetch_add(read as u64, Ordering::SeqCst);
+
+        if oz_probe {
+            tracing::info!(
+                "[PHASE8_69_OZ_FILE_READ_RETURN] path={:?} cursor={} requested={} chunk={} read={} next_cursor={}",
+                self.path, cursor, request_len, chunk_len, read, cursor + read
+            );
+        }
 
         Ok(read)
     }
