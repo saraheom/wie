@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, collections::BTreeMap, format, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::BTreeMap, format, string::String, sync::Arc, vec::Vec};
 use core::time::Duration;
 
 use spin::Mutex;
@@ -120,6 +120,7 @@ where
     implementation: T,
     protos: Arc<Mutex<Vec<WieJavaClassProto>>>,
     file_table: Arc<Mutex<FileTableInner>>,
+    metadata_size_cache: Arc<Mutex<BTreeMap<String, FileSize>>>,
 }
 
 impl<T> JvmRuntime<T>
@@ -136,6 +137,7 @@ where
             implementation,
             protos: Arc::new(Mutex::new(protos.into_vec().into_iter().flat_map(|x| x.into_vec()).collect())),
             file_table: Arc::new(Mutex::new(file_table)),
+            metadata_size_cache: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 }
@@ -255,6 +257,29 @@ where
             });
         }
 
+        // JARs are immutable for the lifetime of a running app. On the iOS/web
+        // backend, repeated asynchronous filesystem size() calls for the same
+        // mounted JAR can stall indefinitely. Cache only successful JAR sizes
+        // so mutable save/config files continue to observe live filesystem state.
+        let cacheable_jar = path.ends_with(".jar");
+        if cacheable_jar {
+            if let Some(size) = self.metadata_size_cache.lock().get(path).copied() {
+                if oz_probe {
+                    tracing::info!(
+                        "[PHASE8_72_OZ_METADATA_CACHE_HIT] path={:?} size={}",
+                        path, size
+                    );
+                }
+                return Ok(FileStat {
+                    size,
+                    r#type: FileType::File,
+                });
+            }
+            if oz_probe {
+                tracing::info!("[PHASE8_72_OZ_METADATA_CACHE_MISS] path={:?}", path);
+            }
+        }
+
         if oz_probe {
             tracing::info!("[PHASE8_71_OZ_METADATA_SIZE_BEGIN] path={:?}", path);
         }
@@ -262,7 +287,17 @@ where
         if oz_probe {
             tracing::info!("[PHASE8_71_OZ_METADATA_SIZE_RETURN] path={:?} size={:?}", path, raw_size);
         }
-        let size = raw_size.ok_or(IOError::NotFound)?;
+        let size = raw_size.ok_or(IOError::NotFound)? as FileSize;
+
+        if cacheable_jar {
+            self.metadata_size_cache.lock().insert(String::from(path), size);
+            if oz_probe {
+                tracing::info!(
+                    "[PHASE8_72_OZ_METADATA_CACHE_STORE] path={:?} size={}",
+                    path, size
+                );
+            }
+        }
 
         if oz_probe {
             tracing::info!("[PHASE8_71_OZ_METADATA_RETURN] path={:?} size={}", path, size);
