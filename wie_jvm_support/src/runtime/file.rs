@@ -82,43 +82,75 @@ impl File for FileImpl {
             return Err(IOError::Unsupported);
         }
 
-        // Phase 8.69: keep a single filesystem read bounded. Java
-        // InputStream.read(byte[], off, len) is permitted to return fewer
-        // bytes than requested, and callers that need the complete stream
-        // must continue reading until EOF.  OZ asks for its entire ~1.9 MiB
-        // JAR in one call; forwarding that request unchanged freezes the iOS
-        // WASM/IndexedDB bridge.  A 64 KiB cap preserves normal stream
-        // semantics while avoiding the oversized transfer.
-        const MAX_READ_CHUNK: usize = 64 * 1024;
+        // Phase 8.70: preserve the Java-visible full-read behavior required
+        // by RustJava's ZIP/JAR loader, but keep each underlying filesystem
+        // transfer bounded. Phase 8.69 proved that a single 64 KiB VFS read
+        // succeeds on iOS, while returning that legal short read directly to
+        // ZipFile makes it treat the partial buffer as the complete archive.
+        // Accumulate bounded reads until the caller's buffer is full or the
+        // underlying file reaches true EOF.
+        const MAX_VFS_READ_CHUNK: usize = 64 * 1024;
 
-        let cursor = self.cursor.load(Ordering::SeqCst) as usize;
+        let start_cursor = self.cursor.load(Ordering::SeqCst) as usize;
         let request_len = buf.len();
-        let chunk_len = core::cmp::min(request_len, MAX_READ_CHUNK);
         let fs = self.system.filesystem();
         let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
+        let mut total_read = 0usize;
 
         if oz_probe {
             tracing::info!(
-                "[PHASE8_69_OZ_FILE_READ_BEGIN] path={:?} cursor={} requested={} chunk={}",
-                self.path, cursor, request_len, chunk_len
+                "[PHASE8_70_OZ_FILE_READ_ACCUM_BEGIN] path={:?} cursor={} requested={} max_chunk={}",
+                self.path, start_cursor, request_len, MAX_VFS_READ_CHUNK
             );
         }
 
-        let read = fs
-            .read(&self.path, cursor, chunk_len, &mut buf[..chunk_len])
-            .await
-            .ok_or(IOError::NotFound)?;
+        while total_read < request_len {
+            let cursor = start_cursor + total_read;
+            let remaining = request_len - total_read;
+            let chunk_len = core::cmp::min(remaining, MAX_VFS_READ_CHUNK);
 
-        self.cursor.fetch_add(read as u64, Ordering::SeqCst);
+            if oz_probe {
+                tracing::info!(
+                    "[PHASE8_70_OZ_FILE_READ_CHUNK_BEGIN] path={:?} cursor={} remaining={} chunk={}",
+                    self.path, cursor, remaining, chunk_len
+                );
+            }
+
+            let read = fs
+                .read(&self.path, cursor, chunk_len, &mut buf[total_read..total_read + chunk_len])
+                .await
+                .ok_or(IOError::NotFound)?;
+
+            if oz_probe {
+                tracing::info!(
+                    "[PHASE8_70_OZ_FILE_READ_CHUNK_RETURN] path={:?} cursor={} chunk={} read={}",
+                    self.path, cursor, chunk_len, read
+                );
+            }
+
+            if read == 0 {
+                break;
+            }
+
+            total_read += read;
+
+            // A short underlying read can indicate EOF. Do not spin trying to
+            // refill the same range indefinitely; return the bytes obtained.
+            if read < chunk_len {
+                break;
+            }
+        }
+
+        self.cursor.fetch_add(total_read as u64, Ordering::SeqCst);
 
         if oz_probe {
             tracing::info!(
-                "[PHASE8_69_OZ_FILE_READ_RETURN] path={:?} cursor={} requested={} chunk={} read={} next_cursor={}",
-                self.path, cursor, request_len, chunk_len, read, cursor + read
+                "[PHASE8_70_OZ_FILE_READ_ACCUM_RETURN] path={:?} cursor={} requested={} read={} next_cursor={}",
+                self.path, start_cursor, request_len, total_read, start_cursor + total_read
             );
         }
 
-        Ok(read)
+        Ok(total_read)
     }
 
     async fn write(&mut self, buf: &[u8]) -> Result<usize, IOError> {
