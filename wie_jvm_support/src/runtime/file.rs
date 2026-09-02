@@ -82,14 +82,13 @@ impl File for FileImpl {
             return Err(IOError::Unsupported);
         }
 
-        // Phase 8.70: preserve the Java-visible full-read behavior required
-        // by RustJava's ZIP/JAR loader, but keep each underlying filesystem
-        // transfer bounded. Phase 8.69 proved that a single 64 KiB VFS read
-        // succeeds on iOS, while returning that legal short read directly to
-        // ZipFile makes it treat the partial buffer as the complete archive.
-        // Accumulate bounded reads until the caller's buffer is full or the
-        // underlying file reaches true EOF.
-        const MAX_VFS_READ_CHUNK: usize = 64 * 1024;
+        // Phase 8.74: preserve the Java-visible full-read behavior required
+        // by RustJava's ZIP/JAR loader, but use smaller underlying filesystem
+        // transfers for iOS reliability. Phase 8.73 proved that even a 64 KiB
+        // IndexedDB/VFS read can intermittently stall late in a large JAR read.
+        // Keep accumulating internally until the caller's buffer is full or the
+        // underlying file reaches true EOF, but cap each VFS transfer at 16 KiB.
+        const MAX_VFS_READ_CHUNK: usize = 16 * 1024;
 
         let start_cursor = self.cursor.load(Ordering::SeqCst) as usize;
         let request_len = buf.len();
@@ -99,7 +98,7 @@ impl File for FileImpl {
 
         if oz_probe {
             tracing::info!(
-                "[PHASE8_70_OZ_FILE_READ_ACCUM_BEGIN] path={:?} cursor={} requested={} max_chunk={}",
+                "[PHASE8_74_OZ_FILE_READ_ACCUM_BEGIN] path={:?} cursor={} requested={} max_chunk={}",
                 self.path, start_cursor, request_len, MAX_VFS_READ_CHUNK
             );
         }
@@ -109,10 +108,16 @@ impl File for FileImpl {
             let remaining = request_len - total_read;
             let chunk_len = core::cmp::min(remaining, MAX_VFS_READ_CHUNK);
 
-            if oz_probe {
+            let chunk_index = total_read / MAX_VFS_READ_CHUNK;
+            let log_chunk = oz_probe
+                && (chunk_index == 0
+                    || chunk_index % 16 == 0
+                    || remaining <= MAX_VFS_READ_CHUNK);
+
+            if log_chunk {
                 tracing::info!(
-                    "[PHASE8_70_OZ_FILE_READ_CHUNK_BEGIN] path={:?} cursor={} remaining={} chunk={}",
-                    self.path, cursor, remaining, chunk_len
+                    "[PHASE8_74_OZ_FILE_READ_CHUNK_BEGIN] path={:?} chunk_index={} cursor={} remaining={} chunk={}",
+                    self.path, chunk_index, cursor, remaining, chunk_len
                 );
             }
 
@@ -121,10 +126,10 @@ impl File for FileImpl {
                 .await
                 .ok_or(IOError::NotFound)?;
 
-            if oz_probe {
+            if log_chunk {
                 tracing::info!(
-                    "[PHASE8_70_OZ_FILE_READ_CHUNK_RETURN] path={:?} cursor={} chunk={} read={}",
-                    self.path, cursor, chunk_len, read
+                    "[PHASE8_74_OZ_FILE_READ_CHUNK_RETURN] path={:?} chunk_index={} cursor={} chunk={} read={}",
+                    self.path, chunk_index, cursor, chunk_len, read
                 );
             }
 
@@ -145,7 +150,7 @@ impl File for FileImpl {
 
         if oz_probe {
             tracing::info!(
-                "[PHASE8_70_OZ_FILE_READ_ACCUM_RETURN] path={:?} cursor={} requested={} read={} next_cursor={}",
+                "[PHASE8_74_OZ_FILE_READ_ACCUM_RETURN] path={:?} cursor={} requested={} read={} next_cursor={}",
                 self.path, start_cursor, request_len, total_read, start_cursor + total_read
             );
         }
