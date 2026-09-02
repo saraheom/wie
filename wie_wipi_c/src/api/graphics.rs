@@ -398,11 +398,18 @@ pub async fn draw_image(
         WIPICGraphicsContext::default()
     };
 
+    // Phase 8.77.1 CI fix: capture the title predicate before borrowing
+    // `context` through the destination canvas. `framebuffer.canvas(context)`
+    // holds a mutable borrow for the lifetime of the canvas, so querying
+    // `context.system()` afterwards violates Rust's aliasing rules (E0499).
+    let is_blade_master_3 =
+        context.system().aid() == "000262F4" && context.system().pid() == "PD109653";
+
     let src_fb = FrameBuffer(image.img);
     let src_image = src_fb.image(context)?;
     let mut canvas = framebuffer.canvas(context)?;
 
-    if context.system().aid() == "000262F4" && context.system().pid() == "PD109653" {
+    if is_blade_master_3 {
         let idx = PHASE8_77_BM3_DRAW_COUNT.fetch_add(1, Ordering::Relaxed);
         if idx < 96 {
             let mut magenta = 0usize;
