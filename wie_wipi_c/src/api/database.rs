@@ -115,6 +115,10 @@ fn inotia2_host_db_cache_key(name: &str) -> String {
     format!("db:{name}")
 }
 
+fn bm3_host_db_cache_key(name: &str) -> String {
+    format!("phase8_82_bm3_db:{name}")
+}
+
 async fn read_inotia2_prebuilt_cache(
     context: &mut dyn WIPICContext,
     name: &str,
@@ -175,6 +179,30 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         (system.pid().to_owned(), system.aid().to_owned())
     };
 
+    // Phase 8.82 — Blade Master 3 can deadlock inside the browser IndexedDB
+    // repository while opening its first LGT database. Keep its database
+    // working set in the existing per-emulator host blob cache for this
+    // session. Packaged resources remain valid seeds; missing READ opens fail
+    // immediately with M_E_NOENT instead of awaiting IndexedDB indefinitely.
+    let phase882_bm3 = pid == "PD109653" && aid == "000262F4";
+    let bm3_cache_key = phase882_bm3.then(|| bm3_host_db_cache_key(&name));
+    if mode == 4 {
+        if let Some(key) = bm3_cache_key.as_deref() {
+            context.host_blob_cache_remove(key);
+        }
+    }
+    let bm3_cached = if mode != 4 {
+        bm3_cache_key.as_deref().and_then(|key| context.host_blob_cache_get(key))
+    } else {
+        None
+    };
+    if phase882_bm3 {
+        tracing::info!(
+            "[PHASE8_82_BM3_DB_OPEN_BEGIN] name={name:?} mode={mode} type={type} cache_hit={} source=session_memory",
+            bm3_cached.is_some()
+        );
+    }
+
     // Phase 8.21 — cache the *installed persistent* static records as well as
     // the packaged p/ resources. Phase 8.20 fixed the shared packaged cache,
     // but every normal DB reopen could still cross IndexedDB for exists/open/get
@@ -216,7 +244,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // costs roughly 100ms per size/read operation on the iOS build and is hit
     // around map/menu transitions.  For a normal open of a verified-length
     // installed record, skip those redundant archive reads entirely.
-    let exists = if cached_installed.is_some() {
+    let exists = if phase882_bm3 {
+        bm3_cached.is_some()
+    } else if cached_installed.is_some() {
         true
     } else {
         let system = context.system();
@@ -258,6 +288,13 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     } else {
         read_packaged_database(context, &name).await?
     };
+    if phase882_bm3 {
+        tracing::info!(
+            "[PHASE8_82_BM3_DB_SOURCE] name={name:?} mode={mode} session_len={} packaged_len={}",
+            bm3_cached.as_ref().map(|x| x.len()).unwrap_or(0),
+            packaged.as_ref().map(|x| x.len()).unwrap_or(0)
+        );
+    }
     let inotia2_prebuilt_cache = if pid == "PD007974"
         && is_inotia2_generated_cache(&name)
         && !inotia2_resource_fastpath
@@ -291,6 +328,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     }
 
     if !exists && packaged.is_none() && mode == 1 {
+        if phase882_bm3 {
+            tracing::info!("[PHASE8_82_BM3_DB_OPEN_RETURN] name={name:?} mode={mode} result=-12 reason=missing-no-indexeddb");
+        }
         if pid == "PD007974" {
             tracing::debug!(
                 "[INOTIA2_DB] OPEN_RESULT name={name} mode={mode} -> -12 (NOENT)"
@@ -304,7 +344,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
     // before/after quest snapshots proved that doing so can leave bytes from
     // the previous save generation in the record.  Revert to strict CREATE:
     // delete record 1 first, then let subsequent writes rebuild it.
-    let initial: Vec<u8> = if let Some(data) = cached_installed.clone() {
+    let initial: Vec<u8> = if let Some(data) = bm3_cached.clone() {
+        data
+    } else if let Some(data) = cached_installed.clone() {
         data
     } else if exists {
         let mut db = system.platform().database_repository().open(&name, &pid).await;
@@ -400,6 +442,8 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         } else {
             Vec::new()
         }
+    } else if phase882_bm3 && mode != 4 {
+        packaged.unwrap_or_default()
     } else if mode != 4 {
         if let Some(prebuilt) = inotia2_prebuilt_cache.as_ref() {
             let mut db = system.platform().database_repository().open(&name, &pid).await;
@@ -437,7 +481,9 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         }
         Vec::new()
     } else if mode == 4 {
-        system.platform().database_repository().open(&name, &pid).await;
+        if !phase882_bm3 {
+            system.platform().database_repository().open(&name, &pid).await;
+        }
         Vec::new()
     } else {
         Vec::new()
@@ -525,6 +571,13 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         }
     }
 
+    if phase882_bm3 {
+        tracing::info!(
+            "[PHASE8_82_BM3_DB_OPEN_RETURN] name={name:?} mode={mode} result={ptr_handle:#x} initial_len={} source=session_memory",
+            handle.buffer_len
+        );
+    }
+
     Ok(ptr_handle as _)
 }
 
@@ -540,6 +593,19 @@ pub async fn close_database(context: &mut dyn WIPICContext, db_id: i32) -> Resul
         let system = context.system();
         (system.pid().to_owned(), system.aid().to_owned())
     };
+
+    if pid == "PD109653" && aid == "000262F4" {
+        let mut snapshot = vec![0u8; handle.buffer_len as usize];
+        if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
+            context.read_bytes(handle.buffer_ptr, &mut snapshot)?;
+        }
+        let key = bm3_host_db_cache_key(&db_name);
+        context.host_blob_cache_put(&key, snapshot);
+        tracing::info!(
+            "[PHASE8_82_BM3_DB_CLOSE] name={db_name:?} mode={} len={} result=0 source=session_memory",
+            handle.open_mode, handle.buffer_len
+        );
+    }
 
     if pid == "PD007974" {
         tracing::debug!(
@@ -668,6 +734,12 @@ pub async fn list_record(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
 pub async fn list_databases(context: &mut dyn WIPICContext) -> Result<i32> {
     let system = context.system();
     let pid = system.pid().to_owned();
+    let aid = system.aid().to_owned();
+    if pid == "PD109653" && aid == "000262F4" {
+        let available = KTF_DATABASE_STORAGE_LIMIT.min(i32::MAX as u64) as i32;
+        tracing::info!("[PHASE8_82_BM3_DB_USAGE] result={available} source=session_memory");
+        return Ok(available);
+    }
     let usage = system.platform().database_repository().usage(&pid).await;
     let available = KTF_DATABASE_STORAGE_LIMIT.saturating_sub(usage).min(i32::MAX as u64) as i32;
 
@@ -1130,6 +1202,19 @@ pub async fn exists_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord
     let Ok(name) = String::from_utf8(read_null_terminated_string_bytes(context, ptr_name)?) else {
         return Ok(-22);
     };
+    let (pid, aid) = {
+        let system = context.system();
+        (system.pid().to_owned(), system.aid().to_owned())
+    };
+    if pid == "PD109653" && aid == "000262F4" {
+        let key = bm3_host_db_cache_key(&name);
+        if context.host_blob_cache_get(&key).is_some() || read_packaged_database(context, &name).await?.is_some() {
+            tracing::info!("[PHASE8_82_BM3_DB_EXISTS] name={name:?} result=0 source=session_or_packaged");
+            return Ok(0);
+        }
+        tracing::info!("[PHASE8_82_BM3_DB_EXISTS] name={name:?} result=-12 source=session_memory");
+        return Ok(-12);
+    }
     if read_packaged_database(context, &name).await?.is_some() {
         if context.system().pid() == "PD005362" {
             tracing::info!("[INOTIA1_META] EXISTS_STANDARD db={name} source=packaged -> 0");
@@ -1138,7 +1223,6 @@ pub async fn exists_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord
     }
 
     let system = context.system();
-    let pid = system.pid().to_owned();
     let exists = system.platform().database_repository().exists(&name, &pid).await;
     let result = if exists { 0 } else { -12 };
     if pid == "PD005362" {

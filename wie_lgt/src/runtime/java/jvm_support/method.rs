@@ -51,7 +51,7 @@ impl JavaMethod {
         let argument_word_count =
             method_argument_word_count(parameter_types) as u16 + u16::from(!proto.access_flags.contains(MethodAccessFlags::STATIC));
         let access_flags = proto.access_flags;
-        let target = Self::register_java_method(core, jvm, ptr_raw, proto, context, functions)?;
+        let target = Self::register_java_method(core, jvm, ptr_raw, ptr_class, proto, context, functions)?;
 
         write_generic(
             core,
@@ -122,6 +122,7 @@ impl JavaMethod {
         core: &mut ArmCore,
         jvm: &Jvm,
         ptr_method: u32,
+        ptr_class: u32,
         proto: JavaMethodProto<C>,
         context: Context,
         functions: JavaSvcFunctions,
@@ -137,6 +138,17 @@ impl JavaMethod {
             parameter_types.insert(0, JavaType::Class(String::new()));
         }
 
+        let class_name = (|| -> Result<String> {
+            let raw_class: wipi_types::lgt::java::LgtJavaClass = read_generic(core, ptr_class)?;
+            let raw_descriptor: wipi_types::lgt::java::LgtJavaClassDescriptor = read_generic(core, raw_class.ptr_descriptor)?;
+            Ok(String::from_utf8(read_null_terminated_string_bytes(core, raw_descriptor.ptr_name)?)
+                .unwrap_or_else(|_| String::from("<invalid-registered-class>")))
+        })().unwrap_or_else(|_| String::from("<unknown-registered-class>"));
+        let metadata = Some((
+            class_name,
+            proto.name.to_string(),
+            proto.descriptor.to_string(),
+        ));
         let proxy = JavaMethodProxy {
             jvm: jvm.clone(),
             proto,
@@ -145,9 +157,7 @@ impl JavaMethod {
             return_type: return_type.clone(),
         };
         let proxy = RegisteredFunctionHolder::new(proxy, &());
-        functions
-            .lock()
-            .insert(ptr_method, Arc::new(Box::new(proxy) as Box<dyn RegisteredFunction>));
+functions.insert(ptr_method, Arc::new(Box::new(proxy) as Box<dyn RegisteredFunction>), metadata);
 
         core.make_svc_stub(SVC_CATEGORY_JAVA, ptr_method)
     }

@@ -19,7 +19,48 @@ mod jvm_support;
 pub use interface::{get_java_interface_method, register_java_system_svc_handler};
 pub use jvm_support::LgtJvmSupport;
 
-pub type JavaSvcFunctions = Arc<Mutex<BTreeMap<u32, Arc<Box<dyn RegisteredFunction>>>>>;
+#[derive(Clone)]
+pub struct JavaSvcFunctions {
+    functions: Arc<Mutex<BTreeMap<u32, Arc<Box<dyn RegisteredFunction>>>>>,
+    metadata: Arc<Mutex<BTreeMap<u32, (String, String, String)>>>,
+    hot_loop: Arc<Mutex<(u32, u32)>>,
+}
+
+impl JavaSvcFunctions {
+    pub fn new() -> Self {
+        Self {
+            functions: Arc::new(Mutex::new(BTreeMap::new())),
+            metadata: Arc::new(Mutex::new(BTreeMap::new())),
+            hot_loop: Arc::new(Mutex::new((0, 0))),
+        }
+    }
+
+    pub fn insert(&self, id: u32, function: Arc<Box<dyn RegisteredFunction>>, metadata: Option<(String, String, String)>) {
+        self.functions.lock().insert(id, function);
+        if let Some(metadata) = metadata {
+            self.metadata.lock().insert(id, metadata);
+        }
+    }
+
+    fn get_function(&self, id: u32) -> Option<Arc<Box<dyn RegisteredFunction>>> {
+        self.functions.lock().get(&id).cloned()
+    }
+
+    fn metadata(&self, id: u32) -> Option<(String, String, String)> {
+        self.metadata.lock().get(&id).cloned()
+    }
+
+    fn note_hot_loop(&self, id: u32) -> u32 {
+        let mut state = self.hot_loop.lock();
+        if state.0 == id {
+            state.1 = state.1.saturating_add(1);
+        } else {
+            *state = (id, 1);
+        }
+        state.1
+    }
+}
+
 
 
 fn phase8_71_decode_java_string(core: &ArmCore, ptr: u32) -> String {
@@ -65,29 +106,36 @@ fn phase8_65_probe_words(core: &ArmCore, ptr: u32) -> String {
 async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, id: SvcId) -> Result<JumpTo> {
     let (_, lr) = core.read_pc_lr()?;
     let function = functions
-        .lock()
-        .get(&id.0)
-        .cloned()
+        .get_function(id.0)
         .ok_or_else(|| WieError::FatalError(alloc::format!("Unknown LGT Java SVC id {:#x}", id.0)))?;
 
     // Phase 8.64: resolve the dynamic LGT Java dispatcher id (r12/ptr_method)
     // into class/method/descriptor so an unmatched call can be identified directly.
-    let (class_name, method_name, method_descriptor) = (|| -> Result<(String, String, String)> {
-        let method: RawJavaMethod = read_generic(core, id.0)?;
-        let method_name = String::from_utf8(read_null_terminated_string_bytes(core, method.ptr_name)?)
-            .unwrap_or_else(|_| alloc::format!("<invalid-name@{:#x}>", method.ptr_name));
-        let method_descriptor = String::from_utf8(read_null_terminated_string_bytes(core, method.ptr_descriptor)?)
-            .unwrap_or_else(|_| alloc::format!("<invalid-desc@{:#x}>", method.ptr_descriptor));
-        let class: RawJavaClass = read_generic(core, method.ptr_class)?;
-        let descriptor: RawJavaClassDescriptor = read_generic(core, class.ptr_descriptor)?;
-        let class_name = String::from_utf8(read_null_terminated_string_bytes(core, descriptor.ptr_name)?)
-            .unwrap_or_else(|_| alloc::format!("<invalid-class@{:#x}>", descriptor.ptr_name));
-        Ok((class_name, method_name, method_descriptor))
-    })().unwrap_or_else(|_| (String::from("<unknown-class>"), String::from("<unknown-method>"), String::from("<unknown-desc>")));
+    let (class_name, method_name, method_descriptor) = functions.metadata(id.0).unwrap_or_else(|| {
+        (|| -> Result<(String, String, String)> {
+            let method: RawJavaMethod = read_generic(core, id.0)?;
+            let method_name = String::from_utf8(read_null_terminated_string_bytes(core, method.ptr_name)?)
+                .unwrap_or_else(|_| alloc::format!("<invalid-name@{:#x}>", method.ptr_name));
+            let method_descriptor = String::from_utf8(read_null_terminated_string_bytes(core, method.ptr_descriptor)?)
+                .unwrap_or_else(|_| alloc::format!("<invalid-desc@{:#x}>", method.ptr_descriptor));
+            let class: RawJavaClass = read_generic(core, method.ptr_class)?;
+            let descriptor: RawJavaClassDescriptor = read_generic(core, class.ptr_descriptor)?;
+            let class_name = String::from_utf8(read_null_terminated_string_bytes(core, descriptor.ptr_name)?)
+                .unwrap_or_else(|_| alloc::format!("<invalid-class@{:#x}>", descriptor.ptr_name));
+            Ok((class_name, method_name, method_descriptor))
+        })().unwrap_or_else(|_| (String::from("<unknown-class>"), String::from("<unknown-method>"), String::from("<unknown-desc>")))
+    });
     let r0 = core.read_param(0).unwrap_or(0);
     let r1 = core.read_param(1).unwrap_or(0);
     let r2 = core.read_param(2).unwrap_or(0);
     let r3 = core.read_param(3).unwrap_or(0);
+    let hot_count = functions.note_hot_loop(id.0);
+    if hot_count == 100 || hot_count == 1000 || hot_count % 10000 == 0 {
+        tracing::warn!(
+            "[PHASE8_82_OZ_JAVA_HOT_LOOP] id={:#010x} class={} method={} descriptor={} consecutive_calls={} lr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
+            id.0, class_name, method_name, method_descriptor, hot_count, lr, r0, r1, r2, r3
+        );
+    }
     if class_name == "java/net/URLClassLoader" && method_name == "findResource" {
         tracing::info!(
             "[PHASE8_71_OZ_FIND_RESOURCE_ENTRY] id={:#010x} loader={:#010x} name_object={:#010x} name={:?} name_words=[{}]",

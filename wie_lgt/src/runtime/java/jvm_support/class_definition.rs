@@ -502,7 +502,12 @@ impl JavaClassDefinition {
                 },
                 &(),
             );
-            functions.lock().insert(id, Arc::new(Box::new(proxy) as Box<dyn RegisteredFunction>));
+            let getter_name = if initialize { "<get-initialized-class>" } else { "<get-class>" };
+            functions.insert(
+                id,
+                Arc::new(Box::new(proxy) as Box<dyn RegisteredFunction>),
+                Some((ClassDefinition::name(self), String::from(getter_name), String::from("()Ljava/lang/Class;"))),
+            );
             let target = core.make_svc_stub(SVC_CATEGORY_JAVA, id)?;
             if initialize {
                 descriptor.fn_get_initialized_class = target;

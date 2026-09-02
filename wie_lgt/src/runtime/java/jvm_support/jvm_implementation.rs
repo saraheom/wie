@@ -1,9 +1,8 @@
-use alloc::{boxed::Box, collections::BTreeMap, string::ToString, sync::Arc};
+use alloc::{boxed::Box, string::ToString};
 use core::{ops::Deref, ops::DerefMut, pin::Pin};
 
 use java_class_proto::JavaClassProto;
 use jvm::{ClassDefinition, Jvm, Result as JvmResult};
-use spin::Mutex;
 
 use wie_core_arm::ArmCore;
 use wie_jvm_support::JvmImplementation;
@@ -21,7 +20,7 @@ pub struct LgtJvmImplementation {
 
 impl LgtJvmImplementation {
     pub fn new(core: &mut ArmCore) -> Result<Self> {
-        let functions = Arc::new(Mutex::new(BTreeMap::new()));
+        let functions = JavaSvcFunctions::new();
         exception::init(core)?;
         register_java_svc_handler(core, &functions)?;
 
