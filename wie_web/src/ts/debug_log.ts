@@ -1,11 +1,18 @@
 const STORAGE_KEY = "wipi_player_debug_log_v1";
-const MAX_LINES = 12000; // Phase 8.79: retain multiple short compatibility runs in one export
-const MAX_CHARS = 3_000_000; // Phase 8.79: larger but still bounded diagnostic history
+const GAME_LOG_PREFIX = "wipi_player_debug_game_v1:";
+const GAME_INDEX_KEY = "wipi_player_debug_game_index_v1";
+const LAST_BREADCRUMB_KEY = "wipi_player_debug_last_breadcrumb_v1";
+const MAX_LINES = 16000; // Phase 8.80: retain multiple compatibility runs in one export
+const MAX_CHARS = 4_000_000;
+const MAX_GAME_LINES = 8000; // Independent per-game history survives global rolling pressure
+const MAX_GAME_CHARS = 2_000_000;
 
 let lines: string[] = [];
 let flushTimer: number | undefined;
 let installed = false;
 let sessionId = "";
+let gameScope = "";
+const gameLines = new Map<string, string[]>();
 
 const formatValue = (value: unknown): string => {
   if (value instanceof Error) {
@@ -25,20 +32,31 @@ const formatValue = (value: unknown): string => {
   }
 };
 
-const trimLog = () => {
-  if (lines.length > MAX_LINES) lines = lines.slice(lines.length - MAX_LINES);
+const safeScopeKey = (value: string) => encodeURIComponent(value).slice(0, 180);
 
-  let chars = lines.reduce((sum, line) => sum + line.length + 1, 0);
-  while (chars > MAX_CHARS && lines.length > 1) {
-    const removed = lines.shift();
+const trimArray = (target: string[], maxLines: number, maxChars: number) => {
+  if (target.length > maxLines) target.splice(0, target.length - maxLines);
+  let chars = target.reduce((sum, line) => sum + line.length + 1, 0);
+  while (chars > maxChars && target.length > 1) {
+    const removed = target.shift();
     chars -= (removed?.length ?? 0) + 1;
   }
+};
+
+const trimLog = () => {
+  trimArray(lines, MAX_LINES, MAX_CHARS);
+  for (const scoped of gameLines.values()) trimArray(scoped, MAX_GAME_LINES, MAX_GAME_CHARS);
 };
 
 const flush = () => {
   flushTimer = undefined;
   try {
     localStorage.setItem(STORAGE_KEY, lines.join("\n"));
+    const keys = [...gameLines.keys()];
+    localStorage.setItem(GAME_INDEX_KEY, JSON.stringify(keys));
+    for (const key of keys) {
+      localStorage.setItem(`${GAME_LOG_PREFIX}${safeScopeKey(key)}`, (gameLines.get(key) ?? []).join("\n"));
+    }
   } catch {
     // Diagnostic logging must never interfere with emulation.
   }
@@ -52,19 +70,54 @@ const scheduleFlush = () => {
 export const debugLog = (category: string, ...values: unknown[]) => {
   const timestamp = new Date().toISOString();
   const payload = values.map(formatValue).join(" ");
-  lines.push(`[${timestamp}] [${category}] ${payload}`.trimEnd());
+  const line = `[${timestamp}] [${category}] ${payload}`.trimEnd();
+  lines.push(line);
+  if (gameScope) {
+    const scoped = gameLines.get(gameScope) ?? [];
+    scoped.push(line);
+    gameLines.set(gameScope, scoped);
+  }
   trimLog();
+
+  // Phase 8.80: synchronously persist high-value breadcrumbs. If iOS kills or
+  // freezes the webview before the normal batched flush, the next launch can
+  // still report the last known emulator boundary.
+  if (category.startsWith("PHASE") || category === "GAME" || category === "WINDOW:ERROR" || category === "WINDOW:UNHANDLED_REJECTION") {
+    try {
+      localStorage.setItem(LAST_BREADCRUMB_KEY, line);
+    } catch {
+      // Never let diagnostics affect emulation.
+    }
+  }
   scheduleFlush();
 };
 
-export const getDebugLogText = () => lines.join("\n");
+export const setDebugGameScope = (name?: string) => {
+  gameScope = name?.trim() ?? "";
+  if (gameScope && !gameLines.has(gameScope)) gameLines.set(gameScope, []);
+  debugLog("PHASE8_80_DIAGNOSTIC_SCOPE", `game=${gameScope || "<none>"}`);
+};
+
+export const getDebugLogText = () => {
+  const sections = [lines.join("\n")];
+  for (const [name, scoped] of gameLines) {
+    sections.push(`\n===== PHASE8_80 PER-GAME LOG: ${name} =====\n${scoped.join("\n")}`);
+  }
+  return sections.join("\n");
+};
 
 export const getDebugSessionId = () => sessionId;
 
 export const clearDebugLog = () => {
   lines = [];
+  gameLines.clear();
+  gameScope = "";
   try {
     localStorage.removeItem(STORAGE_KEY);
+    const storedIndex = JSON.parse(localStorage.getItem(GAME_INDEX_KEY) || "[]") as string[];
+    for (const key of storedIndex) localStorage.removeItem(`${GAME_LOG_PREFIX}${safeScopeKey(key)}`);
+    localStorage.removeItem(GAME_INDEX_KEY);
+    localStorage.removeItem(LAST_BREADCRUMB_KEY);
   } catch {
     // Ignore storage failures.
   }
@@ -119,11 +172,19 @@ export const installDebugLogging = () => {
   if (installed) return;
   installed = true;
 
+  let recoveredBreadcrumb = "";
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) lines = stored.split("\n").filter(Boolean);
+    const storedIndex = JSON.parse(localStorage.getItem(GAME_INDEX_KEY) || "[]") as string[];
+    for (const key of storedIndex) {
+      const storedGame = localStorage.getItem(`${GAME_LOG_PREFIX}${safeScopeKey(key)}`);
+      if (storedGame) gameLines.set(key, storedGame.split("\n").filter(Boolean));
+    }
+    recoveredBreadcrumb = localStorage.getItem(LAST_BREADCRUMB_KEY) || "";
   } catch {
     lines = [];
+    gameLines.clear();
   }
 
   const consoleObject = console as Console & Record<string, unknown>;
@@ -168,6 +229,9 @@ export const installDebugLogging = () => {
   window.addEventListener("blur", () => debugLog("LIFECYCLE", "window blur"));
 
   sessionId = `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  if (recoveredBreadcrumb) {
+    debugLog("PHASE8_80_RECOVERED_LAST_BREADCRUMB", recoveredBreadcrumb);
+  }
   debugLog(
     "SYSTEM",
     "=== New WIPI Player session ===",

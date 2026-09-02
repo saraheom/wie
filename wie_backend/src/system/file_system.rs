@@ -116,6 +116,13 @@ impl FilesystemOverlay {
         self.virtual_files.lock().get(&normalized).map(|d| d.len())
     }
 
+    /// Return the size of a file in the immutable in-memory archive overlay
+    /// without consulting the persistent platform filesystem.
+    pub fn virtual_size(&self, path: &str) -> Option<usize> {
+        let normalized = normalize_guest_path(path)?;
+        self.virtual_files.lock().get(&normalized).map(|data| data.len())
+    }
+
     /// Read directly from the immutable in-memory archive overlay without
     /// consulting the persistent platform filesystem.
     ///

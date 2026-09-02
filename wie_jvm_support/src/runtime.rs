@@ -270,6 +270,21 @@ where
             });
         }
 
+        // Phase 8.80: for mounted read-only JAR resources, resolve metadata
+        // directly from the immutable virtual archive. This prevents File.length
+        // and class-loader probes from touching the iOS persistent backend at all.
+        if path.to_ascii_lowercase().ends_with(".jar") {
+            if let Some(size) = self.system.filesystem().virtual_size(path) {
+                let size = size as FileSize;
+                self.metadata_size_cache.lock().insert(String::from(path), Some(size));
+                tracing::info!(
+                    "[PHASE8_80_GENERIC_VIRTUAL_JAR_METADATA] aid={} pid={} path={:?} size={} source=virtual_memory",
+                    self.system.aid(), self.system.pid(), path, size
+                );
+                return Ok(FileStat { size, r#type: FileType::File });
+            }
+        }
+
         // Immutable classpath metadata is memoized, including negative results.
         // This avoids repeated (or first-time synthetic) async VFS size() calls
         // that can stall indefinitely on iOS/web. Writable save/config files are

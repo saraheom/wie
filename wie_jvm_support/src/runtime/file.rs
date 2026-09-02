@@ -23,11 +23,22 @@ impl FileImpl {
             );
         }
         let filesystem = system.filesystem();
-        if oz_probe {
+        let read_only_jar = options.read
+            && !options.write
+            && !options.append
+            && path.to_ascii_lowercase().ends_with(".jar");
+        let virtual_jar_size = if read_only_jar { filesystem.virtual_size(path) } else { None };
+        if virtual_jar_size.is_some() {
+            tracing::info!(
+                "[PHASE8_80_GENERIC_VIRTUAL_JAR_EXISTS] aid={} pid={} path={:?} exists=true size={} source=virtual_memory",
+                system.aid(), system.pid(), path, virtual_jar_size.unwrap_or(0)
+            );
+        }
+        if oz_probe && virtual_jar_size.is_none() {
             tracing::info!("[PHASE8_68_OZ_FILEIMPL_EXISTS_BEGIN] path={:?}", path);
         }
-        let exists = filesystem.exists(path).await;
-        if oz_probe {
+        let exists = if virtual_jar_size.is_some() { true } else { filesystem.exists(path).await };
+        if oz_probe && virtual_jar_size.is_none() {
             tracing::info!("[PHASE8_68_OZ_FILEIMPL_EXISTS_RETURN] path={:?} exists={}", path, exists);
         }
         if !exists && !options.create {
@@ -82,13 +93,13 @@ impl File for FileImpl {
             return Err(IOError::Unsupported);
         }
 
-        // Phase 8.75: OZ's packaged JAR already exists in FilesystemOverlay's
-        // in-memory virtual layer. Normal FilesystemOverlay::read() deliberately
-        // prefers a persistent platform copy when one exists, which routed this
-        // immutable JAR through iOS IndexedDB and produced intermittent hangs
-        // even with 16 KiB chunks. For this exact read-only OZ JAR, serve the
-        // mounted archive bytes directly from memory. This preserves Java's
-        // full-read behavior without any async platform filesystem operation.
+        // Phase 8.80: imported read-only JARs already live in the immutable
+        // in-memory archive overlay. Routing those same bytes back through the
+        // persistent iOS/IndexedDB layer caused intermittent async read stalls
+        // in multiple LGT titles (first OZ, then Blade Master 3), even when the
+        // backend request was chunked. Prefer the mounted virtual JAR for every
+        // read-only *.jar stream when it exists. Writable files and non-JAR
+        // resources keep normal persistent-overlay semantics.
         const MAX_VFS_READ_CHUNK: usize = 16 * 1024;
 
         let start_cursor = self.cursor.load(Ordering::SeqCst) as usize;
@@ -119,22 +130,38 @@ impl File for FileImpl {
             );
         }
 
-        if oz_probe && self.path == "00026DBF.jar" && self.options.read && !self.options.write && !self.options.append {
+        let is_read_only_jar = self.options.read
+            && !self.options.write
+            && !self.options.append
+            && self.path.to_ascii_lowercase().ends_with(".jar");
+        if is_read_only_jar {
             tracing::info!(
-                "[PHASE8_75_OZ_VIRTUAL_JAR_READ_BEGIN] path={:?} cursor={} requested={} source=virtual_memory",
-                self.path, start_cursor, request_len
+                "[PHASE8_80_GENERIC_VIRTUAL_JAR_READ_BEGIN] aid={} pid={} path={:?} cursor={} requested={} source=virtual_memory",
+                self.system.aid(), self.system.pid(), self.path, start_cursor, request_len
             );
+            if oz_probe && self.path == "00026DBF.jar" {
+                tracing::info!(
+                    "[PHASE8_75_OZ_VIRTUAL_JAR_READ_BEGIN] path={:?} cursor={} requested={} source=virtual_memory",
+                    self.path, start_cursor, request_len
+                );
+            }
             if let Some(read) = fs.read_virtual(&self.path, start_cursor, request_len, buf) {
                 self.cursor.fetch_add(read as u64, Ordering::SeqCst);
                 tracing::info!(
-                    "[PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN] path={:?} cursor={} requested={} read={} next_cursor={} source=virtual_memory",
-                    self.path, start_cursor, request_len, read, start_cursor + read
+                    "[PHASE8_80_GENERIC_VIRTUAL_JAR_READ_RETURN] aid={} pid={} path={:?} cursor={} requested={} read={} next_cursor={} source=virtual_memory",
+                    self.system.aid(), self.system.pid(), self.path, start_cursor, request_len, read, start_cursor + read
                 );
+                if oz_probe && self.path == "00026DBF.jar" {
+                    tracing::info!(
+                        "[PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN] path={:?} cursor={} requested={} read={} next_cursor={} source=virtual_memory",
+                        self.path, start_cursor, request_len, read, start_cursor + read
+                    );
+                }
                 return Ok(read);
             }
             tracing::warn!(
-                "[PHASE8_75_OZ_VIRTUAL_JAR_READ_FALLBACK] path={:?} cursor={} requested={} reason=virtual_entry_missing",
-                self.path, start_cursor, request_len
+                "[PHASE8_80_GENERIC_VIRTUAL_JAR_READ_FALLBACK] aid={} pid={} path={:?} cursor={} requested={} reason=virtual_entry_missing",
+                self.system.aid(), self.system.pid(), self.path, start_cursor, request_len
             );
         }
 

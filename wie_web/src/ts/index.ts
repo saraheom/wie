@@ -1,6 +1,6 @@
 import { WieWeb } from "@pkg";
 import { setMasterVolume } from "./midi";
-import { clearDebugLog, debugLog, exportDebugLog, getDebugLogText, getDebugSessionId, installDebugLogging } from "./debug_log";
+import { clearDebugLog, debugLog, exportDebugLog, getDebugLogText, getDebugSessionId, installDebugLogging, setDebugGameScope } from "./debug_log";
 import {
   defaultGameSettings,
   displayNameForFile,
@@ -686,6 +686,8 @@ const launchGame = async (id: string) => {
 
   await stopCurrentGame();
   currentGame = game;
+  setDebugGameScope(game.name);
+  debugLog("PHASE8_80_GAME_TEST_BEGIN", `game=${game.name}`, `file=${game.fileName}`, `id=${game.id}`);
 
   element("library-view").hidden = true;
   element("player-view").hidden = false;
@@ -728,6 +730,7 @@ const showLibrary = async () => {
   element("player-view").hidden = true;
   element("library-view").hidden = false;
   debugLog("NAV", "view=library");
+  setDebugGameScope(undefined);
   await renderLibrary();
 };
 
