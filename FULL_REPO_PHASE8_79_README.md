@@ -13,3 +13,6 @@ This phase is intentionally designed to reduce TestFlight iteration count.
 - Expands diagnostic retention to 12,000 lines / 3,000,000 chars.
 
 TestFlight marketing version: 0.1.79.
+
+## Phase 8.79.1 CI compile fix
+The initial 8.79 workflow failed during `wie_web` compilation because the new `WieWebPlatform::update_counter` diagnostic field was not initialized in `WieWebPlatform::new()`. 8.79.1 initializes it to `0`. No runtime compatibility or diagnostic behavior was otherwise changed, and the TestFlight app version remains 0.1.79 because the failed build was never uploaded.

@@ -54,6 +54,7 @@ impl WieWebPlatform {
             filesystem: WebFilesystem::new(),
             window,
             player,
+            update_counter: 0,
         }
     }
 }
