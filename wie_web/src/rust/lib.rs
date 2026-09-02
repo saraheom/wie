@@ -39,6 +39,8 @@ struct WieWebPlatform {
     filesystem: WebFilesystem,
     window: WindowImpl,
     player: Arc<Player>,
+    // Phase 8.79: diagnostic frame counter for locating opaque WASM update traps.
+    update_counter: u64,
 }
 
 // XXX we're on single thread
@@ -113,6 +115,8 @@ pub struct WieWeb {
     should_redraw: Arc<AtomicBool>,
     key_events: HashMap<KeyCode, f64>,
     player: Arc<Player>,
+    // Phase 8.79: diagnostic frame counter for locating opaque WASM update traps.
+    update_counter: u64,
 }
 
 #[wasm_bindgen]
@@ -186,14 +190,20 @@ impl WieWeb {
                 should_redraw,
                 key_events: HashMap::new(),
                 player,
+                update_counter: 0,
             })
         })()
         .map_err(|e| JsError::new(&e.to_string()))
     }
 
     pub fn update(&mut self) -> Result<(), JsError> {
-        if self.should_redraw.load(Ordering::SeqCst) {
+        self.update_counter = self.update_counter.wrapping_add(1);
+        let frame = self.update_counter;
+        let redraw = self.should_redraw.load(Ordering::SeqCst);
+        if redraw {
+            tracing::info!("[PHASE8_79_WEB_UPDATE_STAGE] frame={} stage=before-redraw", frame);
             self.emulator.handle_event(Event::Redraw);
+            tracing::info!("[PHASE8_79_WEB_UPDATE_STAGE] frame={} stage=after-redraw", frame);
             self.should_redraw.store(false, Ordering::SeqCst)
         }
 
@@ -207,7 +217,14 @@ impl WieWeb {
             }
         }
 
-        self.emulator.tick().map_err(|e| JsError::new(&e.to_string()))
+        if redraw || frame <= 8 || frame % 60 == 0 {
+            tracing::info!("[PHASE8_79_WEB_UPDATE_STAGE] frame={} stage=before-tick redraw={}", frame, redraw);
+        }
+        let result = self.emulator.tick().map_err(|e| JsError::new(&e.to_string()));
+        if redraw || frame <= 8 || frame % 60 == 0 {
+            tracing::info!("[PHASE8_79_WEB_UPDATE_STAGE] frame={} stage=after-tick ok={}", frame, result.is_ok());
+        }
+        result
     }
 
     pub fn key_down(&mut self, key: String) -> Result<(), JsError> {

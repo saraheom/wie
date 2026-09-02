@@ -634,16 +634,40 @@ const stopCurrentGame = async () => {
 };
 
 const scheduleEmulatorFrame = () => {
+  let phase879Frame = 0;
   const update = () => {
     if (!currentEmulator) return;
 
+    phase879Frame += 1;
     try {
+      if (phase879Frame <= 8 || phase879Frame % 60 === 0) {
+        debugLog(
+          "PHASE8_79_FRAME",
+          `stage=before-update frame=${phase879Frame}`,
+          `game=${currentGame?.name ?? "<unknown>"}`
+        );
+      }
       currentEmulator.update();
+      if (phase879Frame <= 8 || phase879Frame % 60 === 0) {
+        debugLog(
+          "PHASE8_79_FRAME",
+          `stage=after-update frame=${phase879Frame}`,
+          `game=${currentGame?.name ?? "<unknown>"}`
+        );
+      }
       animationFrame = requestAnimationFrame(update);
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      debugLog(
+        "PHASE8_79_UPDATE_TRAP",
+        `frame=${phase879Frame}`,
+        `game=${currentGame?.name ?? "<unknown>"}`,
+        `name=${err.name}`,
+        `message=${err.message}`,
+        `stack=${err.stack ?? "<no-stack>"}`
+      );
       console.error(error);
-      const message = error instanceof Error ? error.message : String(error);
-      window.alert(`The game stopped: ${message}`);
+      window.alert(`The game stopped: ${err.message}`);
       void showLibrary();
     }
   };

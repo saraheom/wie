@@ -1,6 +1,6 @@
 const STORAGE_KEY = "wipi_player_debug_log_v1";
-const MAX_LINES = 6000;
-const MAX_CHARS = 1_800_000;
+const MAX_LINES = 12000; // Phase 8.79: retain multiple short compatibility runs in one export
+const MAX_CHARS = 3_000_000; // Phase 8.79: larger but still bounded diagnostic history
 
 let lines: string[] = [];
 let flushTimer: number | undefined;

@@ -80,7 +80,15 @@ fn trace_unknown_wipic(core: &ArmCore, id: u32) {
 
 async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm), id: SvcId) -> Result<()> {
     let wipic_context = LgtWIPICContext::new(core.clone(), system.clone(), jvm.clone());
-    let (_, lr) = core.read_pc_lr()?;
+    let (pc, lr) = core.read_pc_lr()?;
+    let phase879_bm3 = system.aid() == "000262F4" && system.pid() == "PD109653";
+    if phase879_bm3 {
+        let ctx = core.save_context();
+        tracing::info!(
+            "[PHASE8_79_BM3_WIPIC_ENTRY] id={:#x} pc={:#x} lr={:#x} sp={:#x} r0={:#x} r1={:#x} r2={:#x} r3={:#x} r4={:#x} r5={:#x} r6={:#x} r7={:#x}",
+            id.0, pc, lr, ctx.sp, ctx.r0, ctx.r1, ctx.r2, ctx.r3, ctx.r4, ctx.r5, ctx.r6, ctx.r7
+        );
+    }
     let svc_id = match WIPICSvcId::try_from(id) {
         Ok(value) => value,
         Err(error) => {
@@ -194,7 +202,7 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         WIPICSvcId::BackLight => misc::back_light.into_body(),
     };
 
-    EmulatedFunction::call(
+    let call_result = EmulatedFunction::call(
         &CMethodProxy {
             context: wipic_context,
             body: method,
@@ -202,8 +210,14 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         core,
         &mut (),
     )
-    .await?
-    .write(core, lr)
+    .await;
+    if phase879_bm3 {
+        tracing::info!(
+            "[PHASE8_79_BM3_WIPIC_RETURN] id={:#x} ok={} r0={:#x}",
+            id.0, call_result.is_ok(), core.read_param(0).unwrap_or(0)
+        );
+    }
+    call_result?.write(core, lr)
 }
 
 #[async_trait::async_trait]

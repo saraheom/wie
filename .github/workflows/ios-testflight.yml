@@ -174,6 +174,11 @@ jobs:
           grep -n 'PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_BEGIN' wie_wipi_c/src/api/graphics.rs
           grep -n 'PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_RETURN' wie_wipi_c/src/api/graphics.rs
           grep -n 'PHASE8_78_BM3_DRAW_COMPLETE' wie_wipi_c/src/api/graphics.rs
+          grep -n 'PHASE8_79_BM3_MEDIA' wie_wipi_c/src/api/media.rs
+          grep -n 'PHASE8_79_BM3_WIPIC_ENTRY' wie_lgt/src/runtime/wipi_c.rs
+          grep -n 'PHASE8_79_PRESENT_PROBE' wie_web/src/rust/window.rs
+          grep -n 'PHASE8_79_WEB_UPDATE_STAGE' wie_web/src/rust/lib.rs
+          grep -n 'PHASE8_79_OZ_CLASSPATH_STAGE' wie_jvm_support/src/runtime.rs
           grep -n 'CompatGraphicsD9 = 0xd9' wie_lgt/src/runtime/svc_ids.rs
           grep -n 'pub fn read_virtual' wie_backend/src/system/file_system.rs
           grep -n 'const MAX_VFS_READ_CHUNK: usize = 16 \* 1024;' wie_jvm_support/src/runtime/file.rs
@@ -254,7 +259,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.78"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.79"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -475,7 +480,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.78"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.79"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -573,6 +578,9 @@ jobs:
           grep -a -q 'PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_RETURN' "$RAW_WASM"
           grep -a -q 'PHASE8_78_BM3_DRAW_COMPLETE' "$RAW_WASM"
+          grep -a -q 'PHASE8_79_BM3_MEDIA' "$RAW_WASM"
+          grep -a -q 'PHASE8_79_PRESENT_PROBE' "$RAW_WASM"
+          grep -a -q 'PHASE8_79_OZ_CLASSPATH_STAGE' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
@@ -618,6 +626,8 @@ jobs:
           grep -a -q 'PHASE8_77_BM3_DRAW_IMAGE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.77 BM3 draw-image marker.'; exit 1; }
           grep -a -q 'PHASE8_78_OZ_WIE_RUSTJAR_NEGATIVE_HIT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.78 OZ rustjar cache marker.'; exit 1; }
           grep -a -q 'PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.78 BM3 safe composite marker.'; exit 1; }
+          grep -a -q 'PHASE8_79_BM3_MEDIA' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.79 BM3 media marker.'; exit 1; }
+          grep -a -q 'PHASE8_79_PRESENT_PROBE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.79 presentation marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-link localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT vtable localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
@@ -632,13 +642,13 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_78_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_79_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
             echo '::error::Phase 8.76 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_78_BUILD_SENTINEL=WIPI_PLAYER_0.1.78_OZ_RUSTJAR_BM3_SAFE_COMPOSITE' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_79_BUILD_SENTINEL=WIPI_PLAYER_0.1.79_HIGH_INFORMATION_OZ_BM3' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
@@ -840,12 +850,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.78" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.78."
+          if [[ "$APP_VERSION" != "0.1.79" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.79."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.78.86), rather than the bare numeric build number.
+          # (for example 0.1.79.86), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then

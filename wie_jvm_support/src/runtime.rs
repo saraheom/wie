@@ -298,6 +298,10 @@ where
                                     "[PHASE8_78_OZ_WIE_RUSTJAR_NEGATIVE_HIT] path={:?} source=preseeded_classpath_cache",
                                     path
                                 );
+                                tracing::info!(
+                                    "[PHASE8_79_OZ_CLASSPATH_STAGE] stage=wie-rustjar-negative-return path={:?}",
+                                    path
+                                );
                             }
                         }
                         return Err(IOError::NotFound);

@@ -1,4 +1,4 @@
-use alloc::vec;
+use alloc::{vec, vec::Vec};
 
 use bytemuck::{Pod, Zeroable};
 
@@ -7,6 +7,18 @@ use wipi_types::wipic::WIPICWord;
 use wie_util::{Result, read_generic, write_generic};
 
 use crate::context::WIPICContext;
+use spin::Mutex;
+
+// Phase 8.79: LGT Blade Master 3 asks the platform to allocate a media player
+// for an existing clip. WIE had returned success without keeping any player
+// state. Maintain a tiny platform-side shadow so subsequent volume/free calls
+// are coherent without guessing or mutating undocumented guest clip fields.
+static PHASE8_79_BM3_MEDIA_PLAYERS: Mutex<Vec<(WIPICWord, WIPICWord)>> = Mutex::new(Vec::new());
+
+fn is_bm3(context: &mut dyn WIPICContext) -> bool {
+    let system = context.system();
+    system.aid() == "000262F4" && system.pid() == "PD109653"
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
@@ -159,9 +171,13 @@ pub async fn clip_set_position(_context: &mut dyn WIPICContext, clip: WIPICWord,
     Ok(0)
 }
 
-pub async fn clip_get_volume(_context: &mut dyn WIPICContext, clip: WIPICWord) -> Result<WIPICWord> {
+pub async fn clip_get_volume(context: &mut dyn WIPICContext, clip: WIPICWord) -> Result<WIPICWord> {
+    if is_bm3(context) {
+        let volume = PHASE8_79_BM3_MEDIA_PLAYERS.lock().iter().find(|(c, _)| *c == clip).map(|(_, v)| *v).unwrap_or(0x14);
+        tracing::info!("[PHASE8_79_BM3_MEDIA] op=get_volume clip={clip:#x} return={volume:#x}");
+        return Ok(volume);
+    }
     tracing::warn!("stub MC_mdaClipGetVolume({clip:#x})");
-
     Ok(0)
 }
 
@@ -170,7 +186,15 @@ pub async fn clip_set_volume(context: &mut dyn WIPICContext, clip: WIPICWord, vo
     // ordinary animation/gameplay.  Emitting a WARN for every call crosses the
     // WASM/WebView logging bridge and becomes measurable stutter.  Preserve the
     // existing no-op ABI, but demote this known title's hot-path diagnostic.
-    if context.system().pid() == "PD007974" {
+    if is_bm3(context) {
+        let mut players = PHASE8_79_BM3_MEDIA_PLAYERS.lock();
+        if let Some((_, stored)) = players.iter_mut().find(|(c, _)| *c == clip) {
+            *stored = volume;
+        } else if players.len() < 64 {
+            players.push((clip, volume));
+        }
+        tracing::info!("[PHASE8_79_BM3_MEDIA] op=set_volume clip={clip:#x} volume={volume:#x} registered={}", players.iter().any(|(c, _)| *c == clip));
+    } else if context.system().pid() == "PD007974" {
         tracing::debug!(
             "[PHASE8_17_INOTIA2_MEDIA_QUIET] MC_mdaClipSetVolume({clip:#x}, {volume:#x})"
         );
@@ -207,15 +231,31 @@ pub async fn play(context: &mut dyn WIPICContext, ptr_clip: WIPICWord, repeat: W
     Ok(0)
 }
 
-pub async fn clip_alloc_player(_context: &mut dyn WIPICContext, clip: WIPICWord, param: WIPICWord) -> Result<WIPICWord> {
+pub async fn clip_alloc_player(context: &mut dyn WIPICContext, clip: WIPICWord, param: WIPICWord) -> Result<WIPICWord> {
+    if is_bm3(context) {
+        let mut players = PHASE8_79_BM3_MEDIA_PLAYERS.lock();
+        if !players.iter().any(|(c, _)| *c == clip) && players.len() < 64 {
+            players.push((clip, 0x14));
+        }
+        tracing::info!(
+            "[PHASE8_79_BM3_MEDIA] op=alloc_player clip={clip:#x} param={param:#x} shadow_count={} return=0",
+            players.len()
+        );
+        return Ok(0);
+    }
     tracing::warn!("stub MC_mdaClipAllocPlayer({clip:#x}, {param:#x})");
-
     Ok(0)
 }
 
-pub async fn clip_free_player(_context: &mut dyn WIPICContext, clip: WIPICWord) -> Result<WIPICWord> {
+pub async fn clip_free_player(context: &mut dyn WIPICContext, clip: WIPICWord) -> Result<WIPICWord> {
+    if is_bm3(context) {
+        let mut players = PHASE8_79_BM3_MEDIA_PLAYERS.lock();
+        let before = players.len();
+        players.retain(|(c, _)| *c != clip);
+        tracing::info!("[PHASE8_79_BM3_MEDIA] op=free_player clip={clip:#x} removed={} shadow_count={} return=0", before != players.len(), players.len());
+        return Ok(0);
+    }
     tracing::warn!("stub MC_mdaClipFreePlayer({clip:#x})");
-
     Ok(0)
 }
 
