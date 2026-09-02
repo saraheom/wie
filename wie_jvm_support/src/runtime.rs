@@ -254,20 +254,6 @@ where
         if oz_probe {
             tracing::info!("[PHASE8_71_OZ_METADATA_ENTRY] path={:?}", path);
         }
-        // Phase 8.75: `wie.rustjar` is a synthetic RustJava classpath entry,
-        // not a physical VFS object. The runtime URL path arrives literally as
-        // "wie.rustjar" on iOS. Never await filesystem metadata for it: repeated
-        // missing-file size() calls have been observed to stall indefinitely.
-        if path == "wie.rustjar" || path == WIE_RUSTJAR {
-            if oz_probe {
-                tracing::info!(
-                    "[PHASE8_75_OZ_RUSTJAR_METADATA_SHORT_CIRCUIT] path={:?}",
-                    path
-                );
-            }
-            return Err(IOError::NotFound);
-        }
-
         if path.is_empty() || path.ends_with("/") {
             if oz_probe {
                 tracing::info!("[PHASE8_71_OZ_METADATA_DIRECTORY_RETURN] path={:?}", path);

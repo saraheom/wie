@@ -2,7 +2,7 @@ mod framebuffer;
 mod grp_context;
 mod image;
 
-use core::mem::size_of;
+use core::{mem::size_of, sync::atomic::{AtomicBool, Ordering}};
 
 use alloc::{string::String, vec, vec::Vec};
 
@@ -22,6 +22,7 @@ use self::{framebuffer::FrameBuffer, grp_context::WIPICGraphicsContextIdx, image
 
 const FRAMEBUFFER_DEPTH: u32 = 16; // XXX hardcode to 16bpp as some game requires 16bpp framebuffer
 const SCREEN_FRAMEBUFFER_PTR: u32 = 0x7fff1000;
+static PHASE8_76_TRANSPIXEL_LOGGED: AtomicBool = AtomicBool::new(false);
 
 const INOTIA1_AID: &str = "010100D3";
 const INOTIA1_PID: &str = "PD005362";
@@ -365,6 +366,11 @@ pub async fn draw_image(
 
     let framebuffer = FrameBuffer(read_generic(context, context.data_ptr(framebuffer)?)?);
     let image: WIPICImage = read_generic(context, context.data_ptr(image)?)?;
+    let gctx: WIPICGraphicsContext = if graphics_context != 0 {
+        read_generic(context, graphics_context)?
+    } else {
+        WIPICGraphicsContext::default()
+    };
 
     let src_image = FrameBuffer(image.img).image(context)?;
     let mut canvas = framebuffer.canvas(context)?;
@@ -376,7 +382,43 @@ pub async fn draw_image(
         height: h as _,
     };
 
-    canvas.draw(dx as _, dy as _, w as _, h as _, &*src_image, sx as _, sy as _, clip);
+    // Phase 8.76: WIPI's graphics context carries a transparent-pixel/color-key
+    // value.  The old implementation ignored it and always performed an opaque
+    // blit.  Several LGT titles (notably Blade Master 3) use bitmap-font/image
+    // atlases with a bright chroma-key background, so ignoring transpxl renders
+    // that background as visible magenta blocks.  Preserve the existing fast
+    // path when no transparent pixel is configured; otherwise perform a
+    // color-keyed blit.
+    if gctx.transpxl != 0 {
+        let transparent = framebuffer.pixel_to_color(gctx.transpxl as _);
+        if !PHASE8_76_TRANSPIXEL_LOGGED.swap(true, Ordering::Relaxed) {
+            tracing::info!(
+                "[PHASE8_76_BM3_TRANSPIXEL_DRAW] transpxl={:#x} rgb=({},{},{}) dst=({},{} {}x{}) src=({}, {})",
+                gctx.transpxl, transparent.r, transparent.g, transparent.b, dx, dy, w, h, sx, sy
+            );
+        }
+
+        if w > 0 && h > 0 {
+            let src_width = src_image.width() as i32;
+            let src_height = src_image.height() as i32;
+            for yy in 0..h {
+                for xx in 0..w {
+                    let src_x = sx + xx;
+                    let src_y = sy + yy;
+                    if src_x < 0 || src_y < 0 || src_x >= src_width || src_y >= src_height {
+                        continue;
+                    }
+                    let color = src_image.get_pixel(src_x, src_y);
+                    if color.r == transparent.r && color.g == transparent.g && color.b == transparent.b {
+                        continue;
+                    }
+                    canvas.put_pixel(dx + xx, dy + yy, color, clip);
+                }
+            }
+        }
+    } else {
+        canvas.draw(dx as _, dy as _, w as _, h as _, &*src_image, sx as _, sy as _, clip);
+    }
     canvas.flush()?;
 
     Ok(())

@@ -82,18 +82,41 @@ impl File for FileImpl {
             return Err(IOError::Unsupported);
         }
 
-        // Phase 8.74: preserve the Java-visible full-read behavior required
-        // by RustJava's ZIP/JAR loader, but use smaller underlying filesystem
-        // transfers for iOS reliability. Phase 8.73 proved that even a 64 KiB
-        // IndexedDB/VFS read can intermittently stall late in a large JAR read.
-        // Keep accumulating internally until the caller's buffer is full or the
-        // underlying file reaches true EOF, but cap each VFS transfer at 16 KiB.
+        // Phase 8.75: OZ's packaged JAR already exists in FilesystemOverlay's
+        // in-memory virtual layer. Normal FilesystemOverlay::read() deliberately
+        // prefers a persistent platform copy when one exists, which routed this
+        // immutable JAR through iOS IndexedDB and produced intermittent hangs
+        // even with 16 KiB chunks. For this exact read-only OZ JAR, serve the
+        // mounted archive bytes directly from memory. This preserves Java's
+        // full-read behavior without any async platform filesystem operation.
         const MAX_VFS_READ_CHUNK: usize = 16 * 1024;
 
         let start_cursor = self.cursor.load(Ordering::SeqCst) as usize;
         let request_len = buf.len();
         let fs = self.system.filesystem();
         let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
+
+        if oz_probe && self.path == "00026DBF.jar" && self.options.read && !self.options.write && !self.options.append {
+            tracing::info!(
+                "[PHASE8_75_OZ_VIRTUAL_JAR_READ_BEGIN] path={:?} cursor={} requested={} source=virtual_memory",
+                self.path, start_cursor, request_len
+            );
+            if let Some(read) = fs.read_virtual(&self.path, start_cursor, request_len, buf) {
+                self.cursor.fetch_add(read as u64, Ordering::SeqCst);
+                tracing::info!(
+                    "[PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN] path={:?} cursor={} requested={} read={} next_cursor={} source=virtual_memory",
+                    self.path, start_cursor, request_len, read, start_cursor + read
+                );
+                return Ok(read);
+            }
+            tracing::warn!(
+                "[PHASE8_75_OZ_VIRTUAL_JAR_READ_FALLBACK] path={:?} cursor={} requested={} reason=virtual_entry_missing",
+                self.path, start_cursor, request_len
+            );
+        }
+
+        // Retain Phase 8.74's conservative accumulated backend read as a
+        // fallback for files that are not the packaged OZ JAR.
         let mut total_read = 0usize;
 
         if oz_probe {

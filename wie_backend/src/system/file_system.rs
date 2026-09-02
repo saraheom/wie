@@ -116,6 +116,25 @@ impl FilesystemOverlay {
         self.virtual_files.lock().get(&normalized).map(|d| d.len())
     }
 
+    /// Read directly from the immutable in-memory archive overlay without
+    /// consulting the persistent platform filesystem.
+    ///
+    /// This is intentionally separate from `read()`: normal guest filesystem
+    /// semantics continue to let persistent files shadow archive resources.
+    /// Callers should use this only when they explicitly need the packaged
+    /// resource bytes mounted by the emulator.
+    pub fn read_virtual(&self, path: &str, offset: usize, count: usize, buf: &mut [u8]) -> Option<usize> {
+        let normalized = normalize_guest_path(path)?;
+        let files = self.virtual_files.lock();
+        let data = files.get(&normalized)?;
+        if offset >= data.len() {
+            return Some(0);
+        }
+        let n = min(core::cmp::min(count, buf.len()), data.len() - offset);
+        buf[..n].copy_from_slice(&data[offset..offset + n]);
+        Some(n)
+    }
+
     pub async fn read(&self, path: &str, offset: usize, count: usize, buf: &mut [u8]) -> Option<usize> {
         let normalized = normalize_guest_path(path)?;
 

@@ -131,6 +131,7 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         WIPICSvcId::CopyFrameBuffer => graphics::copy_frame_buffer.into_body(),
         WIPICSvcId::DrawImage => graphics::draw_image.into_body(),
         WIPICSvcId::CopyArea => graphics::copy_area.into_body(),
+        WIPICSvcId::CompatGraphicsD9 => compat_graphics_d9.into_body(),
         WIPICSvcId::DrawString => graphics::draw_string.into_body(),
         WIPICSvcId::GetRgbPixels => graphics::get_rgb_pixels.into_body(),
         WIPICSvcId::SetRgbPixels => graphics::set_rgb_pixels.into_body(),
@@ -268,6 +269,19 @@ async fn clet_register(core: &mut ArmCore, jvm: &mut Jvm, function_table: u32, a
     }
 
     Ok(())
+}
+
+// Phase 8.76: Chrono Swing reaches LGT WIPIC service 0xD9 immediately
+// after the first new-game tip.  WIE previously treated the unknown service as
+// fatal and terminated the title.  0xD9 lives in the graphics service range
+// (between CopyArea and DrawString), but its exact ABI is not yet confirmed.
+// Treat it as a non-fatal compatibility no-op for now and retain the arguments
+// in the diagnostic log so the next gameplay trace can establish its semantics.
+async fn compat_graphics_d9(_context: &mut dyn WIPICContext, a0: u32, a1: u32, a2: u32, a3: u32, a4: u32, a5: u32, a6: u32, a7: u32) -> Result<u32> {
+    tracing::warn!(
+        "[PHASE8_76_CHRONOS_WIPIC_D9] a0={a0:#010x} a1={a1:#010x} a2={a2:#010x} a3={a3:#010x} a4={a4:#010x} a5={a5:#010x} a6={a6:#010x} a7={a7:#010x} action=compat_noop_return_0"
+    );
+    Ok(0)
 }
 
 async fn unk0(_context: &mut dyn WIPICContext, a0: u32, a1: u32, a2: u32, a3: u32) -> Result<u32> {
