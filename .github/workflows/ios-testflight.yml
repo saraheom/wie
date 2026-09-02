@@ -166,6 +166,10 @@ jobs:
           grep -n 'PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN' wie_jvm_support/src/runtime/file.rs
           grep -n 'PHASE8_76_BM3_TRANSPIXEL_DRAW' wie_wipi_c/src/api/graphics.rs
           grep -n 'PHASE8_76_CHRONOS_WIPIC_D9' wie_lgt/src/runtime/wipi_c.rs
+          grep -n 'PHASE8_77_OZ_KPOOL_VIRTUAL_READ_BEGIN' wie_jvm_support/src/runtime/file.rs
+          grep -n 'PHASE8_77_OZ_KPOOL_VIRTUAL_READ_RETURN' wie_jvm_support/src/runtime/file.rs
+          grep -n 'PHASE8_77_BM3_IMAGE_CREATE' wie_wipi_c/src/api/graphics.rs
+          grep -n 'PHASE8_77_BM3_DRAW_IMAGE' wie_wipi_c/src/api/graphics.rs
           grep -n 'CompatGraphicsD9 = 0xd9' wie_lgt/src/runtime/svc_ids.rs
           grep -n 'pub fn read_virtual' wie_backend/src/system/file_system.rs
           grep -n 'const MAX_VFS_READ_CHUNK: usize = 16 \* 1024;' wie_jvm_support/src/runtime/file.rs
@@ -246,7 +250,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.76"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.77"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -467,7 +471,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.76"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.77"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -557,6 +561,10 @@ jobs:
           grep -a -q 'PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN' "$RAW_WASM"
           grep -a -q 'PHASE8_76_BM3_TRANSPIXEL_DRAW' "$RAW_WASM"
           grep -a -q 'PHASE8_76_CHRONOS_WIPIC_D9' "$RAW_WASM"
+          grep -a -q 'PHASE8_77_OZ_KPOOL_VIRTUAL_READ_BEGIN' "$RAW_WASM"
+          grep -a -q 'PHASE8_77_OZ_KPOOL_VIRTUAL_READ_RETURN' "$RAW_WASM"
+          grep -a -q 'PHASE8_77_BM3_IMAGE_CREATE' "$RAW_WASM"
+          grep -a -q 'PHASE8_77_BM3_DRAW_IMAGE' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
@@ -597,6 +605,9 @@ jobs:
           grep -a -q 'PHASE8_75_OZ_VIRTUAL_JAR_READ_RETURN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.75 virtual-JAR read return marker.'; exit 1; }
           grep -a -q 'PHASE8_76_BM3_TRANSPIXEL_DRAW' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.76 Blade Master 3 transparent-pixel marker.'; exit 1; }
           grep -a -q 'PHASE8_76_CHRONOS_WIPIC_D9' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.76 Chrono Swing WIPIC 0xD9 marker.'; exit 1; }
+          grep -a -q 'PHASE8_77_OZ_KPOOL_VIRTUAL_READ_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.77 OZ kpool virtual-read marker.'; exit 1; }
+          grep -a -q 'PHASE8_77_BM3_IMAGE_CREATE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.77 BM3 image-create marker.'; exit 1; }
+          grep -a -q 'PHASE8_77_BM3_DRAW_IMAGE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.77 BM3 draw-image marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-link localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT vtable localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
@@ -611,13 +622,13 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_76_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_77_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
             echo '::error::Phase 8.76 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_76_BUILD_SENTINEL=WIPI_PLAYER_0.1.76_MULTI_TITLE_OZ_CHRONOS_BM3_COMPAT' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_77_BUILD_SENTINEL=WIPI_PLAYER_0.1.77_OZ_KPOOL_BM3_IMAGE_DIAGNOSTICS' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
@@ -819,12 +830,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.76" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.76."
+          if [[ "$APP_VERSION" != "0.1.77" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.77."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.76.86), rather than the bare numeric build number.
+          # (for example 0.1.77.86), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then

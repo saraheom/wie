@@ -2,7 +2,7 @@ mod framebuffer;
 mod grp_context;
 mod image;
 
-use core::{mem::size_of, sync::atomic::{AtomicBool, Ordering}};
+use core::{mem::size_of, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 
 use alloc::{string::String, vec, vec::Vec};
 
@@ -23,6 +23,8 @@ use self::{framebuffer::FrameBuffer, grp_context::WIPICGraphicsContextIdx, image
 const FRAMEBUFFER_DEPTH: u32 = 16; // XXX hardcode to 16bpp as some game requires 16bpp framebuffer
 const SCREEN_FRAMEBUFFER_PTR: u32 = 0x7fff1000;
 static PHASE8_76_TRANSPIXEL_LOGGED: AtomicBool = AtomicBool::new(false);
+static PHASE8_77_BM3_IMAGE_CREATE_COUNT: AtomicUsize = AtomicUsize::new(0);
+static PHASE8_77_BM3_DRAW_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 const INOTIA1_AID: &str = "010100D3";
 const INOTIA1_PID: &str = "PD005362";
@@ -330,6 +332,30 @@ pub async fn create_image(
 
     let image = create_wipi_image(context, image_data, offset, len)?;
 
+    // Phase 8.77: Blade Master 3 renders Korean labels through image/bitmap
+    // assets, but Phase 8.76 showed it never uses GraphicsContext transpxl.
+    // Record the decoded image shape/bpp and whether RGB565 magenta is already
+    // present immediately after decode. Diagnostics only; no pixel mutation.
+    if context.system().aid() == "000262F4" && context.system().pid() == "PD109653" {
+        let idx = PHASE8_77_BM3_IMAGE_CREATE_COUNT.fetch_add(1, Ordering::Relaxed);
+        if idx < 48 {
+            let fb = FrameBuffer(image.img);
+            let raw = fb.data(context).unwrap_or_default();
+            let mut rgb565_magenta = 0usize;
+            if fb.0.bpp == 16 {
+                for px in raw.chunks_exact(2).take(32768) {
+                    if u16::from_le_bytes([px[0], px[1]]) == 0xF81F {
+                        rgb565_magenta += 1;
+                    }
+                }
+            }
+            tracing::info!(
+                "[PHASE8_77_BM3_IMAGE_CREATE] index={} encoded_len={} offset={} decoded={}x{} bpp={} raw_bytes={} sampled_rgb565_magenta={}",
+                idx, len, offset, fb.0.width, fb.0.height, fb.0.bpp, raw.len(), rgb565_magenta
+            );
+        }
+    }
+
     let memory = context.alloc(size_of::<WIPICImage>() as WIPICWord)?;
     write_generic(context, ptr_image, memory)?;
     write_generic(context, context.data_ptr(memory)?, image)?;
@@ -372,8 +398,37 @@ pub async fn draw_image(
         WIPICGraphicsContext::default()
     };
 
-    let src_image = FrameBuffer(image.img).image(context)?;
+    let src_fb = FrameBuffer(image.img);
+    let src_image = src_fb.image(context)?;
     let mut canvas = framebuffer.canvas(context)?;
+
+    if context.system().aid() == "000262F4" && context.system().pid() == "PD109653" {
+        let idx = PHASE8_77_BM3_DRAW_COUNT.fetch_add(1, Ordering::Relaxed);
+        if idx < 96 {
+            let mut magenta = 0usize;
+            let mut sampled = 0usize;
+            if w > 0 && h > 0 {
+                let src_width = src_image.width() as i32;
+                let src_height = src_image.height() as i32;
+                'sample: for yy in 0..h {
+                    for xx in 0..w {
+                        let px = sx + xx;
+                        let py = sy + yy;
+                        if px >= 0 && py >= 0 && px < src_width && py < src_height {
+                            let c = src_image.get_pixel(px, py);
+                            sampled += 1;
+                            if c.r >= 248 && c.b >= 248 && c.g <= 16 { magenta += 1; }
+                            if sampled >= 4096 { break 'sample; }
+                        }
+                    }
+                }
+            }
+            tracing::info!(
+                "[PHASE8_77_BM3_DRAW_IMAGE] index={} src_image={}x{} bpp={} dst=({},{} {}x{}) src=({}, {}) gctx={:#x} transpxl={:#x} sampled={} magenta={}",
+                idx, src_fb.0.width, src_fb.0.height, src_fb.0.bpp, dx, dy, w, h, sx, sy, graphics_context, gctx.transpxl, sampled, magenta
+            );
+        }
+    }
 
     let clip = Clip {
         x: dx as _,

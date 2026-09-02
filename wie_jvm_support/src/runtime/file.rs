@@ -96,6 +96,29 @@ impl File for FileImpl {
         let fs = self.system.filesystem();
         let oz_probe = self.system.aid() == "00026DBF" && self.system.pid() == "PD112525";
 
+        // Phase 8.77: the OZ WithAuthData package also exposes /kpool through
+        // the archive/virtual layer. Phase 8.76 proved the persistent iOS backend
+        // can deadlock even on this tiny 100-byte read. Prefer the packaged kpool
+        // bytes when they are actually present; never fabricate contents.
+        if oz_probe && self.path == "/kpool" && self.options.read && !self.options.write && !self.options.append {
+            tracing::info!(
+                "[PHASE8_77_OZ_KPOOL_VIRTUAL_READ_BEGIN] path={:?} cursor={} requested={} source=virtual_memory",
+                self.path, start_cursor, request_len
+            );
+            if let Some(read) = fs.read_virtual(&self.path, start_cursor, request_len, buf) {
+                self.cursor.fetch_add(read as u64, Ordering::SeqCst);
+                tracing::info!(
+                    "[PHASE8_77_OZ_KPOOL_VIRTUAL_READ_RETURN] path={:?} cursor={} requested={} read={} next_cursor={} source=virtual_memory",
+                    self.path, start_cursor, request_len, read, start_cursor + read
+                );
+                return Ok(read);
+            }
+            tracing::warn!(
+                "[PHASE8_77_OZ_KPOOL_VIRTUAL_READ_FALLBACK] path={:?} cursor={} requested={} reason=virtual_entry_missing",
+                self.path, start_cursor, request_len
+            );
+        }
+
         if oz_probe && self.path == "00026DBF.jar" && self.options.read && !self.options.write && !self.options.append {
             tracing::info!(
                 "[PHASE8_75_OZ_VIRTUAL_JAR_READ_BEGIN] path={:?} cursor={} requested={} source=virtual_memory",
