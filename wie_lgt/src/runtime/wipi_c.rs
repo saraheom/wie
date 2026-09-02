@@ -82,6 +82,7 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
     let wipic_context = LgtWIPICContext::new(core.clone(), system.clone(), jvm.clone());
     let (pc, lr) = core.read_pc_lr()?;
     let phase879_bm3 = system.aid() == "000262F4" && system.pid() == "PD109653";
+    let phase881_target = phase879_bm3 || (system.aid() == "00026DBF" && system.pid() == "PD112525");
     if phase879_bm3 {
         let ctx = core.save_context();
         tracing::info!(
@@ -96,9 +97,23 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
             return Err(error);
         }
     };
+    if phase881_target {
+        let ctx = core.save_context();
+        tracing::info!(
+            "[PHASE8_81_TARGET_WIPIC_ENTRY] aid={} pid={} id={:#x} svc={:?} pc={:#x} lr={:#x} sp={:#x} r0={:#x} r1={:#x} r2={:#x} r3={:#x} r4={:#x} r5={:#x} r6={:#x} r7={:#x}",
+            system.aid(), system.pid(), id.0, svc_id, pc, lr, ctx.sp, ctx.r0, ctx.r1, ctx.r2, ctx.r3, ctx.r4, ctx.r5, ctx.r6, ctx.r7
+        );
+    }
     let method = match svc_id {
         WIPICSvcId::CletRegister => {
-            return EmulatedFunction::call(&clet_register, core, jvm).await?.write(core, lr);
+            let call_result = EmulatedFunction::call(&clet_register, core, jvm).await;
+            if phase881_target {
+                tracing::info!(
+                    "[PHASE8_81_TARGET_WIPIC_RETURN] aid={} pid={} id={:#x} svc={:?} ok={} r0={:#x}",
+                    system.aid(), system.pid(), id.0, svc_id, call_result.is_ok(), core.read_param(0).unwrap_or(0)
+                );
+            }
+            return call_result?.write(core, lr);
         }
         WIPICSvcId::GetFramebufferPointer => graphics::get_framebuffer_pointer.into_body(),
         WIPICSvcId::GetFramebufferWidth => graphics::get_framebuffer_width.into_body(),
@@ -211,6 +226,12 @@ async fn handle_wipic_svc(core: &mut ArmCore, (system, jvm): &mut (System, Jvm),
         &mut (),
     )
     .await;
+    if phase881_target {
+        tracing::info!(
+            "[PHASE8_81_TARGET_WIPIC_RETURN] aid={} pid={} id={:#x} svc={:?} ok={} r0={:#x}",
+            system.aid(), system.pid(), id.0, svc_id, call_result.is_ok(), core.read_param(0).unwrap_or(0)
+        );
+    }
     if phase879_bm3 {
         tracing::info!(
             "[PHASE8_79_BM3_WIPIC_RETURN] id={:#x} ok={} r0={:#x}",

@@ -119,7 +119,7 @@ impl From<InitSvcId> for u32 {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 #[repr(u32)]
 pub enum WIPICSvcId {
     CletRegister = 0x03,

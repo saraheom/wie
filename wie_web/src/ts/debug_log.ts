@@ -2,6 +2,8 @@ const STORAGE_KEY = "wipi_player_debug_log_v1";
 const GAME_LOG_PREFIX = "wipi_player_debug_game_v1:";
 const GAME_INDEX_KEY = "wipi_player_debug_game_index_v1";
 const LAST_BREADCRUMB_KEY = "wipi_player_debug_last_breadcrumb_v1";
+const NATIVE_RING_KEY = "wipi_player_debug_native_ring_v1";
+const NATIVE_RING_MAX = 64; // Phase 8.81: force-close-safe native boundary history
 const MAX_LINES = 16000; // Phase 8.80: retain multiple compatibility runs in one export
 const MAX_CHARS = 4_000_000;
 const MAX_GAME_LINES = 8000; // Independent per-game history survives global rolling pressure
@@ -13,6 +15,7 @@ let installed = false;
 let sessionId = "";
 let gameScope = "";
 const gameLines = new Map<string, string[]>();
+let nativeRing: string[] = [];
 
 const formatValue = (value: unknown): string => {
   if (value instanceof Error) {
@@ -33,6 +36,46 @@ const formatValue = (value: unknown): string => {
 };
 
 const safeScopeKey = (value: string) => encodeURIComponent(value).slice(0, 180);
+
+
+const compactNativeBoundary = (category: string, payload: string): string | null => {
+  // Phase 8.81: retain only execution boundaries that can identify a native
+  // hang/crash. Keep the stored form compact because it is synchronously
+  // committed to localStorage before the emulated operation proceeds.
+  const marker = `${category} ${payload}`;
+  const interesting =
+    marker.includes("PHASE8_81_TARGET_WIPIC_") ||
+    marker.includes("PHASE8_64_OZ_JAVA_CALL_ENTRY") ||
+    marker.includes("PHASE8_64_OZ_JAVA_CALL_RETURN") ||
+    marker.includes("PHASE8_80_GENERIC_VIRTUAL_JAR_") ||
+    marker.includes("PHASE8_77_OZ_KPOOL_VIRTUAL_READ_") ||
+    marker.includes("PHASE8_71_OZ_METADATA_") ||
+    marker.includes("PHASE8_78_OZ_WIE_RUSTJAR_NEGATIVE_HIT") ||
+    marker.includes("PHASE8_62_OZ_NETWORK_CONNECT") ||
+    marker.includes("PHASE8_79_WEB_UPDATE_STAGE") ||
+    marker.includes("PHASE8_79_PRESENT_PROBE") ||
+    category === "PHASE8_79_FRAME";
+  if (!interesting) return null;
+
+  // Strip the tracing timestamp/prefix while preserving the marker payload.
+  const phaseAt = payload.indexOf("[PHASE");
+  const compactPayload = phaseAt >= 0 ? payload.slice(phaseAt) : `${category} ${payload}`;
+  return `[${new Date().toISOString()}] game=${gameScope || "<none>"} ${compactPayload}`.slice(0, 1200);
+};
+
+const persistNativeBoundary = (category: string, payload: string) => {
+  const compact = compactNativeBoundary(category, payload);
+  if (!compact) return;
+  nativeRing.push(compact);
+  if (nativeRing.length > NATIVE_RING_MAX) nativeRing.splice(0, nativeRing.length - NATIVE_RING_MAX);
+  try {
+    // Synchronous on purpose: this must survive a WebView/app force-close that
+    // occurs before the normal 400 ms batched diagnostic flush.
+    localStorage.setItem(NATIVE_RING_KEY, JSON.stringify(nativeRing));
+  } catch {
+    // Diagnostics must never affect emulation.
+  }
+};
 
 const trimArray = (target: string[], maxLines: number, maxChars: number) => {
   if (target.length > maxLines) target.splice(0, target.length - maxLines);
@@ -77,6 +120,7 @@ export const debugLog = (category: string, ...values: unknown[]) => {
     scoped.push(line);
     gameLines.set(gameScope, scoped);
   }
+  persistNativeBoundary(category, payload);
   trimLog();
 
   // Phase 8.80: synchronously persist high-value breadcrumbs. If iOS kills or
@@ -103,6 +147,7 @@ export const getDebugLogText = () => {
   for (const [name, scoped] of gameLines) {
     sections.push(`\n===== PHASE8_80 PER-GAME LOG: ${name} =====\n${scoped.join("\n")}`);
   }
+  sections.push(`\n===== PHASE8_81 LIVE NATIVE RING (LAST ${NATIVE_RING_MAX}) =====\n${nativeRing.join("\n")}`);
   return sections.join("\n");
 };
 
@@ -118,6 +163,8 @@ export const clearDebugLog = () => {
     for (const key of storedIndex) localStorage.removeItem(`${GAME_LOG_PREFIX}${safeScopeKey(key)}`);
     localStorage.removeItem(GAME_INDEX_KEY);
     localStorage.removeItem(LAST_BREADCRUMB_KEY);
+    localStorage.removeItem(NATIVE_RING_KEY);
+    nativeRing = [];
   } catch {
     // Ignore storage failures.
   }
@@ -173,6 +220,7 @@ export const installDebugLogging = () => {
   installed = true;
 
   let recoveredBreadcrumb = "";
+  let recoveredNativeRing: string[] = [];
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     if (stored) lines = stored.split("\n").filter(Boolean);
@@ -182,9 +230,18 @@ export const installDebugLogging = () => {
       if (storedGame) gameLines.set(key, storedGame.split("\n").filter(Boolean));
     }
     recoveredBreadcrumb = localStorage.getItem(LAST_BREADCRUMB_KEY) || "";
+    const storedRing = JSON.parse(localStorage.getItem(NATIVE_RING_KEY) || "[]") as unknown;
+    if (Array.isArray(storedRing)) {
+      recoveredNativeRing = storedRing.filter((entry): entry is string => typeof entry === "string").slice(-NATIVE_RING_MAX);
+    }
+    // Start a fresh live ring only after preserving the previous run for dump.
+    nativeRing = [];
+    localStorage.removeItem(NATIVE_RING_KEY);
   } catch {
     lines = [];
     gameLines.clear();
+    nativeRing = [];
+    recoveredNativeRing = [];
   }
 
   const consoleObject = console as Console & Record<string, unknown>;
@@ -232,6 +289,14 @@ export const installDebugLogging = () => {
   if (recoveredBreadcrumb) {
     debugLog("PHASE8_80_RECOVERED_LAST_BREADCRUMB", recoveredBreadcrumb);
   }
+  if (recoveredNativeRing.length) {
+    debugLog("PHASE8_81_RECOVERED_NATIVE_RING_BEGIN", `count=${recoveredNativeRing.length}`);
+    for (let i = 0; i < recoveredNativeRing.length; i += 1) {
+      debugLog("PHASE8_81_RECOVERED_NATIVE_RING", `index=${i}`, recoveredNativeRing[i]);
+    }
+    debugLog("PHASE8_81_RECOVERED_NATIVE_RING_END", `count=${recoveredNativeRing.length}`);
+  }
+  debugLog("PHASE8_81_NATIVE_RING_ARMED", `capacity=${NATIVE_RING_MAX}`);
   debugLog(
     "SYSTEM",
     "=== New WIPI Player session ===",
