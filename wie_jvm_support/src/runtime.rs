@@ -133,11 +133,17 @@ where
         file_table.files.insert(STDERR_FD, Box::new(StderrFile { system: system.clone() }));
 
         let mut metadata_size_cache = BTreeMap::new();
-        // RT_RUSTJAR ("wie.rustjar") is a synthetic classpath sentinel, not a
+        // RT_RUSTJAR is a synthetic java-runtime classpath sentinel, not a
         // physical VFS file. On iOS/web, asking the async VFS for the size of a
         // missing synthetic entry can stall indefinitely. Seed a negative cache
         // result so URLClassLoader falls through immediately.
         metadata_size_cache.insert(String::from(RT_RUSTJAR), None);
+        // Phase 8.78: WIE also prepends its own synthetic classpath token
+        // (`WIE_RUSTJAR`, currently "wie.rustjar").  It is not guaranteed to
+        // be identical to java_runtime::RT_RUSTJAR, so seed both explicitly.
+        // The 8.77.1 OZ trace proved that an uncached first metadata lookup of
+        // WIE_RUSTJAR can hang inside the async iOS/web filesystem.
+        metadata_size_cache.insert(String::from(WIE_RUSTJAR), None);
 
         Self {
             system,
@@ -268,7 +274,7 @@ where
         // This avoids repeated (or first-time synthetic) async VFS size() calls
         // that can stall indefinitely on iOS/web. Writable save/config files are
         // intentionally excluded so their metadata remains live.
-        let cacheable_classpath = path.ends_with(".jar") || path == RT_RUSTJAR;
+        let cacheable_classpath = path.ends_with(".jar") || path == RT_RUSTJAR || path == WIE_RUSTJAR;
         if cacheable_classpath {
             if let Some(cached) = self.metadata_size_cache.lock().get(path).copied() {
                 match cached {
@@ -287,6 +293,12 @@ where
                                 "[PHASE8_73_OZ_METADATA_NEGATIVE_CACHE_HIT] path={:?}",
                                 path
                             );
+                            if path == WIE_RUSTJAR {
+                                tracing::info!(
+                                    "[PHASE8_78_OZ_WIE_RUSTJAR_NEGATIVE_HIT] path={:?} source=preseeded_classpath_cache",
+                                    path
+                                );
+                            }
                         }
                         return Err(IOError::NotFound);
                     }

@@ -478,10 +478,82 @@ pub async fn draw_image(
                 }
             }
         }
+    } else if is_blade_master_3 && src_fb.0.bpp == 32 && framebuffer.0.bpp == 16 {
+        // Phase 8.78: Blade Master 3 decodes its bitmap-font/UI sprites as
+        // 32-bit ARGB and draws them into the 16-bit RGB565 LCD framebuffer.
+        // The 8.77 trace showed zero magenta in both the decoded source and the
+        // sampled draw region, yet the presented result contained magenta and
+        // the generic draw path was followed by a WASM trap.  Keep BM3 off the
+        // mixed-format generic blitter: clip explicitly, alpha-compose in Color
+        // space, and let the destination canvas quantize each final pixel to
+        // RGB565.  This is title-gated so other WIPI games retain the existing
+        // fast path.
+        tracing::info!(
+            "[PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_BEGIN] src={}x{} dst_fb={}x{} dst=({},{} {}x{}) src_xy=({}, {})",
+            src_fb.0.width, src_fb.0.height, framebuffer.0.width, framebuffer.0.height,
+            dx, dy, w, h, sx, sy
+        );
+        let src_width = src_image.width() as i32;
+        let src_height = src_image.height() as i32;
+        let mut copied = 0usize;
+        let mut transparent = 0usize;
+        let mut blended = 0usize;
+        if w > 0 && h > 0 {
+            for yy in 0..h {
+                for xx in 0..w {
+                    let src_x = sx + xx;
+                    let src_y = sy + yy;
+                    let dst_x = dx + xx;
+                    let dst_y = dy + yy;
+                    if src_x < 0 || src_y < 0 || src_x >= src_width || src_y >= src_height {
+                        continue;
+                    }
+                    if dst_x < 0 || dst_y < 0 || dst_x >= framebuffer.0.width as i32 || dst_y >= framebuffer.0.height as i32 {
+                        continue;
+                    }
+                    if dst_x < clip.x || dst_y < clip.y ||
+                        dst_x as i64 >= clip.x as i64 + clip.width as i64 ||
+                        dst_y as i64 >= clip.y as i64 + clip.height as i64 {
+                        continue;
+                    }
+
+                    let src_color = src_image.get_pixel(src_x, src_y);
+                    if src_color.a == 0 {
+                        transparent += 1;
+                        continue;
+                    }
+
+                    let out = if src_color.a == 255 {
+                        src_color
+                    } else {
+                        blended += 1;
+                        let bg = canvas.get_pixel(dst_x, dst_y).unwrap_or(Color { a: 255, r: 0, g: 0, b: 0 });
+                        let a = src_color.a as u32;
+                        let inv = 255u32 - a;
+                        Color {
+                            a: 255,
+                            r: ((src_color.r as u32 * a + bg.r as u32 * inv + 127) / 255) as u8,
+                            g: ((src_color.g as u32 * a + bg.g as u32 * inv + 127) / 255) as u8,
+                            b: ((src_color.b as u32 * a + bg.b as u32 * inv + 127) / 255) as u8,
+                        }
+                    };
+                    canvas.put_pixel(dst_x, dst_y, out, clip);
+                    copied += 1;
+                }
+            }
+        }
+        tracing::info!(
+            "[PHASE8_78_BM3_SAFE_ARGB_TO_RGB565_RETURN] copied={} transparent={} blended={}",
+            copied, transparent, blended
+        );
     } else {
         canvas.draw(dx as _, dy as _, w as _, h as _, &*src_image, sx as _, sy as _, clip);
     }
     canvas.flush()?;
+
+    if is_blade_master_3 {
+        tracing::info!("[PHASE8_78_BM3_DRAW_COMPLETE] dst=({},{} {}x{}) src=({}, {})", dx, dy, w, h, sx, sy);
+    }
 
     Ok(())
 }
