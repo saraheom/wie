@@ -206,6 +206,10 @@ jobs:
           grep -n 'PHASE8_84_OZ_CALLSITE_CODE_WINDOW' wie_lgt/src/runtime/java.rs
           grep -n 'set_guest_pc_history_enabled' wie_core_arm/src/engine.rs
           grep -n 'marker.includes("PHASE8_84_")' wie_web/src/ts/debug_log.ts
+          grep -n 'PHASE8_85_OZ_STARTAPP_EXCEPTION' wie_lgt/src/runtime/java.rs
+          grep -n 'PHASE8_85_BM3_FINAL_FB_MAGENTA' wie_wipi_c/src/api/graphics.rs
+          grep -n 'PHASE8_85_BM3_FINAL_FB_CLEAN' wie_wipi_c/src/api/graphics.rs
+          grep -n 'marker.includes("PHASE8_85_")' wie_web/src/ts/debug_log.ts
           grep -n 'derive(Copy, Clone, Debug)' wie_lgt/src/runtime/svc_ids.rs
           grep -n 'const MAX_VFS_READ_CHUNK: usize = 16 \* 1024;' wie_jvm_support/src/runtime/file.rs
           grep -n 'PHASE8_62_OZ_NETWORK_CONNECT' wie_wipi_java/src/classes/org/kwis/msf/io/network.rs
@@ -285,7 +289,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.84"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.85"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -506,7 +510,7 @@ jobs:
           grep -n 'kind = "inotia1_reward_wide_math_repair"' data/binary_patches.toml
           grep -n 'pc = 0x001281ed' data/binary_patches.toml
           grep -n 'hash = "0d7726becf7260f4f0051779bacfdbf1"' data/binary_patches.toml
-          grep -n '"version": "0.1.84"' wie_app/tauri.conf.json
+          grep -n '"version": "0.1.85"' wie_app/tauri.conf.json
           grep -n 'WIPI Player Phase 8.60' PHASE8_60_BUILD_ID.txt
           if grep -q 'INOTIA1_CASH_CMD30_CATALOG_PAGE[012]_FREE' wie_wipi_c/src/api/net.rs; then
             echo 'Obsolete multi-page Inotia1 cash catalog is still present in Phase 8.60' >&2
@@ -622,6 +626,9 @@ jobs:
           grep -a -q 'PHASE8_84_OZ_FIRST_LOOP_GUEST_PC_TRACE' "$RAW_WASM"
           grep -a -q 'PHASE8_84_OZ_FIRST_LOOP_REGS' "$RAW_WASM"
           grep -a -q 'PHASE8_84_OZ_CALLSITE_CODE_WINDOW' "$RAW_WASM"
+          grep -a -q 'PHASE8_85_OZ_STARTAPP_EXCEPTION' "$RAW_WASM"
+          grep -a -q 'PHASE8_85_BM3_FINAL_FB_MAGENTA' "$RAW_WASM"
+          grep -a -q 'PHASE8_85_BM3_FINAL_FB_CLEAN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$RAW_WASM"
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$RAW_WASM"
@@ -678,6 +685,8 @@ jobs:
           grep -a -q 'PHASE8_83_BM3_DB_SYNC_INTERCEPT' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.83 BM3 synchronous database marker.'; exit 1; }
           grep -a -q 'PHASE8_84_BM3_DB_STREAM_WRITE_SYNC' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.84 BM3 synchronous record-write marker.'; exit 1; }
           grep -a -q 'PHASE8_84_OZ_FIRST_LOOP_GUEST_PC_TRACE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.84 OZ guest-PC forensic marker.'; exit 1; }
+          grep -a -q 'PHASE8_85_OZ_STARTAPP_EXCEPTION' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.85 OZ startApp exception decoder.'; exit 1; }
+          grep -a -q 'PHASE8_85_BM3_FINAL_FB_MAGENTA' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing Phase 8.85 BM3 final-framebuffer marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_LINK_CLASS_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT class-link localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_LGT_VTABLE_HIERARCHY_BEGIN' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing LGT vtable localization marker.'; exit 1; }
           grep -a -q 'PHASE8_60_WIPI_INPUT_METHOD_MODE' "$BUNDLED_WASM" || { echo '::error::Bundled WASM missing WIPI input-method marker.'; exit 1; }
@@ -692,19 +701,19 @@ jobs:
             exit 1
           fi
 
-          BUILD_MARKER="wie_web/dist/phase8_84_build.txt"
+          BUILD_MARKER="wie_web/dist/phase8_85_build.txt"
           if [[ ! -f "$BUILD_MARKER" ]]; then
-            echo '::error::Phase 8.84 frontend build marker was not copied into wie_web/dist.'
+            echo '::error::Phase 8.85 frontend build marker was not copied into wie_web/dist.'
             find wie_web/dist -maxdepth 2 -type f -print || true
             exit 1
           fi
-          grep -Fxq 'PHASE8_84_BUILD_SENTINEL=WIPI_PLAYER_0.1.84_BM3_SYNC_RECORD_IO_OZ_GUEST_PC_FORENSICS' "$BUILD_MARKER"
+          grep -Fxq 'PHASE8_85_BUILD_SENTINEL=WIPI_PLAYER_0.1.85_OZ_STARTAPP_EXCEPTION_BM3_FINAL_FB' "$BUILD_MARKER"
 
           MARKER_SHA256="$(shasum -a 256 "$BUILD_MARKER" | awk '{print $1}')"
           echo "marker_sha256=$MARKER_SHA256" >> "$GITHUB_OUTPUT"
           echo "Bundled WASM: $BUNDLED_WASM"
           echo "Build marker SHA-256: $MARKER_SHA256"
-          echo 'Verified Phase 8.84 BM3 synchronous record I/O, OZ guest-PC forensics, retained fixes, and frontend build marker.'
+          echo 'Verified Phase 8.85 OZ startApp exception decoding, BM3 final-framebuffer localization, retained fixes, and frontend build marker.'
 
       - name: Install Apple project tools
         shell: bash
@@ -900,12 +909,12 @@ jobs:
           EXPECTED_BUILD="${{ steps.build_number.outputs.number }}"
           EXPECTED_TAURI_BUILD="$APP_VERSION.$EXPECTED_BUILD"
 
-          if [[ "$APP_VERSION" != "0.1.84" ]]; then
-            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.84."
+          if [[ "$APP_VERSION" != "0.1.85" ]]; then
+            echo "::error::Final IPA marketing version is $APP_VERSION, expected 0.1.85."
             exit 1
           fi
           # Tauri 2 iOS composes CFBundleVersion as <marketing-version>.<build-number>
-          # (for example 0.1.84.86), rather than the bare numeric build number.
+          # (for example 0.1.85.86), rather than the bare numeric build number.
           # Accept the composed form used by the current toolchain, while retaining
           # compatibility with a future Tauri release that may emit the bare number.
           if [[ "$APP_BUILD" != "$EXPECTED_TAURI_BUILD" && "$APP_BUILD" != "$EXPECTED_BUILD" ]]; then

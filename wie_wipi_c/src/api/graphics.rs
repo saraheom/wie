@@ -575,7 +575,51 @@ pub async fn flush_lcd(
     // from the hot path now that they have served their purpose. The Phase 8.22
     // RGB565/Web canvas fast paths remain active underneath this call.
     let framebuffer = FrameBuffer(read_generic(context, context.data_ptr(framebuffer)?)?);
+    let is_blade_master_3 =
+        context.system().aid() == "000262F4" && context.system().pid() == "PD109653";
     let src_canvas = framebuffer.image(context)?;
+
+    // Phase 8.85: BM3 now completes its database/startup chain, so localize
+    // the remaining magenta corruption at the final LCD boundary. Count exact
+    // RGB565 magenta and report its bounding box plus representative pixels
+    // before the framebuffer crosses into the web/iOS presentation layer.
+    // This tells us in one build whether the corruption already exists in the
+    // emulated LCD or is introduced by the final RGBA/iOS conversion.
+    if is_blade_master_3 && src_canvas.bytes_per_pixel() == 2 {
+        let raw = src_canvas.raw();
+        let width = src_canvas.width() as usize;
+        let mut count = 0usize;
+        let mut min_x = usize::MAX;
+        let mut min_y = usize::MAX;
+        let mut max_x = 0usize;
+        let mut max_y = 0usize;
+        let mut samples = alloc::string::String::new();
+        for (index, pixel) in raw.chunks_exact(2).enumerate() {
+            let value = u16::from_le_bytes([pixel[0], pixel[1]]);
+            if value == 0xf81f {
+                let x = if width == 0 { 0 } else { index % width };
+                let y = if width == 0 { 0 } else { index / width };
+                count += 1;
+                min_x = min_x.min(x); min_y = min_y.min(y);
+                max_x = max_x.max(x); max_y = max_y.max(y);
+                if count <= 16 {
+                    if !samples.is_empty() { samples.push(' '); }
+                    samples.push_str(&alloc::format!("({x},{y})"));
+                }
+            }
+        }
+        if count > 0 {
+            tracing::warn!(
+                "[PHASE8_85_BM3_FINAL_FB_MAGENTA] count={} bbox=({},{})->({},{}) samples=[{}] size={}x{} raw_len={}",
+                count, min_x, min_y, max_x, max_y, samples, src_canvas.width(), src_canvas.height(), raw.len()
+            );
+        } else {
+            tracing::info!(
+                "[PHASE8_85_BM3_FINAL_FB_CLEAN] magenta=0 size={}x{} raw_len={}",
+                src_canvas.width(), src_canvas.height(), raw.len()
+            );
+        }
+    }
 
     let platform = context.system().platform();
     let screen = platform.screen();

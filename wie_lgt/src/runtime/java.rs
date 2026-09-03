@@ -140,6 +140,55 @@ fn phase8_65_probe_words(core: &ArmCore, ptr: u32) -> String {
     out
 }
 
+
+fn phase8_85_exception_class_name(core: &ArmCore, ptr_exception: u32) -> String {
+    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+        Ok(v) => v,
+        Err(_) => return format!("<unreadable-exception@{ptr_exception:#010x}>"),
+    };
+    let ptr_class: u32 = match read_generic(core, instance.ptr_dispatch_table) {
+        Ok(v) => v,
+        Err(_) => return format!("<bad-vtable@{:#010x}>", instance.ptr_dispatch_table),
+    };
+    let class: RawJavaClass = match read_generic(core, ptr_class) {
+        Ok(v) => v,
+        Err(_) => return format!("<bad-class@{ptr_class:#010x}>"),
+    };
+    let descriptor: RawJavaClassDescriptor = match read_generic(core, class.ptr_descriptor) {
+        Ok(v) => v,
+        Err(_) => return format!("<bad-descriptor@{:#010x}>", class.ptr_descriptor),
+    };
+    String::from_utf8(read_null_terminated_string_bytes(core, descriptor.ptr_name).unwrap_or_default())
+        .unwrap_or_else(|_| format!("<invalid-class-name@{:#010x}>", descriptor.ptr_name))
+}
+
+fn phase8_85_exception_field_probe(core: &ArmCore, ptr_exception: u32) -> String {
+    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+        Ok(v) => v,
+        Err(_) => return String::from("<unreadable-instance>"),
+    };
+    let mut out = String::new();
+    for index in 0..16u32 {
+        let address = instance.ptr_fields.wrapping_add(index * 4);
+        let value: u32 = match read_generic(core, address) {
+            Ok(v) => v,
+            Err(_) => break,
+        };
+        if index != 0 {
+            out.push(' ');
+        }
+        out.push_str(&format!("f{index}={value:#010x}"));
+        if value != 0 {
+            let decoded = phase8_71_decode_java_string(core, value);
+            if !decoded.starts_with('<') && !decoded.is_empty() {
+                let safe = decoded.chars().take(160).collect::<String>();
+                out.push_str(&format!("({safe:?})"));
+            }
+        }
+    }
+    out
+}
+
 fn phase8_84_recent_guest_pc_trace(core: &mut ArmCore) -> String {
     let history = core.guest_pc_history();
     let mut out = String::new();
@@ -258,6 +307,22 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
     // preserving normal URLClassLoader semantics for later resource lookups.
     let call_result = function.call(core).await;
     let return_r0 = core.read_param(0).unwrap_or(0);
+
+    // Phase 8.85: 8.84 proved that OZ does not deadlock in the Exception
+    // class getter itself. The guest's startApp() returns a JavaException and
+    // only then falls into the 0x17b70 retry loop. Decode that thrown object
+    // immediately, while its class/message fields are still intact, so one
+    // test run identifies the real startup blocker rather than the secondary
+    // exception-handler loop.
+    if method_name == "startApp" {
+        if let Err(WieError::JavaException(ptr_exception)) = &call_result {
+            tracing::error!(
+                "[PHASE8_85_OZ_STARTAPP_EXCEPTION] method_id={:#010x} exception={:#010x} class={} fields=[{}] lr={:#010x}",
+                id.0, *ptr_exception, phase8_85_exception_class_name(core, *ptr_exception),
+                phase8_85_exception_field_probe(core, *ptr_exception), lr
+            );
+        }
+    }
     if class_name == "java/net/URL" && method_name == "getFile" {
         tracing::info!(
             "[PHASE8_71_OZ_URL_GET_FILE_RETURN] id={:#010x} ok={} result={:#010x} file={:?} result_words=[{}]",
