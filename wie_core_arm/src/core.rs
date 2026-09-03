@@ -160,6 +160,16 @@ impl ArmCore {
         self.inner.lock().oz_svc_hang_diagnostics
     }
 
+    /// Enable a generic rolling history of the last 128 executed guest PCs.
+    /// Frontends opt in only for targeted compatibility investigations.
+    pub fn set_guest_pc_history_enabled(&mut self, enabled: bool) {
+        self.inner.lock().engine.set_guest_pc_history_enabled(enabled);
+    }
+
+    pub fn guest_pc_history(&self) -> Vec<u32> {
+        self.inner.lock().engine.guest_pc_history()
+    }
+
     /// Phase 8.46 manual-arm diagnostic switch. This is deliberately enabled by the KTF
     /// frontend only for the known Inotia1 AID/PID, so every other title keeps
     /// the Phase 8.42 memory hot path unchanged.

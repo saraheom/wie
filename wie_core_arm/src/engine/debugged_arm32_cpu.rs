@@ -520,6 +520,14 @@ impl ArmEngine for DebuggedArm32CpuEngine {
     fn set_inotia1_exp_diagnostics(&mut self, enabled: bool) {
         self.debug.cpu.lock().set_inotia1_exp_diagnostics(enabled)
     }
+
+    fn set_guest_pc_history_enabled(&mut self, enabled: bool) {
+        self.debug.cpu.lock().set_guest_pc_history_enabled(enabled)
+    }
+
+    fn guest_pc_history(&self) -> alloc::vec::Vec<u32> {
+        self.debug.cpu.lock().guest_pc_history()
+    }
 }
 
 #[cfg(test)]

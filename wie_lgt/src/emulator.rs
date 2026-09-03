@@ -97,6 +97,7 @@ impl LgtEmulator {
         if aid == "00026DBF" && pid == "PD112525" {
             core.set_native_loop_trace_chunks(256);
             core.set_oz_svc_hang_diagnostics(true);
+            core.set_guest_pc_history_enabled(true);
             tracing::info!(
                 "[PHASE8_65_OZ_FIND_RESOURCE_PROBE] urlclassloader_findresource=true url_getfile_return_probe=true object_word_snapshots=true"
             );

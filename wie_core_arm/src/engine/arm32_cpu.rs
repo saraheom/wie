@@ -87,6 +87,13 @@ pub struct Arm32CpuEngine {
     inotia1_exact_exp_events: u32,
     inotia1_entity_reward_events: u32,
     inotia1_entity_reward_saturated: bool,
+    // Generic, opt-in guest-PC history used by title frontends that need a
+    // one-shot execution breadcrumb. Kept as a fixed ring to avoid allocation
+    // on the instruction hot path.
+    guest_pc_history_enabled: bool,
+    guest_pc_history: [u32; 128],
+    guest_pc_history_pos: usize,
+    guest_pc_history_len: usize,
 }
 
 impl Arm32CpuEngine {
@@ -102,6 +109,10 @@ impl Arm32CpuEngine {
             inotia1_exact_exp_events: 0,
             inotia1_entity_reward_events: 0,
             inotia1_entity_reward_saturated: false,
+            guest_pc_history_enabled: false,
+            guest_pc_history: [0; 128],
+            guest_pc_history_pos: 0,
+            guest_pc_history_len: 0,
         }
     }
 
@@ -578,6 +589,12 @@ impl ArmEngine for Arm32CpuEngine {
             // PC and only touch CPSR on the exceptional vector address itself.
             let pc = self.cpu.reg_get(Mode::User, reg::PC);
 
+            if self.guest_pc_history_enabled {
+                self.guest_pc_history[self.guest_pc_history_pos] = pc;
+                self.guest_pc_history_pos = (self.guest_pc_history_pos + 1) % self.guest_pc_history.len();
+                self.guest_pc_history_len = (self.guest_pc_history_len + 1).min(self.guest_pc_history.len());
+            }
+
             if pc == 0x08 && (self.cpu.reg_get(Mode::User, reg::CPSR) & 0x1f) == 0x13 {
                 return self.read_svc_result();
             }
@@ -786,6 +803,30 @@ impl ArmEngine for Arm32CpuEngine {
                 }
             }
         }
+    }
+
+    fn set_guest_pc_history_enabled(&mut self, enabled: bool) {
+        self.guest_pc_history_enabled = enabled;
+        if !enabled {
+            self.guest_pc_history_pos = 0;
+            self.guest_pc_history_len = 0;
+        }
+    }
+
+    fn guest_pc_history(&self) -> Vec<u32> {
+        let mut out = Vec::with_capacity(self.guest_pc_history_len);
+        if self.guest_pc_history_len == 0 {
+            return out;
+        }
+        let start = if self.guest_pc_history_len == self.guest_pc_history.len() {
+            self.guest_pc_history_pos
+        } else {
+            0
+        };
+        for i in 0..self.guest_pc_history_len {
+            out.push(self.guest_pc_history[(start + i) % self.guest_pc_history.len()]);
+        }
+        out
     }
 }
 

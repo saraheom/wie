@@ -140,6 +140,23 @@ fn phase8_65_probe_words(core: &ArmCore, ptr: u32) -> String {
     out
 }
 
+fn phase8_84_recent_guest_pc_trace(core: &mut ArmCore) -> String {
+    let history = core.guest_pc_history();
+    let mut out = String::new();
+    for (index, pc) in history.iter().enumerate() {
+        if index != 0 {
+            out.push_str(" ");
+        }
+        let aligned = *pc & !1;
+        let opcode: Result<u16> = read_generic(core, aligned);
+        match opcode {
+            Ok(value) => out.push_str(&format!("{aligned:#010x}:{value:#06x}")),
+            Err(_) => out.push_str(&format!("{aligned:#010x}:????")),
+        }
+    }
+    out
+}
+
 async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, id: SvcId) -> Result<JumpTo> {
     let (_, lr) = core.read_pc_lr()?;
     let function = functions
@@ -184,24 +201,30 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
         let regs = core.save_context();
         if hit == 1 {
             tracing::warn!(
-                "[PHASE8_83_OZ_EXCEPTION_LOOP_CODE] hit={hit} caller_lr={lr:#010x} range=0x00017b20-0x00017ba0 thumb=[{}]",
-                phase8_83_thumb_window(core, 0x0001_7b20, 0x0001_7ba0)
+                "[PHASE8_84_OZ_FIRST_LOOP_GUEST_PC_TRACE] hit={hit} caller_lr={lr:#010x} recent_pc_opcode=[{}]",
+                phase8_84_recent_guest_pc_trace(core)
             );
             tracing::warn!(
-                "[PHASE8_83_OZ_EXCEPTION_LOOP_STACK] hit={hit} pc={:#010x} lr={:#010x} sp={:#010x} cpsr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} stack=[{}]",
-                regs.pc, regs.lr, regs.sp, regs.cpsr, regs.r0, regs.r1, regs.r2, regs.r3, regs.r4, regs.r5, regs.r6, regs.r7,
+                "[PHASE8_84_OZ_FIRST_LOOP_REGS] hit={hit} trampoline_pc={:#010x} caller_lr={lr:#010x} sp={:#010x} cpsr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} stack=[{}]",
+                regs.pc, regs.sp, regs.cpsr, regs.r0, regs.r1, regs.r2, regs.r3, regs.r4, regs.r5, regs.r6, regs.r7,
                 phase8_83_stack_words(core, regs.sp)
             );
-        } else if matches!(hit, 10 | 100 | 1000) || hit % 10000 == 0 {
             tracing::warn!(
-                "[PHASE8_83_OZ_EXCEPTION_LOOP_STATE] hit={hit} caller_lr={lr:#010x} pc={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x}",
+                "[PHASE8_84_OZ_CALLSITE_CODE_WINDOW] caller_lr={lr:#010x} range=0x00017b20-0x00017ba0 thumb=[{}]",
+                phase8_83_thumb_window(core, 0x0001_7b20, 0x0001_7ba0)
+            );
+        } else if matches!(hit, 10 | 100 | 1000) {
+            tracing::warn!(
+                "[PHASE8_84_OZ_EXCEPTION_LOOP_SANITY] hit={hit} caller_lr={lr:#010x} pc={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x}",
                 regs.pc, regs.sp, regs.r0, regs.r1, regs.r2, regs.r3, regs.r4, regs.r5, regs.r6, regs.r7
             );
         }
     }
 
     let hot_count = functions.note_hot_loop(id.0);
-    if hot_count == 100 || hot_count == 1000 || hot_count % 10000 == 0 {
+    if (phase8_83_exception_loop_hit == 0 && (hot_count == 100 || hot_count == 1000 || hot_count % 10000 == 0))
+        || (phase8_83_exception_loop_hit != 0 && matches!(hot_count, 100 | 1000))
+    {
         tracing::warn!(
             "[PHASE8_82_OZ_JAVA_HOT_LOOP] id={:#010x} class={} method={} descriptor={} consecutive_calls={} lr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
             id.0, class_name, method_name, method_descriptor, hot_count, lr, r0, r1, r2, r3

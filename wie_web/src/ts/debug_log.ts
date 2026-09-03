@@ -47,6 +47,7 @@ const compactNativeBoundary = (category: string, payload: string): string | null
     marker.includes("PHASE8_81_TARGET_WIPIC_") ||
     marker.includes("PHASE8_82_") ||
     marker.includes("PHASE8_83_") ||
+    marker.includes("PHASE8_84_") ||
     marker.includes("PHASE8_64_OZ_JAVA_CALL_ENTRY") ||
     marker.includes("PHASE8_64_OZ_JAVA_CALL_RETURN") ||
     marker.includes("PHASE8_80_GENERIC_VIRTUAL_JAR_") ||

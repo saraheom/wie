@@ -1,6 +1,10 @@
+extern crate alloc;
+
 mod arm32_cpu;
 #[cfg(not(target_arch = "wasm32"))]
 mod debugged_arm32_cpu;
+
+use alloc::vec::Vec;
 
 use wie_util::{AsAny, Result};
 
@@ -29,6 +33,16 @@ pub trait ArmEngine: Send + AsAny {
     /// Engines that do not support instruction-local write observation may
     /// leave the default no-op implementation in place.
     fn set_inotia1_exp_diagnostics(&mut self, _enabled: bool) {}
+
+    /// Enable a small rolling history of executed guest PCs for targeted
+    /// compatibility diagnostics. Disabled by default to keep the interpreter
+    /// hot path unchanged for normal titles.
+    fn set_guest_pc_history_enabled(&mut self, _enabled: bool) {}
+
+    /// Return the current guest-PC history in oldest-to-newest order.
+    fn guest_pc_history(&self) -> Vec<u32> {
+        Vec::new()
+    }
 }
 
 #[allow(clippy::enum_variant_names)]

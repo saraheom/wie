@@ -1419,6 +1419,23 @@ pub async fn stream_write(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: W
     }
     write_generic(context, db_id as _, handle)?;
 
+    // Phase 8.84 — the Phase 8.83 BM3 handle is fully guest-backed. Keep
+    // record writes in that same session-memory domain instead of falling
+    // through to the generic persistent repository.
+    if pid == "PD109653" && aid == "000262F4" {
+        let mut snapshot = vec![0u8; handle.buffer_len as usize];
+        if handle.buffer_ptr != 0 && handle.buffer_len > 0 {
+            context.read_bytes(handle.buffer_ptr, &mut snapshot)?;
+        }
+        let key = bm3_host_db_cache_key(&db_name);
+        context.host_blob_cache_put(&key, snapshot);
+        tracing::info!(
+            "[PHASE8_84_BM3_DB_STREAM_WRITE_SYNC] name={db_name:?} handle={db_id:#010x} wrote={buf_len} final_len={} write_cursor={} no_indexeddb=true",
+            handle.buffer_len, handle.write_cursor
+        );
+        return Ok(buf_len as _);
+    }
+
     // Phase 8.18 — the exact Inotia 2 static install records are intentionally
     // write-back cached. Avoid both repository I/O and the O(n) full-buffer
     // snapshot on every small append. close_database performs one guarded
@@ -1672,6 +1689,17 @@ pub async fn stream_read(context: &mut dyn WIPICContext, db_id: i32, buf_ptr: WI
     let old_cursor = handle.read_cursor;
     handle.read_cursor += take;
     write_generic(context, db_id as _, handle)?;
+
+    let (read_pid, read_aid) = {
+        let system = context.system();
+        (system.pid().to_owned(), system.aid().to_owned())
+    };
+    if read_pid == "PD109653" && read_aid == "000262F4" {
+        tracing::info!(
+            "[PHASE8_84_BM3_DB_STREAM_READ_SYNC] name={:?} handle={db_id:#010x} offset={old_cursor} request={buf_len} returned={take} final_cursor={} record_len={} no_indexeddb=true",
+            handle_name(&handle), handle.read_cursor, handle.buffer_len
+        );
+    }
 
     if context.system().pid() == "PD005362" && handle_name(&handle).starts_with("save") {
         // Phase 8.42: only save-slot reads retain INFO diagnostics. Resource
