@@ -24,6 +24,7 @@ pub struct JavaSvcFunctions {
     functions: Arc<Mutex<BTreeMap<u32, Arc<Box<dyn RegisteredFunction>>>>>,
     metadata: Arc<Mutex<BTreeMap<u32, (String, String, String)>>>,
     hot_loop: Arc<Mutex<(u32, u32)>>,
+    oz_exception_loop_hits: Arc<Mutex<u32>>,
 }
 
 impl JavaSvcFunctions {
@@ -32,6 +33,7 @@ impl JavaSvcFunctions {
             functions: Arc::new(Mutex::new(BTreeMap::new())),
             metadata: Arc::new(Mutex::new(BTreeMap::new())),
             hot_loop: Arc::new(Mutex::new((0, 0))),
+            oz_exception_loop_hits: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -59,9 +61,44 @@ impl JavaSvcFunctions {
         }
         state.1
     }
+
+    fn note_oz_exception_loop(&self) -> u32 {
+        let mut hits = self.oz_exception_loop_hits.lock();
+        *hits = hits.saturating_add(1);
+        *hits
+    }
 }
 
+fn phase8_83_thumb_window(core: &ArmCore, start: u32, end: u32) -> String {
+    let mut out = String::new();
+    let mut address = start;
+    while address < end {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        match read_generic::<u16, _>(core, address) {
+            Ok(value) => out.push_str(&format!("{address:#08x}:{value:04x}")),
+            Err(_) => out.push_str(&format!("{address:#08x}:????")),
+        }
+        address = address.wrapping_add(2);
+    }
+    out
+}
 
+fn phase8_83_stack_words(core: &ArmCore, sp: u32) -> String {
+    let mut out = String::new();
+    for index in 0..12u32 {
+        if index != 0 {
+            out.push(' ');
+        }
+        let address = sp.wrapping_add(index * 4);
+        match read_generic::<u32, _>(core, address) {
+            Ok(value) => out.push_str(&format!("{address:#010x}:{value:#010x}")),
+            Err(_) => out.push_str(&format!("{address:#010x}:<unreadable>")),
+        }
+    }
+    out
+}
 
 fn phase8_71_decode_java_string(core: &ArmCore, ptr: u32) -> String {
     if ptr == 0 {
@@ -129,6 +166,40 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
     let r1 = core.read_param(1).unwrap_or(0);
     let r2 = core.read_param(2).unwrap_or(0);
     let r3 = core.read_param(3).unwrap_or(0);
+
+    // Phase 8.83 — 8.82 resolved OZ's apparent freeze to a tight guest loop
+    // repeatedly requesting java/lang/Exception.<get-initialized-class> from
+    // caller LR 0x17b70. Capture the complete Thumb basic-block window and
+    // guest register/stack state at that exact boundary. The full code window
+    // is emitted once; compact register snapshots are repeated at sparse
+    // milestones so a changing loop condition is visible without flooding the
+    // persistent log.
+    let mut phase8_83_exception_loop_hit = 0u32;
+    if class_name == "java/lang/Exception"
+        && method_name == "<get-initialized-class>"
+        && (0x0001_7b20..=0x0001_7ba0).contains(&lr)
+    {
+        let hit = functions.note_oz_exception_loop();
+        phase8_83_exception_loop_hit = hit;
+        let regs = core.save_context();
+        if hit == 1 {
+            tracing::warn!(
+                "[PHASE8_83_OZ_EXCEPTION_LOOP_CODE] hit={hit} caller_lr={lr:#010x} range=0x00017b20-0x00017ba0 thumb=[{}]",
+                phase8_83_thumb_window(core, 0x0001_7b20, 0x0001_7ba0)
+            );
+            tracing::warn!(
+                "[PHASE8_83_OZ_EXCEPTION_LOOP_STACK] hit={hit} pc={:#010x} lr={:#010x} sp={:#010x} cpsr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x} stack=[{}]",
+                regs.pc, regs.lr, regs.sp, regs.cpsr, regs.r0, regs.r1, regs.r2, regs.r3, regs.r4, regs.r5, regs.r6, regs.r7,
+                phase8_83_stack_words(core, regs.sp)
+            );
+        } else if matches!(hit, 10 | 100 | 1000) || hit % 10000 == 0 {
+            tracing::warn!(
+                "[PHASE8_83_OZ_EXCEPTION_LOOP_STATE] hit={hit} caller_lr={lr:#010x} pc={:#010x} sp={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x} r4={:#010x} r5={:#010x} r6={:#010x} r7={:#010x}",
+                regs.pc, regs.sp, regs.r0, regs.r1, regs.r2, regs.r3, regs.r4, regs.r5, regs.r6, regs.r7
+            );
+        }
+    }
+
     let hot_count = functions.note_hot_loop(id.0);
     if hot_count == 100 || hot_count == 1000 || hot_count % 10000 == 0 {
         tracing::warn!(
@@ -148,10 +219,16 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
             id.0, r0, phase8_65_probe_words(core, r0)
         );
     }
-    tracing::info!(
-        "[PHASE8_64_OZ_JAVA_CALL_ENTRY] id={:#010x} class={} method={} descriptor={} lr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
-        id.0, class_name, method_name, method_descriptor, lr, r0, r1, r2, r3
-    );
+    // Once the OZ exception loop has been positively identified, suppress its
+    // per-iteration generic Java entry records. Keeping only the first three
+    // plus sparse Phase 8.83 milestones prevents the loop from evicting the
+    // pre-failure context from the per-game persistent log/native ring.
+    if phase8_83_exception_loop_hit == 0 || phase8_83_exception_loop_hit <= 3 {
+        tracing::info!(
+            "[PHASE8_64_OZ_JAVA_CALL_ENTRY] id={:#010x} class={} method={} descriptor={} lr={:#010x} r0={:#010x} r1={:#010x} r2={:#010x} r3={:#010x}",
+            id.0, class_name, method_name, method_descriptor, lr, r0, r1, r2, r3
+        );
+    }
 
     // Phase 8.67: the Phase 8.66 return-null experiment is intentionally
     // removed. OZ binary.mod is now bootstrapped directly from the mounted JAR,
@@ -170,10 +247,12 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
             id.0, call_result.is_ok(), return_r0, phase8_65_probe_words(core, return_r0)
         );
     }
-    tracing::info!(
-        "[PHASE8_64_OZ_JAVA_CALL_RETURN] id={:#010x} class={} method={} descriptor={} ok={} r0={:#010x}",
-        id.0, class_name, method_name, method_descriptor, call_result.is_ok(), return_r0
-    );
+    if phase8_83_exception_loop_hit == 0 || phase8_83_exception_loop_hit <= 3 {
+        tracing::info!(
+            "[PHASE8_64_OZ_JAVA_CALL_RETURN] id={:#010x} class={} method={} descriptor={} ok={} r0={:#010x}",
+            id.0, class_name, method_name, method_descriptor, call_result.is_ok(), return_r0
+        );
+    }
 
     match call_result {
         Ok(()) => Ok(JumpTo(lr)),

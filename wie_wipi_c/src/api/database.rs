@@ -119,6 +119,77 @@ fn bm3_host_db_cache_key(name: &str) -> String {
     format!("phase8_82_bm3_db:{name}")
 }
 
+// Phase 8.83 — Blade Master 3 must not enter Java class-loader/resource or
+// browser database code while opening its first database.  The 8.82 path
+// selected the session cache early, but still continued through
+// read_packaged_database(), which re-entered Java resource lookup and never
+// reached the handle return.  Build the opaque WIPI database handle entirely
+// synchronously from the per-emulator host mirror instead.
+fn phase8_83_open_bm3_session_database(
+    context: &mut dyn WIPICContext,
+    name: &str,
+    mode: i32,
+    r#type: i32,
+) -> Result<i32> {
+    let key = bm3_host_db_cache_key(name);
+
+    // CREATE/truncate starts with an empty record.  Normal/open mode is
+    // deliberately open-or-create for this title: setup.dat is a small local
+    // settings database and an absent fresh-install copy must not stall or
+    // fail before the game can initialize it.
+    if mode == 4 {
+        context.host_blob_cache_remove(&key);
+    }
+    let initial = if mode == 4 {
+        Vec::new()
+    } else {
+        context.host_blob_cache_get(&key).unwrap_or_default()
+    };
+
+    tracing::info!(
+        "[PHASE8_83_BM3_DB_SYNC_INTERCEPT] name={name:?} mode={mode} type={type} initial_len={} cache_hit={} no_java=true no_indexeddb=true",
+        initial.len(),
+        !initial.is_empty()
+    );
+
+    let name_bytes = name.as_bytes();
+    let mut handle = DatabaseHandle {
+        magic: DATABASE_HANDLE_MAGIC,
+        name: [0; 32],
+        read_cursor: 0,
+        write_cursor: 0,
+        buffer_ptr: 0,
+        buffer_len: 0,
+        buffer_capacity: 0,
+        open_mode: mode,
+    };
+    handle.name[..name_bytes.len()].copy_from_slice(name_bytes);
+
+    // Give even a fresh/empty DB a small backing allocation so the first write
+    // does not need to cross any host storage boundary.
+    let cap = (initial.len() as u32).max(MIN_BUFFER_CAPACITY);
+    let buf_ptr = context.alloc_raw(cap)?;
+    if !initial.is_empty() {
+        context.write_bytes(buf_ptr, &initial)?;
+    }
+    handle.buffer_ptr = buf_ptr;
+    handle.buffer_len = initial.len() as u32;
+    handle.buffer_capacity = cap;
+
+    let ptr_handle = context.alloc_raw(size_of::<DatabaseHandle>() as _)?;
+    write_generic(context, ptr_handle, handle)?;
+
+    // Seed the session namespace immediately, including the empty case. Close
+    // will replace this with the final bytes written by the title.
+    context.host_blob_cache_put(&key, initial);
+
+    tracing::info!(
+        "[PHASE8_83_BM3_DB_SYNC_RETURN] name={name:?} mode={mode} result={ptr_handle:#x} initial_len={} buffer_ptr={buf_ptr:#x} capacity={cap}",
+        handle.buffer_len
+    );
+    Ok(ptr_handle as i32)
+}
+
 async fn read_inotia2_prebuilt_cache(
     context: &mut dyn WIPICContext,
     name: &str,
@@ -178,6 +249,15 @@ pub async fn open_database(context: &mut dyn WIPICContext, ptr_name: WIPICWord, 
         let system = context.system();
         (system.pid().to_owned(), system.aid().to_owned())
     };
+
+    // Phase 8.83 — true top-level BM3 database interception. This return is
+    // intentionally before *all* generic packaged-resource, Java class-loader,
+    // and repository code below. The 8.82 log proved that merely selecting the
+    // memory source was insufficient because read_packaged_database() still
+    // ran and never returned for setup.dat.
+    if pid == "PD109653" && aid == "000262F4" {
+        return phase8_83_open_bm3_session_database(context, &name, mode, r#type);
+    }
 
     // Phase 8.82 — Blade Master 3 can deadlock inside the browser IndexedDB
     // repository while opening its first LGT database. Keep its database
