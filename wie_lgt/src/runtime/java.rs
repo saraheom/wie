@@ -146,29 +146,29 @@ fn phase8_86_decode_java_string(core: &ArmCore, ptr: u32) -> String {
     if ptr == 0 {
         return String::from("<null>");
     }
-    let instance: RawJavaClassInstance = match read_generic(core, ptr) {
+    let instance: RawJavaClassInstance = match read_generic::<RawJavaClassInstance, _>(core, ptr) {
         Ok(v) => v,
         Err(_) => return format!("<unreadable-string-instance@{ptr:#010x}>"),
     };
     let fields = instance.ptr_fields;
-    let value_ptr: u32 = match read_generic(core, fields) {
+    let value_ptr: u32 = match read_generic::<u32, _>(core, fields) {
         Ok(v) => v,
         Err(_) => return format!("<unreadable-string-fields@{fields:#010x}>"),
     };
     if value_ptr == 0 {
         return String::new();
     }
-    let array_instance: RawJavaClassInstance = match read_generic(core, value_ptr) {
+    let array_instance: RawJavaClassInstance = match read_generic::<RawJavaClassInstance, _>(core, value_ptr) {
         Ok(v) => v,
         Err(_) => return format!("<bad-char-array@{value_ptr:#010x}>"),
     };
     let array_fields = array_instance.ptr_fields;
-    let array_len: u32 = match read_generic(core, array_fields) {
+    let array_len: u32 = match read_generic::<u32, _>(core, array_fields) {
         Ok(v) => v.min(4096),
         Err(_) => return format!("<bad-char-array-length@{array_fields:#010x}>"),
     };
-    let f1: u32 = read_generic(core, fields.wrapping_add(4)).unwrap_or(0);
-    let f2: u32 = read_generic(core, fields.wrapping_add(8)).unwrap_or(array_len);
+    let f1: u32 = read_generic::<u32, _>(core, fields.wrapping_add(4)).unwrap_or(0);
+    let f2: u32 = read_generic::<u32, _>(core, fields.wrapping_add(8)).unwrap_or(array_len);
 
     // Classic CLDC/Java String layouts use value:[C plus offset/count.
     // Accept both observed field orderings and choose the first sane range.
@@ -200,31 +200,31 @@ fn phase8_86_decode_java_string(core: &ArmCore, ptr: u32) -> String {
 }
 
 fn phase8_86_exception_message(core: &ArmCore, ptr_exception: u32) -> String {
-    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+    let instance: RawJavaClassInstance = match read_generic::<RawJavaClassInstance, _>(core, ptr_exception) {
         Ok(v) => v,
         Err(_) => return String::from("<unreadable-exception>"),
     };
     // Throwable.detailMessage is the first inherited instance field in the
     // RustJava layout used by LGT. Phase 8.85 confirmed this exact pointer is
     // also passed to WieError(String).
-    let message_ptr: u32 = read_generic(core, instance.ptr_fields).unwrap_or(0);
+    let message_ptr: u32 = read_generic::<u32, _>(core, instance.ptr_fields).unwrap_or(0);
     phase8_86_decode_java_string(core, message_ptr)
 }
 
 fn phase8_85_exception_class_name(core: &ArmCore, ptr_exception: u32) -> String {
-    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+    let instance: RawJavaClassInstance = match read_generic::<RawJavaClassInstance, _>(core, ptr_exception) {
         Ok(v) => v,
         Err(_) => return format!("<unreadable-exception@{ptr_exception:#010x}>"),
     };
-    let ptr_class: u32 = match read_generic(core, instance.ptr_dispatch_table) {
+    let ptr_class: u32 = match read_generic::<u32, _>(core, instance.ptr_dispatch_table) {
         Ok(v) => v,
         Err(_) => return format!("<bad-vtable@{:#010x}>", instance.ptr_dispatch_table),
     };
-    let class: RawJavaClass = match read_generic(core, ptr_class) {
+    let class: RawJavaClass = match read_generic::<RawJavaClass, _>(core, ptr_class) {
         Ok(v) => v,
         Err(_) => return format!("<bad-class@{ptr_class:#010x}>"),
     };
-    let descriptor: RawJavaClassDescriptor = match read_generic(core, class.ptr_descriptor) {
+    let descriptor: RawJavaClassDescriptor = match read_generic::<RawJavaClassDescriptor, _>(core, class.ptr_descriptor) {
         Ok(v) => v,
         Err(_) => return format!("<bad-descriptor@{:#010x}>", class.ptr_descriptor),
     };
@@ -233,14 +233,14 @@ fn phase8_85_exception_class_name(core: &ArmCore, ptr_exception: u32) -> String 
 }
 
 fn phase8_85_exception_field_probe(core: &ArmCore, ptr_exception: u32) -> String {
-    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+    let instance: RawJavaClassInstance = match read_generic::<RawJavaClassInstance, _>(core, ptr_exception) {
         Ok(v) => v,
         Err(_) => return String::from("<unreadable-instance>"),
     };
     let mut out = String::new();
     for index in 0..16u32 {
         let address = instance.ptr_fields.wrapping_add(index * 4);
-        let value: u32 = match read_generic(core, address) {
+        let value: u32 = match read_generic::<u32, _>(core, address) {
             Ok(v) => v,
             Err(_) => break,
         };
@@ -267,7 +267,7 @@ fn phase8_84_recent_guest_pc_trace(core: &mut ArmCore) -> String {
             out.push_str(" ");
         }
         let aligned = *pc & !1;
-        let opcode: Result<u16> = read_generic(core, aligned);
+        let opcode: Result<u16> = read_generic::<u16, _>(core, aligned);
         match opcode {
             Ok(value) => out.push_str(&format!("{aligned:#010x}:{value:#06x}")),
             Err(_) => out.push_str(&format!("{aligned:#010x}:????")),
