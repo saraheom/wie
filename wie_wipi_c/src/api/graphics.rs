@@ -579,6 +579,14 @@ pub async fn flush_lcd(
         context.system().aid() == "000262F4" && context.system().pid() == "PD109653";
     let src_canvas = framebuffer.image(context)?;
 
+    if is_blade_master_3 {
+        tracing::warn!(
+            "[PHASE8_86_BM3_FLUSH_LCD] lcd={} rect=({},{} {}x{}) fb_ptr={:#010x} size={}x{} bpp={} raw_len={}",
+            i, x, y, w, h, framebuffer.0.buf.0, src_canvas.width(), src_canvas.height(),
+            src_canvas.bytes_per_pixel(), src_canvas.raw().len()
+        );
+    }
+
     // Phase 8.85: BM3 now completes its database/startup chain, so localize
     // the remaining magenta corruption at the final LCD boundary. Count exact
     // RGB565 magenta and report its bounding box plus representative pixels
@@ -851,9 +859,17 @@ pub async fn draw_string(
 pub async fn repaint(context: &mut dyn WIPICContext, lcd: i32, x: i32, y: i32, width: i32, height: i32) -> Result<()> {
     tracing::debug!("MC_grpRepaint({lcd}, {x}, {y}, {width}, {height})");
 
+    let is_blade_master_3 =
+        context.system().aid() == "000262F4" && context.system().pid() == "PD109653";
+    if is_blade_master_3 {
+        tracing::warn!(
+            "[PHASE8_86_BM3_REPAINT_REQUEST] lcd={} rect=({},{} {}x{})",
+            lcd, x, y, width, height
+        );
+    }
     let platform = context.system().platform();
     let screen = platform.screen();
-    screen.request_redraw().unwrap();
+    screen.request_redraw()?;
 
     Ok(())
 }

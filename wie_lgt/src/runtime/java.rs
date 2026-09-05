@@ -141,6 +141,76 @@ fn phase8_65_probe_words(core: &ArmCore, ptr: u32) -> String {
 }
 
 
+
+fn phase8_86_decode_java_string(core: &ArmCore, ptr: u32) -> String {
+    if ptr == 0 {
+        return String::from("<null>");
+    }
+    let instance: RawJavaClassInstance = match read_generic(core, ptr) {
+        Ok(v) => v,
+        Err(_) => return format!("<unreadable-string-instance@{ptr:#010x}>"),
+    };
+    let fields = instance.ptr_fields;
+    let value_ptr: u32 = match read_generic(core, fields) {
+        Ok(v) => v,
+        Err(_) => return format!("<unreadable-string-fields@{fields:#010x}>"),
+    };
+    if value_ptr == 0 {
+        return String::new();
+    }
+    let array_instance: RawJavaClassInstance = match read_generic(core, value_ptr) {
+        Ok(v) => v,
+        Err(_) => return format!("<bad-char-array@{value_ptr:#010x}>"),
+    };
+    let array_fields = array_instance.ptr_fields;
+    let array_len: u32 = match read_generic(core, array_fields) {
+        Ok(v) => v.min(4096),
+        Err(_) => return format!("<bad-char-array-length@{array_fields:#010x}>"),
+    };
+    let f1: u32 = read_generic(core, fields.wrapping_add(4)).unwrap_or(0);
+    let f2: u32 = read_generic(core, fields.wrapping_add(8)).unwrap_or(array_len);
+
+    // Classic CLDC/Java String layouts use value:[C plus offset/count.
+    // Accept both observed field orderings and choose the first sane range.
+    let candidates = [(f1, f2), (f2, f1), (0, array_len)];
+    for (offset, count) in candidates {
+        if offset <= array_len && count <= array_len.saturating_sub(offset) && count <= 2048 {
+            let mut units = alloc::vec::Vec::with_capacity(count as usize);
+            let mut ok = true;
+            for i in 0..count {
+                let address = array_fields.wrapping_add(4).wrapping_add((offset + i) * 2);
+                match read_generic::<u16, _>(core, address) {
+                    Ok(v) => units.push(v),
+                    Err(_) => { ok = false; break; }
+                }
+            }
+            if ok {
+                if let Ok(text) = String::from_utf16(&units) {
+                    // Reject obviously implausible raw-memory decodes when a
+                    // later candidate may represent the real offset/count.
+                    let printable = text.chars().filter(|c| !c.is_control() || matches!(*c, '\n' | '\r' | '\t')).count();
+                    if text.is_empty() || printable * 2 >= text.chars().count().max(1) {
+                        return text;
+                    }
+                }
+            }
+        }
+    }
+    format!("<undecodable-java-string@{ptr:#010x} fields={fields:#010x} value={value_ptr:#010x} len={array_len} f1={f1} f2={f2}>")
+}
+
+fn phase8_86_exception_message(core: &ArmCore, ptr_exception: u32) -> String {
+    let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
+        Ok(v) => v,
+        Err(_) => return String::from("<unreadable-exception>"),
+    };
+    // Throwable.detailMessage is the first inherited instance field in the
+    // RustJava layout used by LGT. Phase 8.85 confirmed this exact pointer is
+    // also passed to WieError(String).
+    let message_ptr: u32 = read_generic(core, instance.ptr_fields).unwrap_or(0);
+    phase8_86_decode_java_string(core, message_ptr)
+}
+
 fn phase8_85_exception_class_name(core: &ArmCore, ptr_exception: u32) -> String {
     let instance: RawJavaClassInstance = match read_generic(core, ptr_exception) {
         Ok(v) => v,
@@ -319,6 +389,12 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
             tracing::error!(
                 "[PHASE8_85_OZ_STARTAPP_EXCEPTION] method_id={:#010x} exception={:#010x} class={} fields=[{}] lr={:#010x}",
                 id.0, *ptr_exception, phase8_85_exception_class_name(core, *ptr_exception),
+                phase8_85_exception_field_probe(core, *ptr_exception), lr
+            );
+            tracing::error!(
+                "[PHASE8_86_OZ_STARTAPP_EXCEPTION_DECODED] method_id={:#010x} exception={:#010x} class={} message={:?} fields=[{}] lr={:#010x}",
+                id.0, *ptr_exception, phase8_85_exception_class_name(core, *ptr_exception),
+                phase8_86_exception_message(core, *ptr_exception),
                 phase8_85_exception_field_probe(core, *ptr_exception), lr
             );
         }

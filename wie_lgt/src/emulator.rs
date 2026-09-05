@@ -189,6 +189,16 @@ impl LgtEmulator {
             system.pid(),
             jar_filename
         );
+        if system.aid() == "000262F4" && system.pid() == "PD109653" {
+            // Phase 8.86: BM3 finishes startApp but historically never reaches
+            // a second visible frame. Seed one redraw event after successful
+            // startup so a latent dirty LCD is given a chance to present,
+            // while retaining the game's normal repaint/flush semantics.
+            match system.platform().screen().request_redraw() {
+                Ok(()) => tracing::warn!("[PHASE8_86_BM3_POST_STARTUP_REDRAW_REQUEST] result=ok"),
+                Err(error) => tracing::error!("[PHASE8_86_BM3_POST_STARTUP_REDRAW_REQUEST] result=error error={error}"),
+            }
+        }
         Ok(())
     }
 }
