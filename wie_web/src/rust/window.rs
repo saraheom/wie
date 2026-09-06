@@ -8,6 +8,7 @@ use wie_backend::{Screen, canvas::Image};
 use wie_util::Result;
 
 static PHASE8_79_PRESENT_COUNT: AtomicUsize = AtomicUsize::new(0);
+static PHASE8_87_REDRAW_REQUEST_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct WindowImpl {
     canvas: HtmlCanvasElement,
@@ -45,6 +46,10 @@ impl Screen for WindowImpl {
 
     fn request_redraw(&self) -> Result<()> {
         self.should_redraw.store(true, Ordering::SeqCst);
+        let index = PHASE8_87_REDRAW_REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+        if index < 64 {
+            tracing::info!("[PHASE8_87_WEB_REDRAW_REQUEST] index={}", index);
+        }
 
         Ok(())
     }

@@ -428,16 +428,71 @@ async fn handle_java_svc(core: &mut ArmCore, functions: &mut JavaSvcFunctions, i
     }
 }
 
+fn phase8_87_resolve_lgt_class_name(core: &ArmCore, ptr_name: u32) -> Result<(String, &'static str)> {
+    let direct = read_null_terminated_string_bytes(core, ptr_name)?;
+    if let Ok(name) = String::from_utf8(direct.clone()) {
+        if !name.is_empty() {
+            return Ok((name, "direct"));
+        }
+    }
+
+    // Some LGT descriptors observed in OZ carry one extra level of
+    // indirection at ptr_name.  Treat the first word as a candidate C-string
+    // pointer only when the direct bytes are not valid UTF-8.
+    let indirect_ptr = read_generic::<u32, _>(core, ptr_name).unwrap_or(0);
+    if indirect_ptr != 0 && indirect_ptr != ptr_name {
+        if let Ok(bytes) = read_null_terminated_string_bytes(core, indirect_ptr) {
+            if let Ok(name) = String::from_utf8(bytes) {
+                if !name.is_empty() {
+                    return Ok((name, "indirect"));
+                }
+            }
+        }
+    }
+
+    let first_bytes = direct
+        .iter()
+        .take(24)
+        .map(|value| format!("{value:02x}"))
+        .collect::<alloc::vec::Vec<_>>()
+        .join("");
+    Err(WieError::FatalError(format!(
+        "Invalid LGT class name: ptr={ptr_name:#010x} indirect={indirect_ptr:#010x} bytes={first_bytes}"
+    )))
+}
+
 async fn handle_missing_java_vtable_entry(core: &mut ArmCore, _: &mut (), id: SvcId) -> Result<JumpTo> {
+    let (_, lr) = core.read_pc_lr()?;
     let ptr_instance = core.read_param(0)?;
     let instance: RawJavaClassInstance = read_generic(core, ptr_instance)?;
     let ptr_class: u32 = read_generic(core, instance.ptr_dispatch_table)?;
     let class: RawJavaClass = read_generic(core, ptr_class)?;
     let descriptor: RawJavaClassDescriptor = read_generic(core, class.ptr_descriptor)?;
-    let class_name = String::from_utf8(read_null_terminated_string_bytes(core, descriptor.ptr_name)?)
-        .map_err(|error| WieError::FatalError(format!("Invalid LGT class name: {error}")))?;
 
-    Err(WieError::Unimplemented(format!("{class_name} vtable index {}", id.0)))
+    match phase8_87_resolve_lgt_class_name(core, descriptor.ptr_name) {
+        Ok((class_name, source)) => {
+            tracing::warn!(
+                "[PHASE8_87_LGT_VTABLE_CLASS_RESOLVED] id={:#x} class={} source={} ptr_instance={:#010x} ptr_class={:#010x} ptr_descriptor={:#010x} ptr_name={:#010x} lr={:#010x}",
+                id.0, class_name, source, ptr_instance, ptr_class, class.ptr_descriptor, descriptor.ptr_name, lr
+            );
+            Err(WieError::Unimplemented(format!("{class_name} vtable index {}", id.0)))
+        }
+        Err(error) => {
+            // Phase 8.87: an invalid class-name pointer used to abort OZ
+            // startApp with net/wie/WieError.  A missing-vtable dispatch already
+            // represents an unresolved compatibility slot, so do not turn a
+            // malformed diagnostic descriptor into a fatal Java exception.
+            // Return a neutral value and continue the guest; the exact callsite
+            // is persisted so we can implement the real slot if it is required.
+            let indirect_ptr = read_generic::<u32, _>(core, descriptor.ptr_name).unwrap_or(0);
+            tracing::error!(
+                "[PHASE8_87_OZ_MALFORMED_VTABLE_DESCRIPTOR_BYPASS] id={:#x} ptr_instance={:#010x} ptr_class={:#010x} ptr_descriptor={:#010x} ptr_name={:#010x} indirect_ptr={:#010x} lr={:#010x} error={}",
+                id.0, ptr_instance, ptr_class, class.ptr_descriptor, descriptor.ptr_name, indirect_ptr, lr, error
+            );
+            core.write_return_value(&[0])?;
+            Ok(JumpTo(lr))
+        }
+    }
 }
 
 pub fn register_java_svc_handler(core: &mut ArmCore, functions: &JavaSvcFunctions) -> Result<()> {

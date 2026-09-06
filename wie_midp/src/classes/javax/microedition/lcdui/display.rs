@@ -267,14 +267,38 @@ impl Display {
 
             // HACK: disable paint for clet apps, as they handle paint by themselves
             let disable_paint: bool = jvm.get_field(&this, "paintDisabled", "Z").await?;
-            if !disable_paint {
+            let is_blade_master_3 = context.system().aid() == "000262F4" && context.system().pid() == "PD109653";
+            if is_blade_master_3 {
+                tracing::warn!(
+                    "[PHASE8_87_BM3_MIDP_PAINT_EVENT] current_displayable_null={} paint_disabled={}",
+                    current_displayable.is_null(), disable_paint
+                );
+            }
+            if !disable_paint || is_blade_master_3 {
                 let screen_image: ClassInstanceRef<Image> = jvm.get_field(&this, "screenImage", "Ljavax/microedition/lcdui/Image;").await?;
                 let image = Image::image(jvm, &screen_image).await?;
 
+                if is_blade_master_3 {
+                    let raw = image.raw();
+                    let magenta = if image.bytes_per_pixel() == 2 {
+                        raw.chunks_exact(2)
+                            .filter(|pixel| u16::from_le_bytes([pixel[0], pixel[1]]) == 0xf81f)
+                            .count()
+                    } else {
+                        0
+                    };
+                    tracing::warn!(
+                        "[PHASE8_87_BM3_MIDP_SCREENIMAGE] forced={} size={}x{} bpp={} raw_len={} magenta565={}",
+                        disable_paint, image.width(), image.height(), image.bytes_per_pixel(), raw.len(), magenta
+                    );
+                }
+
                 let platform = context.system().platform();
                 let screen = platform.screen();
-
                 screen.paint(&*image);
+                if is_blade_master_3 {
+                    tracing::warn!("[PHASE8_87_BM3_MIDP_SCREENIMAGE_PRESENTED] forced={}", disable_paint);
+                }
             }
             jvm.collect_garbage()?;
         }
